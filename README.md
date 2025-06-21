@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/minelogx-logo.png" width="160" alt="MineLogX AI Logo" />
+  <img src="docs/assets/minelogx-logo.png" width="224" alt="MineLogX AI Logo" />
 </p>
 
 <h1 align="center">🧠 MineLogX AI</h1>
