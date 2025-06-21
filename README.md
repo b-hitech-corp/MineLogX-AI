@@ -1,4 +1,3 @@
-````markdown
 <p align="center">
   <img src="docs/assets/minelogx-logo.png" width="160" alt="MineLogX AI Logo" />
 </p>
