@@ -72,18 +72,90 @@ docker run -v $(pwd)/data:/app/data minelogx-ai --log data/sample.log
 ## 🧱 Project Structure
 
 ```
-MineLogX-AI/
-├── data/                  # Sample logs and datasets
-├── models/                # Pre-trained AI models
-├── src/                   # Core logic and pipelines
-│   ├── parser.py
-│   ├── adapter.py
-│   ├── analyzer.py
-│   └── dashboard.py
-├── tests/                 # Unit tests
-├── app.py                 # Main app launcher
-├── requirements.txt
-└── README.md
+
+MinelogX-AI-framework/
+├── README.md
+├── LICENSE
+├── CONTRIBUTING.md
+├── docs/
+│   ├── architecture.md
+│   ├── usage-examples.md
+│   ├── development-guide.md
+│   ├── cloud-setup-guides/
+│   │   ├── aws.md
+│   │   ├── azure.md
+│   │   ├── ibm-cloud.md
+│   │   ├── snowflake.md
+│   └── on-prem.md
+├── onprem-only/
+│   ├── infrastructure/
+│   │   ├── terraform/
+│   │   ├── ansible/
+│   │   └── k8s/
+│   ├── pipelines/
+│   ├── connectors/
+│   ├── modules/
+│   ├── tests/
+│   ├── scripts/
+│   └── README.md
+├── onprem-aws/
+│   ├── infrastructure/
+│   ├── pipelines/
+│   ├── connectors/
+│   ├── modules/
+│   ├── tests/
+│   ├── scripts/
+│   └── README.md
+├── onprem-aws-snowflake/
+│   ├── infrastructure/
+│   ├── pipelines/
+│   ├── connectors/
+│   ├── modules/
+│   ├── tests/
+│   ├── scripts/
+│   └── README.md
+├── onprem-azure/
+│   ├── infrastructure/
+│   ├── pipelines/
+│   ├── connectors/
+│   ├── modules/
+│   ├── tests/
+│   ├── scripts/
+│   └── README.md
+├── onprem-azure-snowflake/
+│   ├── infrastructure/
+│   ├── pipelines/
+│   ├── connectors/
+│   ├── modules/
+│   ├── tests/
+│   ├── scripts/
+│   └── README.md
+├── onprem-ibm/
+│   ├── infrastructure/
+│   ├── pipelines/
+│   ├── connectors/
+│   ├── modules/
+│   ├── tests/
+│   ├── scripts/
+│   └── README.md
+├── onprem-ibm-snowflake/
+│   ├── infrastructure/
+│   ├── pipelines/
+│   ├── connectors/
+│   ├── modules/
+│   ├── tests/
+│   ├── scripts/
+│   └── README.md
+├── shared/
+│   ├── modules/
+│   ├── connectors/
+│   ├── templates/
+│   └── README.md
+├── .github/
+│   ├── workflows/   # CI/CD actions
+│   ├── ISSUE_TEMPLATE.md
+│   └── PULL_REQUEST_TEMPLATE.md
+└── LICENSE
 ```
 
 ---
