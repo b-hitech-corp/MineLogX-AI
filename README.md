@@ -9,18 +9,17 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/yourusername/MineLogX-AI">
+  <a href="https://github.com/b-hitech-corp/MineLogX-AI">
     <img src="https://img.shields.io/github/stars/yourusername/MineLogX-AI?style=social" alt="GitHub stars">
   </a>
-  <a href="https://github.com/yourusername/MineLogX-AI/issues">
-    <img src="https://img.shields.io/github/issues/yourusername/MineLogX-AI" alt="GitHub issues">
+  <a href="https://github.com/b-hitech-corp/MineLogX-AI/issues">
+    <img src="https://img.shields.io/github/issues/b-hitech-corp/MineLogX-AI" alt="GitHub issues">
   </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License">
   </a>
 </p>
 
----
 
 ## 🌍 Overview
 
@@ -28,7 +27,6 @@
 
 With IBM Watsonx embedded, it adds intelligent automation, conversational AI, and semantic search across mining data ecosystems.
 
----
 
 ## ⚙️ Key Features
 
@@ -39,7 +37,6 @@ With IBM Watsonx embedded, it adds intelligent automation, conversational AI, an
 - 📊 Dashboards and ESG-ready reporting tools  
 - 🔁 Scalable, cloud-native architecture (Snowflake, AWS, etc.)
 
----
 
 ## 🚀 Quick Start
 
@@ -157,9 +154,6 @@ MinelogX-AI-framework/
 │   └── PULL_REQUEST_TEMPLATE.md
 └── LICENSE
 ```
-
----
-
 ## 🔭 Roadmap
 
 * ✅ Support for major IoT protocols
@@ -168,7 +162,6 @@ MinelogX-AI-framework/
 * ⏳ Advanced Watsonx NLP summaries
 * ⏳ Multi-cloud deployment templates
 
----
 
 ## 🤝 Contributing
 
@@ -180,20 +173,9 @@ We welcome contributions! Here’s how to get started:
 4. Push to your fork: `git push origin feature/amazing-feature`
 5. Submit a Pull Request ✅
 
----
-
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
 
----
-
-## 💡 Notes
-
-* Replace the logo path in `<img src="docs/assets/minelogx-logo.png">` with your actual logo path (local or hosted).
-* If you’d like a `docs/` folder template or GitHub Pages setup, just ask!
-* Add a `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` for open source best practices.
-
----
 
 ### 🚧 Let’s build the future of intelligent mining together with open data and AI.
