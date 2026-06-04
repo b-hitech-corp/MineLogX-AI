@@ -21,6 +21,8 @@ def calculate_kpi(
     *,
     group_by: Optional[str] = None,
     filter_expr: Optional[str] = None,
+    column_mapping: Optional[dict] = None,
+    direct_kpi_mapping: Optional[dict] = None,
 ) -> dict:
     """
     Calculate one or more KPIs from a loaded CSV file.
@@ -42,6 +44,17 @@ def calculate_kpi(
     dict with keys: kpis (results), metadata (formulas used, filters applied)
     """
     df = get_dataframe(file_path)
+
+    # Apply column mapping: rename actual columns to the variable names the
+    # KPI formulas expect (e.g. "fuel_volume_l" → "fuel_litres").
+    if column_mapping:
+        rename = {
+            actual: var
+            for var, actual in column_mapping.items()
+            if actual and actual in df.columns and actual != var
+        }
+        if rename:
+            df = df.rename(columns=rename)
 
     if filter_expr:
         try:
@@ -65,6 +78,21 @@ def calculate_kpi(
         if kpi is None:
             errors[name] = f"Unknown KPI '{name}'. Available: {list(KPI_REGISTRY.keys())}"
             continue
+
+        # Direct column: the CSV already contains the pre-computed KPI value.
+        # Skip the formula and read the column directly.
+        if direct_kpi_mapping and name in direct_kpi_mapping:
+            col = direct_kpi_mapping[name]
+            if col in df.columns:
+                val = round(float(df[col].mean()), 3)
+                results[name] = {"value": val, "unit": kpi.unit, "source": "direct_column"}
+                metadata.append({
+                    "kpi": name,
+                    "description": kpi.description,
+                    "formula": f"direct read from column '{col}' (mean)",
+                    "unit": kpi.unit,
+                })
+                continue
 
         if group_by and group_by in df.columns:
             # Per-group computation

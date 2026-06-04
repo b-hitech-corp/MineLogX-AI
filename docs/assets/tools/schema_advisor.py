@@ -14,6 +14,7 @@ import ast
 import pandas as pd
 
 from config.kpi_formulas import KPI_REGISTRY
+from tools.column_mapper import map_columns_to_kpi_variables, map_direct_kpi_columns
 from tools.csv_loader import get_dataframe, load_csv
 
 
@@ -54,7 +55,16 @@ def discover_schema(file_path: str) -> dict:
     metric_cols      = _classify(columns, "metric")
     categorical_cols = _classify(columns, "categorical")
 
-    feasible_kpis, infeasible_kpis = _assess_kpi_feasibility(col_names)
+    # Ask the LLM to map actual column names → KPI variable names (raw inputs).
+    column_mapping = map_columns_to_kpi_variables(schema)
+
+    # Ask the LLM which columns ARE already a pre-computed KPI value.
+    direct_kpi_mapping = map_direct_kpi_columns(schema)
+
+    # A KPI is feasible if its variables are present/mapped OR it has a direct column.
+    feasible_kpis, infeasible_kpis = _assess_kpi_feasibility(
+        col_names, column_mapping, direct_kpi_mapping
+    )
     ts_pairs   = _find_timestamp_pairs(columns)
     recommended = _build_recommendations(
         entity_cols, datetime_cols, metric_cols,
@@ -68,6 +78,8 @@ def discover_schema(file_path: str) -> dict:
         "datetime_columns":     datetime_cols,
         "metric_columns":       metric_cols,
         "categorical_columns":  categorical_cols,
+        "column_mapping":       column_mapping,
+        "direct_kpi_mapping":   direct_kpi_mapping,
         "feasible_kpis":        feasible_kpis,
         "infeasible_kpis":      infeasible_kpis,
         "timestamp_pairs":      ts_pairs,
@@ -110,17 +122,36 @@ def _classify(columns: list[dict], kind: str) -> list[str]:
 # KPI feasibility — tries each KPI on a synthetic row; catches missing-column errors
 # ---------------------------------------------------------------------------
 
-def _assess_kpi_feasibility(col_names: list[str]) -> tuple[list[str], list[dict]]:
+def _assess_kpi_feasibility(
+    col_names: list[str],
+    column_mapping: dict[str, str | None] | None = None,
+    direct_kpi_mapping: dict[str, str] | None = None,
+) -> tuple[list[str], list[dict]]:
     """
-    Build a 1-row synthetic DataFrame with all available columns set to 1.0
-    and try each KPI. Values of 1.0 avoid division-by-zero so the only
-    expected failure mode is a missing-column ValueError from _require_cols.
+    Determine which KPIs can be computed for this dataset.
+
+    Three paths to feasibility:
+    1. Direct column   — the column IS the KPI value (no formula needed).
+    2. Variable rename — the column exists under a different name; column_mapper
+                         will rename it before the formula runs.
+    3. Formula pass    — the required columns are already named correctly.
     """
-    test_df = pd.DataFrame({col: [1.0] for col in col_names})
-    feasible: list[str] = []
+    # KPIs with a direct column are immediately feasible — skip formula test.
+    directly_feasible: set[str] = set(direct_kpi_mapping or {})
+
+    effective_cols = set(col_names)
+    if column_mapping:
+        for var, actual in column_mapping.items():
+            if actual:
+                effective_cols.add(var)
+
+    test_df = pd.DataFrame({col: [1.0] for col in effective_cols})
+    feasible: list[str] = list(directly_feasible)
     infeasible: list[dict] = []
 
     for name, kpi in KPI_REGISTRY.items():
+        if name in directly_feasible:
+            continue   # already counted
         try:
             kpi.compute(test_df)
             feasible.append(name)
@@ -130,10 +161,8 @@ def _assess_kpi_feasibility(col_names: list[str]) -> tuple[list[str], list[dict]
                 missing_cols = _parse_missing_cols(msg)
                 infeasible.append({"kpi": name, "missing_columns": missing_cols})
             else:
-                # ValueError from data logic, not missing columns — treat as feasible
                 feasible.append(name)
         except Exception:
-            # Column check passed; arithmetic error on synthetic values — still feasible
             feasible.append(name)
 
     return feasible, infeasible
