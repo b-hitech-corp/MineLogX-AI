@@ -11,35 +11,30 @@ load_dotenv()
 
 @dataclass
 class S3Config:
-    bucket_name: str = field(default_factory=lambda: os.getenv("FLEET_S3_BUCKET", ""))
+    bucket_name: str = field(default_factory=lambda: os.getenv(
+        "FLEET_S3_BUCKET", "bhitech-minelogx-poc-telemetry-data"
+    ))
     region: str = field(default_factory=lambda: os.getenv("AWS_REGION", "us-east-1"))
-    prefix: str = field(default_factory=lambda: os.getenv("FLEET_S3_PREFIX", "fleet/"))
-    # AWS credentials come from the standard boto3 chain:
-    # env vars → ~/.aws/credentials → IAM role. Never store them here.
+    prefix: str = field(default_factory=lambda: os.getenv("FLEET_S3_PREFIX", ""))
 
 
 @dataclass
-class AnthropicConfig:
-    model: str = "claude-sonnet-4"
+class OllamaConfig:
+    endpoint: str = field(default_factory=lambda: os.getenv(
+        "OLLAMA_ENDPOINT", "http://ec2-98-81-228-187.compute-1.amazonaws.com:11434"
+    ))
+    model: str = field(default_factory=lambda: os.getenv("OLLAMA_MODEL", "qwen3:8b"))
     max_tokens: int = 4096
-    max_agent_turns: int = 20           # hard safety cap on the agentic loop
+    max_agent_turns: int = 20
 
 
 @dataclass
 class AgentConfig:
     s3: S3Config = field(default_factory=S3Config)
-    anthropic: AnthropicConfig = field(default_factory=AnthropicConfig)
-    bedrock: BedrockConfig = field(default_factory=BedrockConfig)
-    cache_ttl_seconds: int = 300        # how long parsed DataFrames are cached
-    local_data_path: str = "sample_data"  # fallback for dev/testing
+    ollama: OllamaConfig = field(default_factory=OllamaConfig)
+    cache_ttl_seconds: int = 300
+    local_data_path: str = "sample_data"
 
-@dataclass
-class BedrockConfig:
-    region: str = field(default_factory=lambda: os.getenv("AWS_REGION", "us-east-1"))
-    model_id: str = field(default_factory=lambda: os.getenv(
-        "BEDROCK_MODEL_ID",
-        "us.anthropic.claude-sonnet-4-20250514-v1:0"   # Bedrock uses its own model ID namespace
-    ))
 
 # Singleton — import this everywhere
 settings = AgentConfig()

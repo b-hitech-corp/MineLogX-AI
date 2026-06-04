@@ -91,6 +91,14 @@ def get_dataframe(file_path: str) -> pd.DataFrame:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+_DATE_NAME_PATTERNS = ("date", "time", "timestamp", "_at", "_on", "created", "updated")
+
+
+def _detect_date_columns(df: pd.DataFrame) -> list[str]:
+    """Return column names that look like datetimes based on naming conventions."""
+    return [col for col in df.columns if any(p in col.lower() for p in _DATE_NAME_PATTERNS)]
+
+
 def _fetch(
     file_path: str,
     *,
@@ -108,9 +116,18 @@ def _fetch(
         )
         raw = obj["Body"].read()
 
-    parse_dates = date_columns or False
-    df = pd.read_csv(io.BytesIO(raw), parse_dates=parse_dates, low_memory=False)
+    df = pd.read_csv(io.BytesIO(raw), low_memory=False)
     df.columns = [c.strip().lower().replace(" ", "_") for c in df.columns]
+
+    # Determine which columns to parse as datetime
+    if date_columns:
+        cols_to_parse = [c for c in date_columns if c in df.columns]
+    else:
+        cols_to_parse = _detect_date_columns(df)
+
+    for col in cols_to_parse:
+        df[col] = pd.to_datetime(df[col], errors="coerce")
+
     return df
 
 
