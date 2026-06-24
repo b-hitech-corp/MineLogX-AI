@@ -2,6 +2,7 @@ import { AppProvider, useApp } from './context/AppContext'
 import { AlertsProvider } from './context/AlertsContext'
 import { ChatProvider } from './context/ChatContext'
 import { CompanyDataProvider } from './context/CompanyDataContext'
+import { ThemeProvider } from './context/ThemeContext'
 import { Shell } from './components/layout/Shell'
 import { ChatPanel } from './components/modules/chat/ChatPanel'
 import { ChatFAB } from './components/modules/chat/ChatFAB'
@@ -33,18 +34,20 @@ function PageRouter() {
 
 export function App() {
   return (
-    <AppProvider>
-      <AlertsProvider>
-        <CompanyDataProvider>
-        <ChatProvider>
-          <Shell>
-            <PageRouter />
-          </Shell>
-          <ChatPanel />
-          <ChatFAB />
-        </ChatProvider>
-        </CompanyDataProvider>
-      </AlertsProvider>
-    </AppProvider>
+    <ThemeProvider>
+      <AppProvider>
+        <AlertsProvider>
+          <CompanyDataProvider>
+            <ChatProvider>
+              <Shell>
+                <PageRouter />
+              </Shell>
+              <ChatPanel />
+              <ChatFAB />
+            </ChatProvider>
+          </CompanyDataProvider>
+        </AlertsProvider>
+      </AppProvider>
+    </ThemeProvider>
   )
 }

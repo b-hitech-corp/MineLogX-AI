@@ -4,10 +4,10 @@ import type { ChatMessage as ChatMessageType } from '../../../types/chat'
 import { formatRelativeTime } from '../../../utils/formatters'
 
 const severityBg: Record<string, string> = {
-  critical: 'border-red-800 bg-red-900/20',
-  warning: 'border-amber-800 bg-amber-900/20',
-  positive: 'border-green-800 bg-green-900/20',
-  info: 'border-blue-800 bg-blue-900/20',
+  critical: 'border-red-800 bg-red-900/20 light:border-red-200 light:bg-red-50',
+  warning: 'border-amber-800 bg-amber-900/20 light:border-amber-200 light:bg-amber-50',
+  positive: 'border-green-800 bg-green-900/20 light:border-emerald-200 light:bg-emerald-50',
+  info: 'border-blue-800 bg-blue-900/20 light:border-cyan-200 light:bg-cyan-50',
 }
 
 export function ChatMessage({ message }: { message: ChatMessageType }) {

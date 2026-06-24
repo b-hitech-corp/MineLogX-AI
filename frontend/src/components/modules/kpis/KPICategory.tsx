@@ -15,9 +15,11 @@ export function KPICategory({ title, icon, metrics }: KPICategoryProps) {
         <span className="text-content-secondary">{icon}</span>
         <h3 className="text-sm font-semibold text-content-secondary uppercase tracking-wide">{title}</h3>
       </div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="columns-2 gap-3 lg:columns-4">
         {metrics.map((m) => (
-          <KPICard key={m.id} metric={m} />
+          <div key={m.id} className="break-inside-avoid mb-3">
+            <KPICard metric={m} />
+          </div>
         ))}
       </div>
     </div>

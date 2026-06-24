@@ -21,40 +21,41 @@ export function KPIsPage() {
   const byCategory = (cat: KPIMetric['category']) => kpis.filter((k) => k.category === cat)
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-4 sm:gap-6 xl:gap-8">
       <PageHeader
         title="KPI Dashboard"
         subtitle="Day Shift performance metrics across all operational domains"
       />
 
-      <KPICategory
-        title="Fleet Performance"
-        icon={<Truck size={16} />}
-        metrics={byCategory('fleet')}
-      />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2 xl:gap-8">
+        <KPICategory
+          title="Fleet Performance"
+          icon={<Truck size={16} />}
+          metrics={byCategory('fleet')}
+        />
 
-      <KPICategory
-        title="Asset Health & Maintenance"
-        icon={<Wrench size={16} />}
-        metrics={byCategory('maintenance')}
-      />
+        <KPICategory
+          title="Asset Health & Maintenance"
+          icon={<Wrench size={16} />}
+          metrics={byCategory('maintenance')}
+        />
 
-      <KPICategory
-        title="Operational Efficiency"
-        icon={<Zap size={16} />}
-        metrics={byCategory('efficiency')}
-      />
+        <KPICategory
+          title="Operational Efficiency"
+          icon={<Zap size={16} />}
+          metrics={byCategory('efficiency')}
+        />
 
-      <KPICategory
-        title="Sustainability"
-        icon={<Leaf size={16} />}
-        metrics={byCategory('sustainability')}
-      />
-
-      <AIInsightsSection
-        metrics={byCategory('ai')}
-        insights={mockInsights}
-      />
+        <KPICategory
+          title="Sustainability"
+          icon={<Leaf size={16} />}
+          metrics={byCategory('sustainability')}
+        />
+        <AIInsightsSection
+          metrics={byCategory('ai')}
+          insights={mockInsights}
+        />
+      </div>
 
       <SectionDataLoader>
         {data && <KpiSummaryBlock overview={data.overview} />}

@@ -1,6 +1,5 @@
 import { createContext, useContext, useState } from 'react'
 import type { ReactNode } from 'react'
-import { setActiveCompany } from '../services/company'
 
 export type ActiveModule =
   | 'overview'
@@ -40,7 +39,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   function selectCompany(company: Company) {
     setSelectedCompany(company)
-    setActiveCompany(company.id)
   }
 
   return (

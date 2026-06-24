@@ -32,18 +32,18 @@ const riskVariant: Record<SafetyRiskLevel, 'critical' | 'warning' | 'info' | 'in
 
 export function SafetyAlertList({ events }: { events: SafetyEvent[] }) {
   return (
-    <div className="flex flex-col gap-3">
+    <div className="columns-1 gap-3 md:columns-2 xl:columns-3">
       {events.map((event) => {
         const Icon = typeIcons[event.type]
         return (
           <div
             key={event.id}
             className={cn(
-              'rounded-xl border p-4',
+              'break-inside-avoid mb-3 rounded-xl border p-4',
               event.riskLevel === 'critical'
-                ? 'border-red-800 bg-red-900/10'
+                ? 'border-red-800 bg-red-900/10 light:border-red-200 light:bg-red-50'
                 : event.riskLevel === 'high'
-                ? 'border-amber-800 bg-amber-900/10'
+                ? 'border-amber-800 bg-amber-900/10 light:border-amber-200 light:bg-amber-50'
                 : 'border-surface-border bg-surface-card'
             )}
           >
@@ -51,16 +51,16 @@ export function SafetyAlertList({ events }: { events: SafetyEvent[] }) {
               <div
                 className={cn(
                   'flex h-8 w-8 items-center justify-center rounded-lg shrink-0',
-                  event.riskLevel === 'critical' ? 'bg-red-900/30' : event.riskLevel === 'high' ? 'bg-amber-900/30' : 'bg-surface-muted'
+                  event.riskLevel === 'critical' ? 'bg-red-900/30 light:bg-red-50' : event.riskLevel === 'high' ? 'bg-amber-900/30 light:bg-amber-50' : 'bg-surface-muted'
                 )}
               >
                 <Icon
                   size={15}
                   className={
                     event.riskLevel === 'critical'
-                      ? 'text-red-400'
+                      ? 'text-red-400 light:text-red-600'
                       : event.riskLevel === 'high'
-                      ? 'text-amber-400'
+                      ? 'text-amber-400 light:text-amber-600'
                       : 'text-content-secondary'
                   }
                 />

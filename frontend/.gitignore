@@ -4,3 +4,6 @@ dist
 .env.production
 *.tsbuildinfo
 .env
+*.zip
+docs
+.DS_Store

@@ -42,8 +42,8 @@ export function OverviewDataSummary({ overview, processedAt }: OverviewDataSumma
                 <span className="text-content-tertiary">{file.rows.toLocaleString()} rows</span>
                 <span className={`rounded-full px-2 py-0.5 font-medium ${
                   file.status === 'success'
-                    ? 'bg-green-900/40 text-green-400 border border-green-800'
-                    : 'bg-red-900/40 text-red-400 border border-red-800'
+                    ? 'bg-green-900/40 text-green-400 border border-green-800 light:bg-emerald-50 light:text-emerald-600 light:border-emerald-200'
+                    : 'bg-red-900/40 text-red-400 border border-red-800 light:bg-red-50 light:text-red-600 light:border-red-200'
                 }`}>
                   {file.status}
                 </span>

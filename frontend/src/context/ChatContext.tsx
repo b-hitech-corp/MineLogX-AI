@@ -10,6 +10,20 @@ const USE_MOCK =
     ? import.meta.env.VITE_CHAT_MOCK === 'true'
     : import.meta.env.VITE_USE_MOCK === 'true'
 
+export interface ChatModel {
+  id: string
+  name: string
+  description: string
+  badge: 'DEFAULT' | 'PRO' | 'FAST' | 'NEW'
+}
+
+export const CHAT_MODELS: ChatModel[] = [
+  { id: 'claude-sonnet-4-6',         name: 'Sonnet 4.6', description: 'Balanced · Recommended',  badge: 'DEFAULT' },
+  { id: 'claude-opus-4-8',           name: 'Opus 4.8',   description: 'Most capable · Slower',   badge: 'PRO'     },
+  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5',  description: 'Fastest · Lightweight',   badge: 'FAST'    },
+  { id: 'claude-fable-5',            name: 'Fable 5',    description: 'Latest · Advanced reason', badge: 'NEW'     },
+]
+
 interface ChatContextType {
   isOpen: boolean
   openChat: () => void
@@ -17,6 +31,8 @@ interface ChatContextType {
   messages: ChatMessage[]
   sendMessage: (content: string) => void
   isTyping: boolean
+  selectedModel: ChatModel
+  setSelectedModel: (model: ChatModel) => void
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined)
@@ -25,6 +41,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>(mockInitialMessages)
   const [isTyping, setIsTyping] = useState(false)
+  const [selectedModel, setSelectedModel] = useState<ChatModel>(CHAT_MODELS[0])
 
   async function sendMessage(content: string) {
     const userMsg: ChatMessage = {
@@ -56,7 +73,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const text = await sendChatPrompt(content)
+      const text = await sendChatPrompt(content, selectedModel.id)
       setMessages((prev) => [
         ...prev,
         { id: `resp-${Date.now()}`, role: 'assistant', content: text, timestamp: new Date().toISOString() },
@@ -85,6 +102,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         messages,
         sendMessage,
         isTyping,
+        selectedModel,
+        setSelectedModel,
       }}
     >
       {children}

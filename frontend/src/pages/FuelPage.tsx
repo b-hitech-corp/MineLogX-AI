@@ -23,39 +23,52 @@ export function FuelPage() {
   const anomalies = records.filter((r) => r.anomaly)
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
       <PageHeader
         title="Fuel Management"
         subtitle="Shift fuel consumption and anomaly tracking"
       />
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="rounded-xl border border-surface-border bg-surface-card p-4">
-          <p className="text-xs text-content-secondary mb-1">Total Consumed (Shift)</p>
-          <p className="text-2xl font-bold text-content-primary">{totalConsumed.toLocaleString()} L</p>
+      <div className="space-y-4 sm:space-y-6 xl:columns-2 xl:gap-6 xl:space-y-0">
+
+        <div className="break-inside-avoid mb-4 sm:mb-6">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+            <div className="rounded-2xl border border-glass-border bg-glass backdrop-blur-md p-4">
+              <p className="text-xs text-content-secondary mb-1">Total Consumed (Shift)</p>
+              <p className="text-2xl font-bold text-content-primary" style={{ fontFamily: 'var(--font-display)' }}>{totalConsumed.toLocaleString()} L</p>
+            </div>
+            <div className="rounded-2xl border border-amber-800 bg-amber-900/10 p-4 light:border-amber-200 light:bg-amber-50">
+              <p className="text-xs text-content-secondary mb-1 flex items-center gap-1">
+                <AlertTriangle size={11} className="text-status-warning" /> Anomalies Detected
+              </p>
+              <p className="text-2xl font-bold text-status-warning">{anomalies.length}</p>
+            </div>
+            <div className="rounded-2xl border border-glass-border bg-glass backdrop-blur-md p-4">
+              <p className="text-xs text-content-secondary mb-1">Fleet Avg (L/h)</p>
+              <p className="text-2xl font-bold text-content-primary" style={{ fontFamily: 'var(--font-display)' }}>
+                {records.length > 0
+                  ? (records.reduce((s, r) => s + r.avgConsumptionLPH, 0) / records.length).toFixed(1)
+                  : '—'}
+              </p>
+            </div>
+          </div>
         </div>
-        <div className="rounded-xl border border-amber-800 bg-amber-900/10 p-4">
-          <p className="text-xs text-content-secondary mb-1 flex items-center gap-1">
-            <AlertTriangle size={11} className="text-status-warning" /> Anomalies Detected
-          </p>
-          <p className="text-2xl font-bold text-status-warning">{anomalies.length}</p>
+
+        <div className="break-inside-avoid mb-4 sm:mb-6">
+          <FuelChart data={trend} />
         </div>
-        <div className="rounded-xl border border-surface-border bg-surface-card p-4">
-          <p className="text-xs text-content-secondary mb-1">Fleet Avg (L/h)</p>
-          <p className="text-2xl font-bold text-content-primary">
-            {records.length > 0
-              ? (records.reduce((s, r) => s + r.avgConsumptionLPH, 0) / records.length).toFixed(1)
-              : '—'}
-          </p>
+
+        <div className="break-inside-avoid mb-4 sm:mb-6">
+          <FuelTable records={records} />
         </div>
+
+        <div className="break-inside-avoid mb-4 sm:mb-6">
+          <SectionDataLoader>
+            {data && <JsonSectionBlock section={data.fuel} title="Fuel Analytics" />}
+          </SectionDataLoader>
+        </div>
+
       </div>
-
-      <FuelChart data={trend} />
-      <FuelTable records={records} />
-
-      <SectionDataLoader>
-        {data && <JsonSectionBlock section={data.fuel} title="Fuel Analytics" />}
-      </SectionDataLoader>
     </div>
   )
 }

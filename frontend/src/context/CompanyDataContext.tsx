@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { CompanyJSON } from '../types/companyData'
-import { fetchCompanyData } from '../services/companyData'
+import { fetchCompanyData } from '../services/company'
 import { useApp } from './AppContext'
 
 interface CompanyDataContextType {

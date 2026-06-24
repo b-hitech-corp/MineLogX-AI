@@ -22,27 +22,28 @@ export function FleetPage() {
   const filtered = filter === 'all' ? assets : assets.filter((a) => a.status === filter)
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
       <PageHeader
         title="Fleet Management"
         subtitle={`${assets.length} assets · Day Shift`}
       />
-      <FleetStatusBar assets={assets} />
-
-      <div className="flex items-center gap-2">
-        {(['all', ...ALL_STATUSES] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setFilter(s)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer capitalize ${
-              filter === s
-                ? 'bg-brand-blue-dim text-brand-blue'
-                : 'bg-surface-card border border-surface-border text-content-secondary hover:text-content-primary'
-            }`}
-          >
-            {s === 'all' ? 'All Assets' : s}
-          </button>
-        ))}
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-2">
+        <FleetStatusBar assets={assets} />
+        <div className="flex flex-wrap items-center gap-2 content-start">
+          {(['all', ...ALL_STATUSES] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setFilter(s)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors cursor-pointer capitalize ${
+                filter === s
+                  ? 'bg-brand-blue-dim text-brand-blue'
+                  : 'bg-glass backdrop-blur-md border border-glass-border text-content-secondary hover:text-content-primary'
+              }`}
+            >
+              {s === 'all' ? 'All Assets' : s}
+            </button>
+          ))}
+        </div>
       </div>
 
       <FleetTable assets={filtered} />

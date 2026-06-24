@@ -21,40 +21,42 @@ export function GPSPage() {
   }, [])
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4 sm:gap-6">
       <PageHeader
         title="GPS / Pit Navigation"
         subtitle={`${assets.length} assets tracked · Live positions`}
       />
 
-      <div className="grid grid-cols-3 gap-6">
-        <div className="col-span-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        <div className="col-span-1 lg:col-span-3">
           <GPSMap assets={assets} zones={zones} selectedAsset={selected} onSelectAsset={setSelected} />
         </div>
 
-        <div className="flex flex-col gap-2">
-          <h3 className="text-sm font-semibold text-content-secondary uppercase tracking-wide mb-1">Asset List</h3>
-          {assets.map((a) => (
-            <button
-              key={a.id}
-              onClick={() => setSelected(selected === a.id ? null : a.id)}
-              className={`rounded-xl border p-3 text-left transition-colors cursor-pointer ${
-                selected === a.id
-                  ? 'border-brand-blue bg-brand-blue-dim'
-                  : 'border-surface-border bg-surface-card hover:bg-surface-muted'
-              }`}
-            >
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-content-primary">{a.assetName}</span>
-                <StatusPill
-                  variant={a.status === 'moving' ? 'healthy' : a.status === 'idle' ? 'warning' : 'inactive'}
-                  label={a.status}
-                />
-              </div>
-              <p className="text-xs text-content-secondary">{a.zone}</p>
-              <p className="text-xs text-content-tertiary">{a.speed > 0 ? `${a.speed} km/h` : 'Stationary'} · {formatRelativeTime(a.timestamp)}</p>
-            </button>
-          ))}
+        <div className="col-span-1">
+          <div className="flex flex-col gap-2">
+            <h3 className="text-sm font-semibold text-content-secondary uppercase tracking-wide mb-1">Asset List</h3>
+            {assets.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => setSelected(selected === a.id ? null : a.id)}
+                className={`rounded-2xl border p-3 text-left transition-colors cursor-pointer ${
+                  selected === a.id
+                    ? 'border-brand-blue bg-brand-blue-dim'
+                    : 'border-surface-border bg-surface-card hover:bg-surface-muted'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium text-content-primary">{a.assetName}</span>
+                  <StatusPill
+                    variant={a.status === 'moving' ? 'healthy' : a.status === 'idle' ? 'warning' : 'inactive'}
+                    label={a.status}
+                  />
+                </div>
+                <p className="text-xs text-content-secondary">{a.zone}</p>
+                <p className="text-xs text-content-tertiary">{a.speed > 0 ? `${a.speed} km/h` : 'Stationary'} · {formatRelativeTime(a.timestamp)}</p>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

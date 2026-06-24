@@ -11,7 +11,7 @@ export function WorkOrderCard({ order }: { order: WorkOrder }) {
   }
 
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-card p-4">
+    <div className="rounded-2xl border border-glass-border bg-glass backdrop-blur-md p-4">
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex items-center gap-2">
           <FileText size={14} className="text-content-secondary" />

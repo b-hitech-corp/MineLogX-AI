@@ -1,45 +1,153 @@
 @import "tailwindcss";
 
+/* ── Custom variant: .light class on <html> ──────────
+   Enables light: prefix on any Tailwind utility.      */
+@custom-variant light (&:where(.light, .light *));
+
 @theme {
-  --color-brand-blue: #1B6FEB;
-  --color-brand-blue-dim: #1A3A6B;
+  /* ── Brand: Cyan ───────────────────────────────── */
+  --color-brand-blue:     #22d3ee;  /* cyan-400  */
+  --color-brand-blue-dim: #083344;  /* cyan-950  */
 
-  --color-surface: #0D1117;
-  --color-surface-card: #161B22;
-  --color-surface-border: #21262D;
-  --color-surface-muted: #30363D;
+  /* ── Surface: deep slate-blue ──────────────────── */
+  --color-surface:        #060e1c;
+  --color-surface-card:   #0d1829;
+  --color-surface-border: #1a2740;
+  --color-surface-muted:  #162035;
 
-  --color-content-primary: #F0F6FC;
-  --color-content-secondary: #8B949E;
-  --color-content-tertiary: #484F58;
+  /* ── Content: white-dominant ───────────────────── */
+  --color-content-primary:   #ffffff;
+  --color-content-secondary: #94a3b8;  /* slate-400 */
+  --color-content-tertiary:  #475569;  /* slate-600 */
 
-  --color-status-critical: #E24B4A;
-  --color-status-warning: #EF9F27;
-  --color-status-healthy: #1D9E75;
-  --color-status-info: #1B6FEB;
+  /* ── Status ─────────────────────────────────────── */
+  --color-status-critical: #f87171;  /* red-400    */
+  --color-status-warning:  #fbbf24;  /* amber-400  */
+  --color-status-healthy:  #34d399;  /* emerald-400 */
+  --color-status-info:     #22d3ee;  /* cyan-400   */
+
+  /* ── Glass surfaces ──────────────────────────────── */
+  --color-glass:        #0d18298c;  /* card glass  — 55% opaque dark  */
+  --color-glass-edge:   #060e1cd9;  /* panel glass — 85% opaque dark  */
+  --color-glass-border: #ffffff14;  /* white 8%                        */
+
+  /* ── Typography ──────────────────────────────────── */
+  --font-sans:    'Barlow', 'Barlow Semi Condensed', system-ui, sans-serif;
+  --font-display: 'Barlow Condensed', system-ui, sans-serif;
+  --font-mono:    'DM Mono', 'Fira Code', ui-monospace, monospace;
 }
 
-* {
-  box-sizing: border-box;
+/* ── Light mode overrides ────────────────────────────
+   All Tailwind utilities that reference these variables
+   update automatically when .light is on <html>.      */
+@layer base {
+  .light {
+    --color-brand-blue:     #0891b2;  /* cyan-600   */
+    --color-brand-blue-dim: #cffafe;  /* cyan-100   */
+
+    --color-surface:        #f8fafc;  /* slate-50   */
+    --color-surface-card:   #ffffff;
+    --color-surface-border: #e2e8f0;  /* slate-200  */
+    --color-surface-muted:  #f1f5f9;  /* slate-100  */
+
+    --color-content-primary:   #0f172a;  /* slate-900 */
+    --color-content-secondary: #475569;  /* slate-600 */
+    --color-content-tertiary:  #94a3b8;  /* slate-400 */
+
+    --color-status-critical: #ef4444;
+    --color-status-warning:  #f59e0b;
+    --color-status-healthy:  #10b981;
+    --color-status-info:     #0891b2;
+
+    --color-glass:        #ffffffb3;  /* white 70%        */
+    --color-glass-edge:   #ffffffd9;  /* white 85%        */
+    --color-glass-border: #0f172a1f;  /* slate-900 12%    */
+  }
 }
 
+/* ── Reset ───────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+/* ── Base body ───────────────────────────────────── */
 body {
   background-color: var(--color-surface);
+  background-image:
+    radial-gradient(ellipse 80% 55% at 0% 0%,   rgba(34, 211, 238, 0.07) 0%, transparent 70%),
+    radial-gradient(ellipse 55% 40% at 100% 100%, rgba(14, 116, 144, 0.05) 0%, transparent 65%);
+  background-attachment: fixed;
   color: var(--color-content-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  font-family: var(--font-sans);
   margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: 0.01em;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* Light mode background */
+.light body {
+  background-image:
+    radial-gradient(ellipse 80% 55% at 0% 0%,   rgba(8, 145, 178, 0.05) 0%, transparent 70%),
+    radial-gradient(ellipse 55% 40% at 100% 100%, rgba(6, 182, 212, 0.04) 0%, transparent 65%);
 }
 
-::-webkit-scrollbar-track {
-  background: var(--color-surface);
+/* ── Scrollbar ───────────────────────────────────── */
+.scrollbar-none { scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--color-surface); }
+::-webkit-scrollbar-thumb { background: var(--color-surface-muted); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-content-tertiary); }
+
+/* ── Smooth theme transitions ────────────────────── */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color;
+  transition-duration: 0.25s;
+  transition-timing-function: ease;
 }
 
-::-webkit-scrollbar-thumb {
-  background: var(--color-surface-muted);
-  border-radius: 3px;
+/* Exclude elements where transitions look wrong */
+input, textarea, button, [class*="animate-"] {
+  transition-property: none;
+}
+button {
+  transition-property: background-color, border-color, color, opacity, transform, box-shadow;
+  transition-duration: 0.15s;
+}
+
+/* ── Dropdown / dialog motion (transitions-dev) ──────
+   Origin is set inline on each instance (top right,
+   bottom left, etc.) to match the anchor point.       */
+:root {
+  --dropdown-open-dur:    250ms;
+  --dropdown-close-dur:   150ms;
+  --dropdown-pre-scale:   0.97;
+  --dropdown-closing-scale: 0.99;
+  --dropdown-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-dropdown {
+  transform: scale(var(--dropdown-pre-scale));
+  opacity: 0;
+  transition:
+    transform var(--dropdown-open-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-open-dur) var(--dropdown-ease);
+}
+.t-dropdown.is-open {
+  transform: scale(1);
+  opacity: 1;
+}
+.t-dropdown.is-closing {
+  transform: scale(var(--dropdown-closing-scale));
+  opacity: 0;
+  transition:
+    transform var(--dropdown-close-dur) var(--dropdown-ease),
+    opacity   var(--dropdown-close-dur) var(--dropdown-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-dropdown, .t-dropdown.is-open, .t-dropdown.is-closing {
+    transition: none;
+  }
 }

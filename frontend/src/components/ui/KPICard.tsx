@@ -3,9 +3,15 @@ import { cn } from '../../utils/cn'
 import type { KPIMetric } from '../../types/kpis'
 
 const statusBar: Record<string, string> = {
-  healthy: 'bg-status-healthy',
-  warning: 'bg-status-warning',
+  healthy:  'bg-status-healthy',
+  warning:  'bg-status-warning',
   critical: 'bg-status-critical',
+}
+
+const statusAccent: Record<string, string> = {
+  healthy:  'border-t-status-healthy',
+  warning:  'border-t-status-warning',
+  critical: 'border-t-status-critical',
 }
 
 export function KPICard({ metric }: { metric: KPIMetric }) {
@@ -14,7 +20,7 @@ export function KPICard({ metric }: { metric: KPIMetric }) {
 
   const trendColor =
     metric.trend === 'neutral'
-      ? 'text-content-secondary'
+      ? 'text-content-tertiary'
       : metric.status === 'healthy'
       ? 'text-status-healthy'
       : metric.status === 'warning'
@@ -22,30 +28,59 @@ export function KPICard({ metric }: { metric: KPIMetric }) {
       : 'text-status-critical'
 
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-card p-4 flex flex-col gap-3">
-      <div className="flex items-start justify-between">
-        <span className="text-xs font-medium text-content-secondary uppercase tracking-wide">{metric.label}</span>
-        <span className={cn('flex items-center gap-1 text-xs font-medium', trendColor)}>
-          <TrendIcon size={12} />
+    <div
+      className={cn(
+        'flex flex-col gap-3 rounded-3xl border border-t-2 border-glass-border bg-glass p-4 backdrop-blur-md transition-shadow duration-200',
+        statusAccent[metric.status]
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span
+          className="text-[10px] font-semibold uppercase tracking-[0.12em] text-content-tertiary leading-tight"
+          style={{ fontFamily: 'var(--font-mono)' }}
+        >
+          {metric.label}
+        </span>
+        <span className={cn('flex shrink-0 items-center gap-1 text-[10px] font-semibold', trendColor)}>
+          <TrendIcon size={10} />
           {metric.trendValue}
         </span>
       </div>
 
-      <div className="flex items-baseline gap-1">
-        <span className="text-2xl font-bold text-content-primary">{metric.value}</span>
-        {metric.unit && <span className="text-sm text-content-secondary">{metric.unit}</span>}
+      <div className="flex items-baseline gap-1.5">
+        <span
+          className="text-3xl font-bold leading-none tabular-nums text-content-primary"
+          style={{ fontFamily: 'var(--font-display)' }}
+        >
+          {metric.value}
+        </span>
+        {metric.unit && (
+          <span
+            className="text-xs font-medium text-content-tertiary"
+            style={{ fontFamily: 'var(--font-mono)' }}
+          >
+            {metric.unit}
+          </span>
+        )}
       </div>
 
       {metric.progress !== undefined && (
-        <div>
-          <div className="h-1.5 w-full rounded-full bg-surface-muted overflow-hidden">
+        <div className="space-y-1">
+          <div className="h-1 w-full overflow-hidden rounded-full bg-surface-muted/60">
             <div
-              className={cn('h-full rounded-full transition-all', statusBar[metric.status])}
+              className={cn('h-full rounded-full transition-all duration-500', statusBar[metric.status])}
               style={{ width: `${Math.min(metric.progress, 100)}%` }}
             />
           </div>
           {metric.target !== undefined && (
-            <p className="mt-1 text-xs text-content-tertiary">Target: {metric.target}{metric.unit}</p>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] text-content-tertiary" style={{ fontFamily: 'var(--font-mono)' }}>
+                TARGET
+              </span>
+              <span className="text-[9px] tabular-nums text-content-tertiary" style={{ fontFamily: 'var(--font-mono)' }}>
+                {metric.target}{metric.unit}
+              </span>
+            </div>
           )}
         </div>
       )}
