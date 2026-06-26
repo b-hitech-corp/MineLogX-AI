@@ -1,0 +1,2834 @@
+{
+    "folder": "C1",
+    "processed_at": "2026-06-04T06:29:56.208950+00:00",
+    "file_count": 5,
+    "overview": {
+        "total_rows": 105287,
+        "files": [
+            {
+                "path": "C1/202603.csv",
+                "status": "success",
+                "rows": 91250,
+                "columns": 12,
+                "errors": {}
+            },
+            {
+                "path": "C1/assets_equipment.csv",
+                "status": "success",
+                "rows": 30,
+                "columns": 8,
+                "errors": {}
+            },
+            {
+                "path": "C1/fuel_management_events.csv",
+                "status": "success",
+                "rows": 7000,
+                "columns": 10,
+                "errors": {}
+            },
+            {
+                "path": "C1/mine_locations.csv",
+                "status": "success",
+                "rows": 7,
+                "columns": 6,
+                "errors": {}
+            },
+            {
+                "path": "C1/production_kpi_daily.csv",
+                "status": "success",
+                "rows": 7000,
+                "columns": 11,
+                "errors": {}
+            }
+        ],
+        "data_quality": [],
+        "kpi_summary": {
+            "total_computed": 9,
+            "by_section": {
+                "fleet": 3,
+                "maintenance": 1,
+                "kpis": 0,
+                "load_and_tonnage": 1,
+                "fuel": 2,
+                "gps_location": 0,
+                "safety": 2
+            }
+        }
+    },
+    "fleet": {
+        "kpis": [
+            {
+                "name": "idle_rate",
+                "value": 12.419,
+                "unit": "%"
+            },
+            {
+                "name": "fleet_availability",
+                "value": 89.541,
+                "unit": "%"
+            },
+            {
+                "name": "on_time_delivery",
+                "value": 90.486,
+                "unit": "%"
+            }
+        ],
+        "statistics": {
+            "idle_burn_pct": {
+                "count": 7000.0,
+                "mean": 12.419,
+                "std": 8.204,
+                "min": 0.0,
+                "25%": 7.178,
+                "50%": 11.32,
+                "75%": 15.952,
+                "max": 63.41,
+                "skewness": 1.158,
+                "kurtosis": 2.037
+            },
+            "dispatch_accuracy_pct": {
+                "count": 7000.0,
+                "mean": 90.486,
+                "std": 4.869,
+                "min": 82.0,
+                "25%": 86.29,
+                "50%": 90.55,
+                "75%": 94.62,
+                "max": 99.0,
+                "skewness": -0.01,
+                "kurtosis": -1.17
+            },
+            "equipment_availability_pct": {
+                "count": 7000.0,
+                "mean": 89.541,
+                "std": 5.153,
+                "min": 68.62,
+                "25%": 85.528,
+                "50%": 89.68,
+                "75%": 93.82,
+                "max": 98.0,
+                "skewness": -0.393,
+                "kurtosis": -0.026
+            }
+        },
+        "outliers": [
+            {
+                "column": "idle_burn_pct",
+                "method": "iqr",
+                "outlier_count": 371,
+                "samples": [
+                    {
+                        "fuel_event_id": "fbd46e0b-3889-4017-ae73-4cc7dbc6f13a",
+                        "idle_burn_pct": 30.43
+                    },
+                    {
+                        "fuel_event_id": "63455f7d-5edc-4734-877a-cfa3f2a76dce",
+                        "idle_burn_pct": 41.66
+                    },
+                    {
+                        "fuel_event_id": "cd936784-c987-4c59-8b11-53a1ff98f3e3",
+                        "idle_burn_pct": 43.03
+                    },
+                    {
+                        "fuel_event_id": "18bb36c9-12a7-424d-a720-c142eac4b59a",
+                        "idle_burn_pct": 33.73
+                    },
+                    {
+                        "fuel_event_id": "3a99c654-41bf-4d09-86b9-3e84be27a29f",
+                        "idle_burn_pct": 45.19
+                    }
+                ]
+            },
+            {
+                "column": "dispatch_accuracy_pct",
+                "method": "iqr",
+                "outlier_count": 0,
+                "samples": []
+            },
+            {
+                "column": "equipment_availability_pct",
+                "method": "iqr",
+                "outlier_count": 39,
+                "samples": [
+                    {
+                        "equipment_availability_pct": 70.87
+                    },
+                    {
+                        "equipment_availability_pct": 73.0
+                    },
+                    {
+                        "equipment_availability_pct": 71.2
+                    },
+                    {
+                        "equipment_availability_pct": 72.67
+                    },
+                    {
+                        "equipment_availability_pct": 72.22
+                    }
+                ]
+            }
+        ],
+        "trends": [],
+        "charts": [
+            {
+                "chart_type": "BarChart",
+                "library": "recharts",
+                "title": "Top 10 Device Id by Temperature C",
+                "description": "Ranked by temperature_c (mean, descending).",
+                "data": [
+                    {
+                        "rank": 1,
+                        "device_id": "device_008",
+                        "temperature_c": 81.301
+                    },
+                    {
+                        "rank": 2,
+                        "device_id": "device_040",
+                        "temperature_c": 81.296
+                    },
+                    {
+                        "rank": 3,
+                        "device_id": "device_026",
+                        "temperature_c": 81.278
+                    },
+                    {
+                        "rank": 4,
+                        "device_id": "device_028",
+                        "temperature_c": 81.273
+                    },
+                    {
+                        "rank": 5,
+                        "device_id": "device_007",
+                        "temperature_c": 81.265
+                    },
+                    {
+                        "rank": 6,
+                        "device_id": "device_039",
+                        "temperature_c": 81.258
+                    },
+                    {
+                        "rank": 7,
+                        "device_id": "device_030",
+                        "temperature_c": 81.235
+                    },
+                    {
+                        "rank": 8,
+                        "device_id": "device_025",
+                        "temperature_c": 81.235
+                    },
+                    {
+                        "rank": 9,
+                        "device_id": "device_041",
+                        "temperature_c": 81.229
+                    },
+                    {
+                        "rank": 10,
+                        "device_id": "device_002",
+                        "temperature_c": 81.224
+                    }
+                ],
+                "layout": "vertical",
+                "x_axis": {
+                    "key": "device_id",
+                    "label": "device_id"
+                },
+                "y_axis": {
+                    "label": "Temperature C"
+                },
+                "series": [
+                    {
+                        "key": "temperature_c",
+                        "name": "Temperature C",
+                        "color": "#2563EB",
+                        "stacked": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": false,
+                "grid": true,
+                "section": "fleet"
+            },
+            {
+                "chart_type": "LineChart",
+                "library": "recharts",
+                "title": "Temperature C Over Time (W)",
+                "description": "Weekly aggregation of temperature_c by timestamp.",
+                "data": [
+                    {
+                        "date": "2026-03-01",
+                        "temperature_c": 388660.1,
+                        "vibration_m_s2": 21705.77
+                    },
+                    {
+                        "date": "2026-03-08",
+                        "temperature_c": 2725163.5,
+                        "vibration_m_s2": 152460.61
+                    },
+                    {
+                        "date": "2026-03-15",
+                        "temperature_c": 2726050.2,
+                        "vibration_m_s2": 152892.7
+                    },
+                    {
+                        "date": "2026-03-22",
+                        "temperature_c": 1555013.1,
+                        "vibration_m_s2": 86271.44
+                    }
+                ],
+                "x_axis": {
+                    "key": "date",
+                    "label": "date"
+                },
+                "y_axis": {
+                    "label": ""
+                },
+                "series": [
+                    {
+                        "key": "temperature_c",
+                        "name": "Temperature C",
+                        "color": "#2563EB",
+                        "dot": false
+                    },
+                    {
+                        "key": "vibration_m_s2",
+                        "name": "Vibration M S2",
+                        "color": "#16A34A",
+                        "dot": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": true,
+                "grid": true,
+                "section": "fleet"
+            },
+            {
+                "chart_type": "BarChart",
+                "library": "recharts",
+                "title": "Top 10 Equipment Id by Capacity Tons",
+                "description": "Ranked by capacity_tons (mean, descending).",
+                "data": [
+                    {
+                        "rank": 1,
+                        "equipment_id": "TRK-001",
+                        "capacity_tons": 240.0
+                    },
+                    {
+                        "rank": 2,
+                        "equipment_id": "TRK-003",
+                        "capacity_tons": 240.0
+                    },
+                    {
+                        "rank": 3,
+                        "equipment_id": "TRK-012",
+                        "capacity_tons": 240.0
+                    },
+                    {
+                        "rank": 4,
+                        "equipment_id": "TRK-014",
+                        "capacity_tons": 240.0
+                    },
+                    {
+                        "rank": 5,
+                        "equipment_id": "TRK-020",
+                        "capacity_tons": 240.0
+                    },
+                    {
+                        "rank": 6,
+                        "equipment_id": "TRK-022",
+                        "capacity_tons": 240.0
+                    },
+                    {
+                        "rank": 7,
+                        "equipment_id": "TRK-026",
+                        "capacity_tons": 240.0
+                    },
+                    {
+                        "rank": 8,
+                        "equipment_id": "TRK-029",
+                        "capacity_tons": 240.0
+                    },
+                    {
+                        "rank": 9,
+                        "equipment_id": "TRK-021",
+                        "capacity_tons": 220.0
+                    },
+                    {
+                        "rank": 10,
+                        "equipment_id": "TRK-019",
+                        "capacity_tons": 220.0
+                    }
+                ],
+                "layout": "vertical",
+                "x_axis": {
+                    "key": "equipment_id",
+                    "label": "equipment_id"
+                },
+                "y_axis": {
+                    "label": "Capacity Tons"
+                },
+                "series": [
+                    {
+                        "key": "capacity_tons",
+                        "name": "Capacity Tons",
+                        "color": "#2563EB",
+                        "stacked": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": false,
+                "grid": true,
+                "section": "fleet"
+            },
+            {
+                "chart_type": "LineChart",
+                "library": "recharts",
+                "title": "Capacity Tons Over Time (W)",
+                "description": "Weekly aggregation of capacity_tons by commissioning_date.",
+                "data": [
+                    {
+                        "date": "2016-10-16",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2016-10-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2016-10-30",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2016-11-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2016-11-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2016-11-20",
+                        "capacity_tons": 240
+                    },
+                    {
+                        "date": "2016-11-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2016-12-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2016-12-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2016-12-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2016-12-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-01-01",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-01-08",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-01-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-01-22",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-01-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-02-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-02-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-02-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-02-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-03-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-03-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-03-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-03-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-04-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-04-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-04-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-04-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-04-30",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-05-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-05-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-05-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-05-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-06-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-06-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-06-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-06-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-07-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-07-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-07-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-07-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-07-30",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-08-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-08-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-08-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-08-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-09-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-09-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-09-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-09-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-10-01",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-10-08",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-10-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-10-22",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2017-10-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-11-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-11-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-11-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-11-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-12-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-12-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-12-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-12-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2017-12-31",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-01-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-01-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-01-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-01-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-02-04",
+                        "capacity_tons": 220
+                    },
+                    {
+                        "date": "2018-02-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-02-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-02-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-03-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-03-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-03-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-03-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-04-01",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2018-04-08",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-04-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-04-22",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-04-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-05-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-05-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-05-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-05-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-06-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-06-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-06-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-06-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-07-01",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-07-08",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-07-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-07-22",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-07-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-08-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-08-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-08-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-08-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-09-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-09-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-09-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-09-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-09-30",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2018-10-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-10-14",
+                        "capacity_tons": 240
+                    },
+                    {
+                        "date": "2018-10-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-10-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-11-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-11-11",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2018-11-18",
+                        "capacity_tons": 220
+                    },
+                    {
+                        "date": "2018-11-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-12-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-12-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-12-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-12-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2018-12-30",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-01-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-01-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-01-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-01-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-02-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-02-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-02-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-02-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-03-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-03-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-03-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-03-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-03-31",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-04-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-04-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-04-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-04-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-05-05",
+                        "capacity_tons": 220
+                    },
+                    {
+                        "date": "2019-05-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-05-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-05-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-06-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-06-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-06-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-06-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-06-30",
+                        "capacity_tons": 240
+                    },
+                    {
+                        "date": "2019-07-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-07-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-07-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-07-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-08-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-08-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-08-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-08-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-09-01",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-09-08",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-09-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-09-22",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-09-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-10-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-10-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-10-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-10-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-11-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-11-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-11-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-11-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-12-01",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-12-08",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-12-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-12-22",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2019-12-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-01-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-01-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-01-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-01-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-02-02",
+                        "capacity_tons": 220
+                    },
+                    {
+                        "date": "2020-02-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-02-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-02-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-03-01",
+                        "capacity_tons": 240
+                    },
+                    {
+                        "date": "2020-03-08",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-03-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-03-22",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2020-03-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-04-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-04-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-04-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-04-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-05-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-05-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-05-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-05-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-05-31",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-06-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-06-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-06-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-06-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-07-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-07-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-07-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-07-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-08-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-08-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-08-16",
+                        "capacity_tons": 240
+                    },
+                    {
+                        "date": "2020-08-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-08-30",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-09-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-09-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-09-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-09-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-10-04",
+                        "capacity_tons": 220
+                    },
+                    {
+                        "date": "2020-10-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-10-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-10-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-11-01",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-11-08",
+                        "capacity_tons": 220
+                    },
+                    {
+                        "date": "2020-11-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-11-22",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-11-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-12-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-12-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-12-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2020-12-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-01-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-01-10",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2021-01-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-01-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-01-31",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-02-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-02-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-02-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-02-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-03-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-03-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-03-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-03-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-04-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-04-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-04-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-04-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-05-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-05-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-05-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-05-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-05-30",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-06-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-06-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-06-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-06-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-07-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-07-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-07-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-07-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-08-01",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-08-08",
+                        "capacity_tons": 240
+                    },
+                    {
+                        "date": "2021-08-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-08-22",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-08-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-09-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-09-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-09-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-09-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-10-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-10-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-10-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-10-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-10-31",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-11-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-11-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-11-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-11-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-12-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-12-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-12-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2021-12-26",
+                        "capacity_tons": 240
+                    },
+                    {
+                        "date": "2022-01-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-01-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-01-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-01-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-01-30",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2022-02-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-02-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-02-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-02-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-03-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-03-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-03-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-03-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-04-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-04-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-04-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-04-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-05-01",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-05-08",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-05-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-05-22",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-05-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-06-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-06-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-06-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-06-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-07-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-07-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-07-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-07-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-07-31",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-08-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-08-14",
+                        "capacity_tons": 240
+                    },
+                    {
+                        "date": "2022-08-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-08-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-09-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-09-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-09-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-09-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-10-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-10-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-10-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-10-23",
+                        "capacity_tons": 220
+                    },
+                    {
+                        "date": "2022-10-30",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-11-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-11-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-11-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-11-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-12-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-12-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2022-12-18",
+                        "capacity_tons": 220
+                    },
+                    {
+                        "date": "2022-12-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-01-01",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-01-08",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-01-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-01-22",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-01-29",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-02-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-02-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-02-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-02-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-03-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-03-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-03-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-03-26",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2023-04-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-04-09",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-04-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-04-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-04-30",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-05-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-05-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-05-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-05-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-06-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-06-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-06-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-06-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-07-02",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-07-09",
+                        "capacity_tons": 220
+                    },
+                    {
+                        "date": "2023-07-16",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-07-23",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-07-30",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-08-06",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-08-13",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-08-20",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-08-27",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-09-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-09-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-09-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-09-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-10-01",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-10-08",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-10-15",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-10-22",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-10-29",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2023-11-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-11-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-11-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-11-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-12-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-12-10",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-12-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-12-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2023-12-31",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-01-07",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-01-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-01-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-01-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-02-04",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-02-11",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-02-18",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-02-25",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-03-03",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-03-10",
+                        "capacity_tons": 180
+                    },
+                    {
+                        "date": "2024-03-17",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-03-24",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-03-31",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-04-07",
+                        "capacity_tons": 220
+                    },
+                    {
+                        "date": "2024-04-14",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-04-21",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-04-28",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-05-05",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-05-12",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-05-19",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-05-26",
+                        "capacity_tons": 0
+                    },
+                    {
+                        "date": "2024-06-02",
+                        "capacity_tons": 220
+                    }
+                ],
+                "x_axis": {
+                    "key": "date",
+                    "label": "date"
+                },
+                "y_axis": {
+                    "label": ""
+                },
+                "series": [
+                    {
+                        "key": "capacity_tons",
+                        "name": "Capacity Tons",
+                        "color": "#2563EB",
+                        "dot": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": false,
+                "grid": true,
+                "section": "fleet"
+            },
+            {
+                "chart_type": "KPICards",
+                "library": "custom",
+                "title": "Fleet KPIs",
+                "description": "Aggregated KPIs for the fleet section.",
+                "cards": [
+                    {
+                        "label": "Idle Rate",
+                        "value": 12.419,
+                        "unit": "%"
+                    }
+                ],
+                "section": "fleet"
+            },
+            {
+                "chart_type": "BarChart",
+                "library": "recharts",
+                "title": "Top 7 Location Id by Elevation",
+                "description": "Ranked by elevation (mean, descending).",
+                "data": [
+                    {
+                        "rank": 1,
+                        "location_id": "Crusher-1",
+                        "elevation": 440.0
+                    },
+                    {
+                        "rank": 2,
+                        "location_id": "Fuel-Bay",
+                        "elevation": 427.0
+                    },
+                    {
+                        "rank": 3,
+                        "location_id": "Workshop",
+                        "elevation": 390.0
+                    },
+                    {
+                        "rank": 4,
+                        "location_id": "Pit-B",
+                        "elevation": 370.0
+                    },
+                    {
+                        "rank": 5,
+                        "location_id": "Pit-A",
+                        "elevation": 335.0
+                    },
+                    {
+                        "rank": 6,
+                        "location_id": "Pit-C",
+                        "elevation": 276.0
+                    },
+                    {
+                        "rank": 7,
+                        "location_id": "Dump-1",
+                        "elevation": 267.0
+                    }
+                ],
+                "layout": "vertical",
+                "x_axis": {
+                    "key": "location_id",
+                    "label": "location_id"
+                },
+                "y_axis": {
+                    "label": "Elevation"
+                },
+                "series": [
+                    {
+                        "key": "elevation",
+                        "name": "Elevation",
+                        "color": "#2563EB",
+                        "stacked": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": false,
+                "grid": true,
+                "section": "fleet"
+            },
+            {
+                "chart_type": "KPICards",
+                "library": "custom",
+                "title": "Fleet KPIs",
+                "description": "Aggregated KPIs for the fleet section.",
+                "cards": [
+                    {
+                        "label": "Fleet Availability",
+                        "value": 89.541,
+                        "unit": "%"
+                    },
+                    {
+                        "label": "On Time Delivery",
+                        "value": 90.486,
+                        "unit": "%"
+                    }
+                ],
+                "section": "fleet"
+            }
+        ]
+    },
+    "maintenance": {
+        "kpis": [
+            {
+                "name": "mean_time_between_failures",
+                "value": 161.112,
+                "unit": "hr"
+            }
+        ],
+        "statistics": {
+            "mtbf": {
+                "count": 7000.0,
+                "mean": 161.112,
+                "std": 46.259,
+                "min": 80.02,
+                "25%": 121.375,
+                "50%": 161.9,
+                "75%": 200.64,
+                "max": 239.98,
+                "skewness": -0.031,
+                "kurtosis": -1.204
+            }
+        },
+        "outliers": [
+            {
+                "column": "mtbf",
+                "method": "iqr",
+                "outlier_count": 0,
+                "samples": []
+            }
+        ],
+        "trends": [],
+        "charts": [
+            {
+                "chart_type": "KPICards",
+                "library": "custom",
+                "title": "Maintenance KPIs",
+                "description": "Aggregated KPIs for the maintenance section.",
+                "cards": [
+                    {
+                        "label": "Mean Time Between Failures",
+                        "value": 161.112,
+                        "unit": "hr"
+                    }
+                ],
+                "section": "maintenance"
+            }
+        ]
+    },
+    "kpis": {
+        "kpis": [],
+        "statistics": {},
+        "outliers": [],
+        "trends": [],
+        "charts": []
+    },
+    "load_and_tonnage": {
+        "kpis": [
+            {
+                "name": "total_tonnes_moved",
+                "value": 170011.243,
+                "unit": "t"
+            }
+        ],
+        "statistics": {
+            "total_tonnage": {
+                "count": 7000.0,
+                "mean": 170011.243,
+                "std": 28702.063,
+                "min": 120000.48,
+                "25%": 145770.838,
+                "50%": 169664.825,
+                "75%": 194907.165,
+                "max": 219985.21,
+                "skewness": 0.003,
+                "kurtosis": -1.195
+            }
+        },
+        "outliers": [
+            {
+                "column": "total_tonnage",
+                "method": "iqr",
+                "outlier_count": 0,
+                "samples": []
+            }
+        ],
+        "trends": [
+            {
+                "date_column": "date",
+                "value_column": "total_tonnage",
+                "direction": "stable",
+                "r_squared": 0.025,
+                "slope": null
+            }
+        ],
+        "charts": [
+            {
+                "chart_type": "KPICards",
+                "library": "custom",
+                "title": "Load And Tonnage KPIs",
+                "description": "Aggregated KPIs for the load and tonnage section.",
+                "cards": [
+                    {
+                        "label": "Total Tonnes Moved",
+                        "value": 170011.243,
+                        "unit": "t"
+                    }
+                ],
+                "section": "load_and_tonnage"
+            },
+            {
+                "chart_type": "LineChart",
+                "library": "recharts",
+                "title": "Total Tonnage Over Time (W)",
+                "description": "Weekly aggregation of total_tonnage by date.",
+                "data": [
+                    {
+                        "date": "2026-02-01",
+                        "total_tonnage": 9837472.85,
+                        "fuel_efficiency": 125.39
+                    },
+                    {
+                        "date": "2026-02-08",
+                        "total_tonnage": 28358692.65,
+                        "fuel_efficiency": 357.9
+                    },
+                    {
+                        "date": "2026-02-15",
+                        "total_tonnage": 28641396.59,
+                        "fuel_efficiency": 365.72
+                    },
+                    {
+                        "date": "2026-02-22",
+                        "total_tonnage": 27966379.43,
+                        "fuel_efficiency": 366.48
+                    },
+                    {
+                        "date": "2026-03-01",
+                        "total_tonnage": 28577027.57,
+                        "fuel_efficiency": 360.04
+                    },
+                    {
+                        "date": "2026-03-08",
+                        "total_tonnage": 28596359.87,
+                        "fuel_efficiency": 362.41
+                    },
+                    {
+                        "date": "2026-03-15",
+                        "total_tonnage": 28739481.59,
+                        "fuel_efficiency": 359.02
+                    },
+                    {
+                        "date": "2026-03-22",
+                        "total_tonnage": 28600906.76,
+                        "fuel_efficiency": 352.9
+                    },
+                    {
+                        "date": "2026-03-29",
+                        "total_tonnage": 28053861.25,
+                        "fuel_efficiency": 353.79
+                    },
+                    {
+                        "date": "2026-04-05",
+                        "total_tonnage": 28858147.8,
+                        "fuel_efficiency": 351.65
+                    },
+                    {
+                        "date": "2026-04-12",
+                        "total_tonnage": 28386741.63,
+                        "fuel_efficiency": 356.24
+                    },
+                    {
+                        "date": "2026-04-19",
+                        "total_tonnage": 28830848.1,
+                        "fuel_efficiency": 365.76
+                    },
+                    {
+                        "date": "2026-04-26",
+                        "total_tonnage": 28553120.97,
+                        "fuel_efficiency": 349.84
+                    },
+                    {
+                        "date": "2026-05-03",
+                        "total_tonnage": 28962362.48,
+                        "fuel_efficiency": 348.47
+                    },
+                    {
+                        "date": "2026-05-10",
+                        "total_tonnage": 28151417.4,
+                        "fuel_efficiency": 348.63
+                    },
+                    {
+                        "date": "2026-05-17",
+                        "total_tonnage": 28550851.74,
+                        "fuel_efficiency": 346.26
+                    },
+                    {
+                        "date": "2026-05-24",
+                        "total_tonnage": 29260566.8,
+                        "fuel_efficiency": 351.64
+                    },
+                    {
+                        "date": "2026-05-31",
+                        "total_tonnage": 28637817.42,
+                        "fuel_efficiency": 356.87
+                    },
+                    {
+                        "date": "2026-06-07",
+                        "total_tonnage": 28875220.68,
+                        "fuel_efficiency": 354.35
+                    },
+                    {
+                        "date": "2026-06-14",
+                        "total_tonnage": 28252153.18,
+                        "fuel_efficiency": 357.23
+                    },
+                    {
+                        "date": "2026-06-21",
+                        "total_tonnage": 28633194.62,
+                        "fuel_efficiency": 352.61
+                    },
+                    {
+                        "date": "2026-06-28",
+                        "total_tonnage": 28833367.16,
+                        "fuel_efficiency": 346.21
+                    },
+                    {
+                        "date": "2026-07-05",
+                        "total_tonnage": 28402569.66,
+                        "fuel_efficiency": 355.3
+                    },
+                    {
+                        "date": "2026-07-12",
+                        "total_tonnage": 28236934.27,
+                        "fuel_efficiency": 356.04
+                    },
+                    {
+                        "date": "2026-07-19",
+                        "total_tonnage": 29059999.41,
+                        "fuel_efficiency": 351.47
+                    },
+                    {
+                        "date": "2026-07-26",
+                        "total_tonnage": 28060631.1,
+                        "fuel_efficiency": 360.24
+                    },
+                    {
+                        "date": "2026-08-02",
+                        "total_tonnage": 29017724.08,
+                        "fuel_efficiency": 349.76
+                    },
+                    {
+                        "date": "2026-08-09",
+                        "total_tonnage": 28388702.24,
+                        "fuel_efficiency": 352.52
+                    },
+                    {
+                        "date": "2026-08-16",
+                        "total_tonnage": 28904336.18,
+                        "fuel_efficiency": 350.65
+                    },
+                    {
+                        "date": "2026-08-23",
+                        "total_tonnage": 28062304.28,
+                        "fuel_efficiency": 351.84
+                    },
+                    {
+                        "date": "2026-08-30",
+                        "total_tonnage": 28359023.33,
+                        "fuel_efficiency": 358.5
+                    },
+                    {
+                        "date": "2026-09-06",
+                        "total_tonnage": 28400296.11,
+                        "fuel_efficiency": 353.7
+                    },
+                    {
+                        "date": "2026-09-13",
+                        "total_tonnage": 29163174.08,
+                        "fuel_efficiency": 354.93
+                    },
+                    {
+                        "date": "2026-09-20",
+                        "total_tonnage": 28118264.56,
+                        "fuel_efficiency": 351.81
+                    },
+                    {
+                        "date": "2026-09-27",
+                        "total_tonnage": 28268770.47,
+                        "fuel_efficiency": 340.45
+                    },
+                    {
+                        "date": "2026-10-04",
+                        "total_tonnage": 28503645.01,
+                        "fuel_efficiency": 355.62
+                    },
+                    {
+                        "date": "2026-10-11",
+                        "total_tonnage": 28288859.63,
+                        "fuel_efficiency": 345.19
+                    },
+                    {
+                        "date": "2026-10-18",
+                        "total_tonnage": 28920485.61,
+                        "fuel_efficiency": 355.57
+                    },
+                    {
+                        "date": "2026-10-25",
+                        "total_tonnage": 28563856.25,
+                        "fuel_efficiency": 353.88
+                    },
+                    {
+                        "date": "2026-11-01",
+                        "total_tonnage": 28945919.56,
+                        "fuel_efficiency": 348.44
+                    },
+                    {
+                        "date": "2026-11-08",
+                        "total_tonnage": 29293269.68,
+                        "fuel_efficiency": 356.16
+                    },
+                    {
+                        "date": "2026-11-15",
+                        "total_tonnage": 28163704.22,
+                        "fuel_efficiency": 349.5
+                    },
+                    {
+                        "date": "2026-11-22",
+                        "total_tonnage": 8798842.27,
+                        "fuel_efficiency": 106.1
+                    }
+                ],
+                "x_axis": {
+                    "key": "date",
+                    "label": "date"
+                },
+                "y_axis": {
+                    "label": ""
+                },
+                "series": [
+                    {
+                        "key": "total_tonnage",
+                        "name": "Total Tonnage",
+                        "color": "#2563EB",
+                        "dot": false
+                    },
+                    {
+                        "key": "fuel_efficiency",
+                        "name": "Fuel Efficiency",
+                        "color": "#16A34A",
+                        "dot": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": true,
+                "grid": true,
+                "section": "load_and_tonnage"
+            }
+        ]
+    },
+    "fuel": {
+        "kpis": [
+            {
+                "name": "fuel_consumption_rate",
+                "value": 124.006,
+                "unit": "L/hr"
+            },
+            {
+                "name": "fuel_efficiency",
+                "status": "error",
+                "error": "Required columns missing from dataset: ['distance_km']"
+            }
+        ],
+        "statistics": {
+            "fuel_volume_l": {
+                "count": 7000.0,
+                "mean": 99.613,
+                "std": 20.718,
+                "min": 38.67,
+                "25%": 86.255,
+                "50%": 97.03,
+                "75%": 109.135,
+                "max": 221.44,
+                "skewness": 1.088,
+                "kurtosis": 2.456
+            },
+            "fuel_rate_lph": {
+                "count": 7000.0,
+                "mean": 124.006,
+                "std": 8.121,
+                "min": 112.94,
+                "25%": 120.13,
+                "50%": 121.79,
+                "75%": 123.64,
+                "max": 182.26,
+                "skewness": 2.864,
+                "kurtosis": 8.766
+            },
+            "fuel_efficiency": {
+                "count": 7000.0,
+                "mean": 2.107,
+                "std": 0.406,
+                "min": 1.4,
+                "25%": 1.75,
+                "50%": 2.11,
+                "75%": 2.46,
+                "max": 2.8,
+                "skewness": -0.013,
+                "kurtosis": -1.205
+            }
+        },
+        "outliers": [
+            {
+                "column": "fuel_volume_l",
+                "method": "iqr",
+                "outlier_count": 297,
+                "samples": [
+                    {
+                        "fuel_event_id": "63455f7d-5edc-4734-877a-cfa3f2a76dce",
+                        "fuel_volume_l": 152.66
+                    },
+                    {
+                        "fuel_event_id": "ffa614aa-c446-4ac7-8412-e5bf1110ce18",
+                        "fuel_volume_l": 156.21
+                    },
+                    {
+                        "fuel_event_id": "594a87ea-7bde-4e4e-b82f-6200759ff059",
+                        "fuel_volume_l": 166.35
+                    },
+                    {
+                        "fuel_event_id": "3a99c654-41bf-4d09-86b9-3e84be27a29f",
+                        "fuel_volume_l": 156.97
+                    },
+                    {
+                        "fuel_event_id": "b026b4cc-21c7-47ed-9cba-d0f92496185c",
+                        "fuel_volume_l": 198.36
+                    }
+                ]
+            },
+            {
+                "column": "fuel_rate_lph",
+                "method": "iqr",
+                "outlier_count": 804,
+                "samples": [
+                    {
+                        "fuel_event_id": "ca6d22fd-90c2-4cb6-b531-cacaefa21c74",
+                        "fuel_rate_lph": 132.28
+                    },
+                    {
+                        "fuel_event_id": "fbd46e0b-3889-4017-ae73-4cc7dbc6f13a",
+                        "fuel_rate_lph": 138.95
+                    },
+                    {
+                        "fuel_event_id": "63455f7d-5edc-4734-877a-cfa3f2a76dce",
+                        "fuel_rate_lph": 144.42
+                    },
+                    {
+                        "fuel_event_id": "cb29b35a-1583-4079-815d-52f3434c6d63",
+                        "fuel_rate_lph": 162.49
+                    },
+                    {
+                        "fuel_event_id": "df677e98-11ff-4f22-b422-c17571a39847",
+                        "fuel_rate_lph": 163.37
+                    }
+                ]
+            },
+            {
+                "column": "fuel_efficiency",
+                "method": "iqr",
+                "outlier_count": 0,
+                "samples": []
+            }
+        ],
+        "trends": [
+            {
+                "date_column": "timestamp",
+                "value_column": "fuel_volume_l",
+                "direction": "stable",
+                "r_squared": 0.74,
+                "slope": null
+            },
+            {
+                "date_column": "timestamp",
+                "value_column": "fuel_rate_lph",
+                "direction": "stable",
+                "r_squared": 0.169,
+                "slope": null
+            },
+            {
+                "date_column": "date",
+                "value_column": "fuel_efficiency",
+                "direction": "stable",
+                "r_squared": 0.21,
+                "slope": null
+            }
+        ],
+        "charts": [
+            {
+                "chart_type": "KPICards",
+                "library": "custom",
+                "title": "Fuel KPIs",
+                "description": "Aggregated KPIs for the fuel section.",
+                "cards": [
+                    {
+                        "label": "Fuel Consumption Rate",
+                        "value": 124.006,
+                        "unit": "L/hr"
+                    }
+                ],
+                "section": "fuel"
+            },
+            {
+                "chart_type": "BarChart",
+                "library": "recharts",
+                "title": "Top 10 Fuel Event Id by Fuel Volume L",
+                "description": "Ranked by fuel_volume_l (mean, descending).",
+                "data": [
+                    {
+                        "rank": 1,
+                        "fuel_event_id": "2a7070c1-d256-4ce0-b593-bed3074de4f5",
+                        "fuel_volume_l": 221.44
+                    },
+                    {
+                        "rank": 2,
+                        "fuel_event_id": "301306a4-566f-430f-862f-a491a9a2902c",
+                        "fuel_volume_l": 211.47
+                    },
+                    {
+                        "rank": 3,
+                        "fuel_event_id": "4c60acbb-1a56-4be4-be68-2f27e1d46425",
+                        "fuel_volume_l": 204.41
+                    },
+                    {
+                        "rank": 4,
+                        "fuel_event_id": "4e8f7f5d-7f8e-48c9-8e83-04dbe4489cf8",
+                        "fuel_volume_l": 203.77
+                    },
+                    {
+                        "rank": 5,
+                        "fuel_event_id": "f4a69027-f7bc-41b1-94f8-18d8a53f0fe1",
+                        "fuel_volume_l": 203.2
+                    },
+                    {
+                        "rank": 6,
+                        "fuel_event_id": "12772c34-6d30-4836-96dc-3e4c38b58b3b",
+                        "fuel_volume_l": 199.18
+                    },
+                    {
+                        "rank": 7,
+                        "fuel_event_id": "b026b4cc-21c7-47ed-9cba-d0f92496185c",
+                        "fuel_volume_l": 198.36
+                    },
+                    {
+                        "rank": 8,
+                        "fuel_event_id": "d34b1994-4b3f-4b50-a464-38173d9a0e4c",
+                        "fuel_volume_l": 198.28
+                    },
+                    {
+                        "rank": 9,
+                        "fuel_event_id": "792f8d8a-d2d4-477e-baf6-9a0f82cd6e7e",
+                        "fuel_volume_l": 194.77
+                    },
+                    {
+                        "rank": 10,
+                        "fuel_event_id": "d2f292aa-303c-4707-a4ac-8fb73e3493b7",
+                        "fuel_volume_l": 192.96
+                    }
+                ],
+                "layout": "vertical",
+                "x_axis": {
+                    "key": "fuel_event_id",
+                    "label": "fuel_event_id"
+                },
+                "y_axis": {
+                    "label": "Fuel Volume L"
+                },
+                "series": [
+                    {
+                        "key": "fuel_volume_l",
+                        "name": "Fuel Volume L",
+                        "color": "#2563EB",
+                        "stacked": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": false,
+                "grid": true,
+                "section": "fuel"
+            },
+            {
+                "chart_type": "LineChart",
+                "library": "recharts",
+                "title": "Fuel Volume L Over Time (W)",
+                "description": "Weekly aggregation of fuel_volume_l by timestamp.",
+                "data": [
+                    {
+                        "date": "2026-02-01",
+                        "fuel_volume_l": 71978.13,
+                        "fuel_rate_lph": 88911.32
+                    },
+                    {
+                        "date": "2026-02-08",
+                        "fuel_volume_l": 200859.08,
+                        "fuel_rate_lph": 250300.04
+                    },
+                    {
+                        "date": "2026-02-15",
+                        "fuel_volume_l": 200321.88,
+                        "fuel_rate_lph": 249180.58
+                    },
+                    {
+                        "date": "2026-02-22",
+                        "fuel_volume_l": 200755.56,
+                        "fuel_rate_lph": 250221.8
+                    },
+                    {
+                        "date": "2026-03-01",
+                        "fuel_volume_l": 23379.62,
+                        "fuel_rate_lph": 29430.23
+                    }
+                ],
+                "x_axis": {
+                    "key": "date",
+                    "label": "date"
+                },
+                "y_axis": {
+                    "label": ""
+                },
+                "series": [
+                    {
+                        "key": "fuel_volume_l",
+                        "name": "Fuel Volume L",
+                        "color": "#2563EB",
+                        "dot": false
+                    },
+                    {
+                        "key": "fuel_rate_lph",
+                        "name": "Fuel Rate Lph",
+                        "color": "#16A34A",
+                        "dot": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": true,
+                "grid": true,
+                "section": "fuel"
+            }
+        ]
+    },
+    "gps_location": {
+        "kpis": [],
+        "statistics": {
+            "gps_lat": {
+                "count": 7.0,
+                "mean": -22.01,
+                "std": 0.033,
+                "min": -22.048,
+                "25%": -22.039,
+                "50%": -22.013,
+                "75%": -21.983,
+                "max": -21.967,
+                "skewness": 0.151,
+                "kurtosis": -2.031
+            },
+            "gps_lon": {
+                "count": 7.0,
+                "mean": 118.014,
+                "std": 0.034,
+                "min": 117.966,
+                "25%": 117.991,
+                "50%": 118.021,
+                "75%": 118.041,
+                "max": 118.047,
+                "skewness": -0.664,
+                "kurtosis": -1.368
+            }
+        },
+        "outliers": [
+            {
+                "column": "gps_lat",
+                "method": "iqr",
+                "outlier_count": 0,
+                "samples": []
+            },
+            {
+                "column": "gps_lon",
+                "method": "iqr",
+                "outlier_count": 0,
+                "samples": []
+            }
+        ],
+        "trends": [],
+        "charts": []
+    },
+    "safety": {
+        "kpis": [
+            {
+                "name": "fatigue_event_rate",
+                "value": 4.98,
+                "unit": "events/1000hr"
+            },
+            {
+                "name": "unsafe_behaviour_rate",
+                "value": 9.409,
+                "unit": "events/1000hr"
+            }
+        ],
+        "statistics": {},
+        "outliers": [],
+        "trends": [],
+        "charts": [
+            {
+                "chart_type": "KPICards",
+                "library": "custom",
+                "title": "Safety KPIs",
+                "description": "Aggregated KPIs for the safety section.",
+                "cards": [
+                    {
+                        "label": "Fatigue Event Rate",
+                        "value": 4.98,
+                        "unit": "events/1000hr"
+                    },
+                    {
+                        "label": "Unsafe Behaviour Rate",
+                        "value": 9.409,
+                        "unit": "events/1000hr"
+                    }
+                ],
+                "section": "safety"
+            }
+        ]
+    }
+}

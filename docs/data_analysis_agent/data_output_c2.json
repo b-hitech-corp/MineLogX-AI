@@ -1,0 +1,787 @@
+{
+    "folder": "C2",
+    "processed_at": "2026-06-04T06:37:53.044761+00:00",
+    "file_count": 4,
+    "overview": {
+        "total_rows": 22000,
+        "files": [
+            {
+                "path": "C2/ground_vibration_dataset.csv",
+                "status": "partial",
+                "rows": 1000,
+                "columns": 18,
+                "errors": {
+                    "trend_charge_weight(kg)": "Not enough data points to compute trend (need \u2265 3 periods).",
+                    "trend_burden(m)": "Not enough data points to compute trend (need \u2265 3 periods)."
+                }
+            },
+            {
+                "path": "C2/haul_cycle_tracking.csv",
+                "status": "success",
+                "rows": 7000,
+                "columns": 12,
+                "errors": {}
+            },
+            {
+                "path": "C2/maintenance_recommendations.csv",
+                "status": "success",
+                "rows": 7000,
+                "columns": 9,
+                "errors": {}
+            },
+            {
+                "path": "C2/tire_pressure_monitoring.csv",
+                "status": "success",
+                "rows": 7000,
+                "columns": 10,
+                "errors": {}
+            }
+        ],
+        "data_quality": [],
+        "kpi_summary": {
+            "total_computed": 3,
+            "by_section": {
+                "fleet": 1,
+                "maintenance": 0,
+                "kpis": 0,
+                "load_and_tonnage": 2,
+                "fuel": 0,
+                "gps_location": 0,
+                "safety": 0
+            }
+        }
+    },
+    "fleet": {
+        "kpis": [
+            {
+                "name": "mean_cycle_time",
+                "value": 48.076,
+                "unit": "min"
+            }
+        ],
+        "statistics": {
+            "cycle_duration_min": {
+                "count": 7000.0,
+                "mean": 48.076,
+                "std": 8.525,
+                "min": 18.34,
+                "25%": 42.278,
+                "50%": 47.6,
+                "75%": 53.202,
+                "max": 86.82,
+                "skewness": 0.405,
+                "kurtosis": 0.628
+            }
+        },
+        "outliers": [
+            {
+                "column": "cycle_duration_min",
+                "method": "iqr",
+                "outlier_count": 114,
+                "samples": [
+                    {
+                        "cycle_id": "d8aedefb-8f0e-48e1-91b4-ad03168b2bc9",
+                        "cycle_duration_min": 71.19
+                    },
+                    {
+                        "cycle_id": "0cea5db7-a748-4fde-b76f-7501b09bf974",
+                        "cycle_duration_min": 83.03
+                    },
+                    {
+                        "cycle_id": "ce8fa740-479b-4819-80e8-c56629a04f9b",
+                        "cycle_duration_min": 78.21
+                    },
+                    {
+                        "cycle_id": "29baf5fb-afd0-45a2-9a54-515c6ceca70e",
+                        "cycle_duration_min": 86.82
+                    },
+                    {
+                        "cycle_id": "611bdfbe-3ff9-439d-9db6-ca868c5d95d8",
+                        "cycle_duration_min": 71.55
+                    }
+                ]
+            }
+        ],
+        "trends": [],
+        "charts": [
+            {
+                "chart_type": "BarChart",
+                "library": "recharts",
+                "title": "Top 10 Blast Id by Charge Weight(Kg)",
+                "description": "Ranked by charge_weight(kg) (mean, descending).",
+                "data": [
+                    {
+                        "rank": 1,
+                        "blast_id": "B0532",
+                        "charge_weight(kg)": 499.873
+                    },
+                    {
+                        "rank": 2,
+                        "blast_id": "B0848",
+                        "charge_weight(kg)": 498.593
+                    },
+                    {
+                        "rank": 3,
+                        "blast_id": "B0533",
+                        "charge_weight(kg)": 498.487
+                    },
+                    {
+                        "rank": 4,
+                        "blast_id": "B0476",
+                        "charge_weight(kg)": 496.834
+                    },
+                    {
+                        "rank": 5,
+                        "blast_id": "B0391",
+                        "charge_weight(kg)": 495.727
+                    },
+                    {
+                        "rank": 6,
+                        "blast_id": "B0262",
+                        "charge_weight(kg)": 495.524
+                    },
+                    {
+                        "rank": 7,
+                        "blast_id": "B0706",
+                        "charge_weight(kg)": 495.482
+                    },
+                    {
+                        "rank": 8,
+                        "blast_id": "B0519",
+                        "charge_weight(kg)": 494.274
+                    },
+                    {
+                        "rank": 9,
+                        "blast_id": "B0070",
+                        "charge_weight(kg)": 494.099
+                    },
+                    {
+                        "rank": 10,
+                        "blast_id": "B0442",
+                        "charge_weight(kg)": 493.988
+                    }
+                ],
+                "layout": "vertical",
+                "x_axis": {
+                    "key": "blast_id",
+                    "label": "blast_id"
+                },
+                "y_axis": {
+                    "label": "Charge Weight(Kg)"
+                },
+                "series": [
+                    {
+                        "key": "charge_weight(kg)",
+                        "name": "Charge Weight(Kg)",
+                        "color": "#2563EB",
+                        "stacked": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": false,
+                "grid": true,
+                "section": "fleet"
+            },
+            {
+                "chart_type": "LineChart",
+                "library": "recharts",
+                "title": "Charge Weight(Kg) Over Time (W)",
+                "description": "Weekly aggregation of charge_weight(kg) by timestamp.",
+                "data": [
+                    {
+                        "date": "2024-01-07",
+                        "charge_weight(kg)": 270615.449,
+                        "burden(m)": 4028.069
+                    }
+                ],
+                "x_axis": {
+                    "key": "date",
+                    "label": "date"
+                },
+                "y_axis": {
+                    "label": ""
+                },
+                "series": [
+                    {
+                        "key": "charge_weight(kg)",
+                        "name": "Charge Weight(Kg)",
+                        "color": "#2563EB",
+                        "dot": false
+                    },
+                    {
+                        "key": "burden(m)",
+                        "name": "Burden(M)",
+                        "color": "#16A34A",
+                        "dot": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": true,
+                "grid": true,
+                "section": "fleet"
+            },
+            {
+                "chart_type": "KPICards",
+                "library": "custom",
+                "title": "Fleet KPIs",
+                "description": "Aggregated KPIs for the fleet section.",
+                "cards": [
+                    {
+                        "label": "Mean Cycle Time",
+                        "value": 48.076,
+                        "unit": "min"
+                    }
+                ],
+                "section": "fleet"
+            },
+            {
+                "chart_type": "BarChart",
+                "library": "recharts",
+                "title": "Top 10 Tire Event Id by Pressure Psi",
+                "description": "Ranked by pressure_psi (mean, descending).",
+                "data": [
+                    {
+                        "rank": 1,
+                        "tire_event_id": "a360961e-47b2-4b1e-b796-a9fd1f8399a1",
+                        "pressure_psi": 121.28
+                    },
+                    {
+                        "rank": 2,
+                        "tire_event_id": "07aa8099-37d9-4446-8481-5a8535f2475a",
+                        "pressure_psi": 120.58
+                    },
+                    {
+                        "rank": 3,
+                        "tire_event_id": "224910f9-8326-4acd-90de-5159b0923efb",
+                        "pressure_psi": 120.01
+                    },
+                    {
+                        "rank": 4,
+                        "tire_event_id": "37e589e0-046e-496c-b04d-ac51300149b0",
+                        "pressure_psi": 118.72
+                    },
+                    {
+                        "rank": 5,
+                        "tire_event_id": "561815c1-cfcf-435b-9233-62a019fab70c",
+                        "pressure_psi": 118.59
+                    },
+                    {
+                        "rank": 6,
+                        "tire_event_id": "e4d1ba84-8b44-40c4-8d34-a184317a7bb1",
+                        "pressure_psi": 118.47
+                    },
+                    {
+                        "rank": 7,
+                        "tire_event_id": "03f31b54-6f4f-4cf7-ab2d-c788f710bf30",
+                        "pressure_psi": 118.07
+                    },
+                    {
+                        "rank": 8,
+                        "tire_event_id": "952fe84c-ed00-4abf-a65d-7a8952a40614",
+                        "pressure_psi": 117.79
+                    },
+                    {
+                        "rank": 9,
+                        "tire_event_id": "5bcc396b-8dc3-42a2-b2af-15ea191b2934",
+                        "pressure_psi": 117.66
+                    },
+                    {
+                        "rank": 10,
+                        "tire_event_id": "867ad109-bd09-42fb-808c-36e942345dce",
+                        "pressure_psi": 117.59
+                    }
+                ],
+                "layout": "vertical",
+                "x_axis": {
+                    "key": "tire_event_id",
+                    "label": "tire_event_id"
+                },
+                "y_axis": {
+                    "label": "Pressure Psi"
+                },
+                "series": [
+                    {
+                        "key": "pressure_psi",
+                        "name": "Pressure Psi",
+                        "color": "#2563EB",
+                        "stacked": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": false,
+                "grid": true,
+                "section": "fleet"
+            },
+            {
+                "chart_type": "LineChart",
+                "library": "recharts",
+                "title": "Pressure Psi Over Time (W)",
+                "description": "Weekly aggregation of pressure_psi by timestamp.",
+                "data": [
+                    {
+                        "date": "2026-02-01",
+                        "pressure_psi": 72830.4,
+                        "temperature_c": 41684.07
+                    },
+                    {
+                        "date": "2026-02-08",
+                        "pressure_psi": 204707.33,
+                        "temperature_c": 118015.84
+                    },
+                    {
+                        "date": "2026-02-15",
+                        "pressure_psi": 205461.48,
+                        "temperature_c": 117988.83
+                    },
+                    {
+                        "date": "2026-02-22",
+                        "pressure_psi": 205089.28,
+                        "temperature_c": 117933.35
+                    },
+                    {
+                        "date": "2026-03-01",
+                        "pressure_psi": 23826.85,
+                        "temperature_c": 13928.15
+                    }
+                ],
+                "x_axis": {
+                    "key": "date",
+                    "label": "date"
+                },
+                "y_axis": {
+                    "label": ""
+                },
+                "series": [
+                    {
+                        "key": "pressure_psi",
+                        "name": "Pressure Psi",
+                        "color": "#2563EB",
+                        "dot": false
+                    },
+                    {
+                        "key": "temperature_c",
+                        "name": "Temperature C",
+                        "color": "#16A34A",
+                        "dot": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": true,
+                "grid": true,
+                "section": "fleet"
+            }
+        ]
+    },
+    "maintenance": {
+        "kpis": [],
+        "statistics": {
+            "predicted_failure_window_hr": {
+                "count": 7000.0,
+                "mean": 38.653,
+                "std": 19.354,
+                "min": 6.0,
+                "25%": 22.0,
+                "50%": 39.0,
+                "75%": 55.0,
+                "max": 72.0,
+                "skewness": -0.007,
+                "kurtosis": -1.207
+            }
+        },
+        "outliers": [
+            {
+                "column": "predicted_failure_window_hr",
+                "method": "iqr",
+                "outlier_count": 0,
+                "samples": []
+            }
+        ],
+        "trends": [
+            {
+                "date_column": "generated_time",
+                "value_column": "predicted_failure_window_hr",
+                "direction": "stable",
+                "r_squared": 0.007,
+                "slope": null
+            }
+        ],
+        "charts": [
+            {
+                "chart_type": "BarChart",
+                "library": "recharts",
+                "title": "Top 10 Recommendation Id by Predicted Failure Window Hr",
+                "description": "Ranked by predicted_failure_window_hr (mean, descending).",
+                "data": [
+                    {
+                        "rank": 1,
+                        "recommendation_id": "0e1e82e6-70d0-441d-a973-49bf00b8a246",
+                        "predicted_failure_window_hr": 72.0
+                    },
+                    {
+                        "rank": 2,
+                        "recommendation_id": "86db4c99-aa5e-44a8-a0ad-0306375da9b3",
+                        "predicted_failure_window_hr": 72.0
+                    },
+                    {
+                        "rank": 3,
+                        "recommendation_id": "0ea599fc-c630-48ca-a8d8-cb8ac3aa271e",
+                        "predicted_failure_window_hr": 72.0
+                    },
+                    {
+                        "rank": 4,
+                        "recommendation_id": "788dd20c-80ca-40c0-9e48-5b063902b3d8",
+                        "predicted_failure_window_hr": 72.0
+                    },
+                    {
+                        "rank": 5,
+                        "recommendation_id": "b82015c9-8c1d-4793-b18a-9fc641142d10",
+                        "predicted_failure_window_hr": 72.0
+                    },
+                    {
+                        "rank": 6,
+                        "recommendation_id": "bccd6149-7da9-41ef-a506-e2ce1640980e",
+                        "predicted_failure_window_hr": 72.0
+                    },
+                    {
+                        "rank": 7,
+                        "recommendation_id": "cc13fdfa-4a83-44a2-8157-25281928f104",
+                        "predicted_failure_window_hr": 72.0
+                    },
+                    {
+                        "rank": 8,
+                        "recommendation_id": "d3271ace-1d98-4078-8001-8a2e5646a57d",
+                        "predicted_failure_window_hr": 72.0
+                    },
+                    {
+                        "rank": 9,
+                        "recommendation_id": "d8e031ac-b7a5-4d2d-b660-409290db1938",
+                        "predicted_failure_window_hr": 72.0
+                    },
+                    {
+                        "rank": 10,
+                        "recommendation_id": "c6d58b2b-c064-4e49-94fc-aa00116e4d17",
+                        "predicted_failure_window_hr": 72.0
+                    }
+                ],
+                "layout": "vertical",
+                "x_axis": {
+                    "key": "recommendation_id",
+                    "label": "recommendation_id"
+                },
+                "y_axis": {
+                    "label": "Predicted Failure Window Hr"
+                },
+                "series": [
+                    {
+                        "key": "predicted_failure_window_hr",
+                        "name": "Predicted Failure Window Hr",
+                        "color": "#2563EB",
+                        "stacked": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": false,
+                "grid": true,
+                "section": "maintenance"
+            },
+            {
+                "chart_type": "LineChart",
+                "library": "recharts",
+                "title": "Predicted Failure Window Hr Over Time (W)",
+                "description": "Weekly aggregation of predicted_failure_window_hr by generated_time.",
+                "data": [
+                    {
+                        "date": "2026-02-01",
+                        "predicted_failure_window_hr": 30295
+                    },
+                    {
+                        "date": "2026-02-08",
+                        "predicted_failure_window_hr": 70394
+                    },
+                    {
+                        "date": "2026-02-15",
+                        "predicted_failure_window_hr": 77790
+                    },
+                    {
+                        "date": "2026-02-22",
+                        "predicted_failure_window_hr": 81354
+                    },
+                    {
+                        "date": "2026-03-01",
+                        "predicted_failure_window_hr": 10739
+                    }
+                ],
+                "x_axis": {
+                    "key": "date",
+                    "label": "date"
+                },
+                "y_axis": {
+                    "label": ""
+                },
+                "series": [
+                    {
+                        "key": "predicted_failure_window_hr",
+                        "name": "Predicted Failure Window Hr",
+                        "color": "#2563EB",
+                        "dot": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": false,
+                "grid": true,
+                "section": "maintenance"
+            }
+        ]
+    },
+    "kpis": {
+        "kpis": [],
+        "statistics": {},
+        "outliers": [],
+        "trends": [],
+        "charts": []
+    },
+    "load_and_tonnage": {
+        "kpis": [
+            {
+                "name": "total_tonnes_moved",
+                "value": 220.22,
+                "unit": "t"
+            },
+            {
+                "name": "payload_accuracy",
+                "value": 20.19,
+                "unit": "%"
+            }
+        ],
+        "statistics": {
+            "tonnage": {
+                "count": 7000.0,
+                "mean": 220.22,
+                "std": 18.064,
+                "min": 149.54,
+                "25%": 207.95,
+                "50%": 220.4,
+                "75%": 232.395,
+                "max": 300.62,
+                "skewness": 0.008,
+                "kurtosis": 0.067
+            }
+        },
+        "outliers": [
+            {
+                "column": "tonnage",
+                "method": "iqr",
+                "outlier_count": 55,
+                "samples": [
+                    {
+                        "cycle_id": "c0ec86aa-5369-4677-acfc-af436149e261",
+                        "tonnage": 269.22
+                    },
+                    {
+                        "cycle_id": "adb7fe5b-1453-4720-b545-2333ff246e1f",
+                        "tonnage": 170.66
+                    },
+                    {
+                        "cycle_id": "b6ca1f6c-33b2-469b-80d7-28063a67084d",
+                        "tonnage": 276.48
+                    },
+                    {
+                        "cycle_id": "12bc8ee0-7e3f-413f-b68e-3c37a1e28d66",
+                        "tonnage": 278.38
+                    },
+                    {
+                        "cycle_id": "1ec53cad-f4a1-46a8-9db1-625a43782a1e",
+                        "tonnage": 275.38
+                    }
+                ]
+            }
+        ],
+        "trends": [
+            {
+                "date_column": "load_start_time",
+                "value_column": "tonnage",
+                "direction": "stable",
+                "r_squared": 0.556,
+                "slope": null
+            }
+        ],
+        "charts": [
+            {
+                "chart_type": "KPICards",
+                "library": "custom",
+                "title": "Load And Tonnage KPIs",
+                "description": "Aggregated KPIs for the load and tonnage section.",
+                "cards": [
+                    {
+                        "label": "Total Tonnes Moved",
+                        "value": 220.22,
+                        "unit": "t"
+                    },
+                    {
+                        "label": "Payload Accuracy",
+                        "value": 20.19,
+                        "unit": "%"
+                    }
+                ],
+                "section": "load_and_tonnage"
+            },
+            {
+                "chart_type": "BarChart",
+                "library": "recharts",
+                "title": "Top 10 Cycle Id by Tonnage",
+                "description": "Ranked by tonnage (mean, descending).",
+                "data": [
+                    {
+                        "rank": 1,
+                        "cycle_id": "67bf593b-721f-406d-955d-94f4a223b15b",
+                        "tonnage": 300.62
+                    },
+                    {
+                        "rank": 2,
+                        "cycle_id": "c7b6c87d-4d46-4ba8-9722-97a6e1899559",
+                        "tonnage": 283.79
+                    },
+                    {
+                        "rank": 3,
+                        "cycle_id": "a603d189-a15a-4a1e-a498-11fdfd9c8b28",
+                        "tonnage": 283.65
+                    },
+                    {
+                        "rank": 4,
+                        "cycle_id": "5ef22b7a-66a7-429e-8095-bb51d210bc92",
+                        "tonnage": 283.32
+                    },
+                    {
+                        "rank": 5,
+                        "cycle_id": "fb909d89-f7c9-4d5e-8e27-49e983bc97a7",
+                        "tonnage": 282.47
+                    },
+                    {
+                        "rank": 6,
+                        "cycle_id": "63a8b15b-ba6a-426d-b4be-6645ba8cc20b",
+                        "tonnage": 281.38
+                    },
+                    {
+                        "rank": 7,
+                        "cycle_id": "12bc8ee0-7e3f-413f-b68e-3c37a1e28d66",
+                        "tonnage": 278.38
+                    },
+                    {
+                        "rank": 8,
+                        "cycle_id": "76131883-4cae-4d93-8a61-063b2d23ab76",
+                        "tonnage": 276.83
+                    },
+                    {
+                        "rank": 9,
+                        "cycle_id": "c2545745-1d7d-4c98-bde2-5b05fbf66910",
+                        "tonnage": 276.61
+                    },
+                    {
+                        "rank": 10,
+                        "cycle_id": "b6ca1f6c-33b2-469b-80d7-28063a67084d",
+                        "tonnage": 276.48
+                    }
+                ],
+                "layout": "vertical",
+                "x_axis": {
+                    "key": "cycle_id",
+                    "label": "cycle_id"
+                },
+                "y_axis": {
+                    "label": "Tonnage"
+                },
+                "series": [
+                    {
+                        "key": "tonnage",
+                        "name": "Tonnage",
+                        "color": "#2563EB",
+                        "stacked": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": false,
+                "grid": true,
+                "section": "load_and_tonnage"
+            },
+            {
+                "chart_type": "LineChart",
+                "library": "recharts",
+                "title": "Tonnage Over Time (W)",
+                "description": "Weekly aggregation of tonnage by load_start_time.",
+                "data": [
+                    {
+                        "date": "2026-02-01",
+                        "tonnage": 158303.16,
+                        "ore_grade": 1078.79
+                    },
+                    {
+                        "date": "2026-02-08",
+                        "tonnage": 443689.91,
+                        "ore_grade": 3032.97
+                    },
+                    {
+                        "date": "2026-02-15",
+                        "tonnage": 443487.41,
+                        "ore_grade": 3034.46
+                    },
+                    {
+                        "date": "2026-02-22",
+                        "tonnage": 444202.81,
+                        "ore_grade": 3030.31
+                    },
+                    {
+                        "date": "2026-03-01",
+                        "tonnage": 51859.68,
+                        "ore_grade": 351.2
+                    }
+                ],
+                "x_axis": {
+                    "key": "date",
+                    "label": "date"
+                },
+                "y_axis": {
+                    "label": ""
+                },
+                "series": [
+                    {
+                        "key": "tonnage",
+                        "name": "Tonnage",
+                        "color": "#2563EB",
+                        "dot": false
+                    },
+                    {
+                        "key": "ore_grade",
+                        "name": "Ore Grade",
+                        "color": "#16A34A",
+                        "dot": false
+                    }
+                ],
+                "tooltip": true,
+                "legend": true,
+                "grid": true,
+                "section": "load_and_tonnage"
+            }
+        ]
+    },
+    "fuel": {
+        "kpis": [],
+        "statistics": {},
+        "outliers": [],
+        "trends": [],
+        "charts": []
+    },
+    "gps_location": {
+        "kpis": [],
+        "statistics": {},
+        "outliers": [],
+        "trends": [],
+        "charts": []
+    },
+    "safety": {
+        "kpis": [],
+        "statistics": {},
+        "outliers": [],
+        "trends": [],
+        "charts": []
+    }
+}
