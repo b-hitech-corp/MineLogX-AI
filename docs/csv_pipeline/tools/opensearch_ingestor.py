@@ -270,6 +270,9 @@ def _embed_texts(bedrock_rt, texts: list[str]) -> list[list[float]]:
         "texts":      texts,
         "input_type": _EMBED_INPUT_TYPE_DOC,
         "truncate":   "END",
+        # Cohere Embed v4 defaults to 1536 dims; pin to the index's dimension
+        # (cfg.output_dimension, 1024) or the knn_vector mapping rejects the doc.
+        "output_dimension": cfg.output_dimension,
     }
     if embed_type == "int8":
         body["embedding_types"] = ["int8"]
