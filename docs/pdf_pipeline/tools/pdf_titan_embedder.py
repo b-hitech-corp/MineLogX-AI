@@ -100,6 +100,12 @@ def embed_section(
                 continue
             raise RuntimeError(f"Titan invoke_model failed: {exc}") from exc
 
+        except ValueError:
+            # Validation failures (empty / wrong-dimension embedding) are
+            # caller-facing contract errors — propagate as ValueError, never
+            # wrap as RuntimeError or retry.
+            raise
+
         except Exception as exc:
             raise RuntimeError(f"Titan embedding failed: {exc}") from exc
 
