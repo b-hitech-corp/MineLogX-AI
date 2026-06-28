@@ -64,6 +64,8 @@ _CLASSIFY_TOOL = {
         "Use 'low' or 'medium' for standard forms, templates, or lightly formatted documents."
     ),
     "inputSchema": {
+        # Converse requires the schema wrapped under a "json" key (ToolInputSchema union).
+        "json": {
         "type": "object",
         "properties": {
             "complexity": {
@@ -86,6 +88,7 @@ _CLASSIFY_TOOL = {
             },
         },
         "required": ["complexity", "confidence", "reasoning"],
+        },
     },
 }
 
@@ -143,53 +146,33 @@ def _estimate_page_count(
     return 0
 
 
-def _sample_avg_chars(
+def _fetch_first_page_text(
     bucket: str,
     key: str,
     s3_client: Any,
-    sample_bytes: int = 65536,  # 64 KB
-) -> float:
-    """Extract first-page text from the first 64KB and compute avg chars/page.
+) -> str:
+    """Return page-1 plain text by downloading the FULL PDF.
 
-    Uses PyMuPDF in-memory on the sample bytes. Returns 0.0 on failure.
+    A PDF cannot be parsed from a byte *prefix*: its cross-reference table lives
+    at the END of the file and page content streams may sit anywhere, so a
+    leading-range read yields a truncated, unparseable document and PyMuPDF
+    extracts no text. We therefore fetch the whole object (these legislation
+    documents are only a few MB) and let PyMuPDF resolve page 1.
+
+    Returns "" on failure (an empty result then routes through the Haiku
+    signal / safe default rather than crashing).
     """
     try:
-        resp = s3_client.get_object(
-            Bucket=bucket, Key=key, Range=f"bytes=0-{sample_bytes - 1}"
-        )
-        sample = resp["Body"].read()
-        doc = fitz.open(stream=sample, filetype="pdf")
-        if len(doc) == 0:
-            return 0.0
-        first_page_text = doc[0].get_text("text")
-        doc.close()
-        return float(len(first_page_text.strip()))
-    except Exception:
-        logger.debug("Avg chars sampling failed for %s/%s", bucket, key, exc_info=True)
-        return 0.0
-
-
-def _extract_first_page_text(
-    bucket: str,
-    key: str,
-    s3_client: Any,
-    sample_bytes: int = 65536,
-) -> str:
-    """Return first-page plain text from the PDF sample for Haiku classification."""
-    try:
-        resp = s3_client.get_object(
-            Bucket=bucket, Key=key, Range=f"bytes=0-{sample_bytes - 1}"
-        )
-        sample = resp["Body"].read()
-        doc = fitz.open(stream=sample, filetype="pdf")
+        resp = s3_client.get_object(Bucket=bucket, Key=key)
+        data = resp["Body"].read()
+        doc = fitz.open(stream=data, filetype="pdf")
         if len(doc) == 0:
             return ""
-        text = doc[0].get_text("text").strip()
+        text = doc[0].get_text("text")
         doc.close()
-        # Truncate to ~3000 chars to keep Haiku prompt cost minimal
-        return text[:3000]
+        return text
     except Exception:
-        logger.debug("First-page extraction failed for %s/%s", bucket, key, exc_info=True)
+        logger.debug("First-page text extraction failed for %s/%s", bucket, key, exc_info=True)
         return ""
 
 
@@ -310,7 +293,10 @@ def classify(
         raise RuntimeError(f"Cannot read S3 object {bucket}/{key}: {exc}") from exc
 
     page_count = _estimate_page_count(bucket, key, s3, config.xref_tail_bytes)
-    avg_chars = _sample_avg_chars(bucket, key, s3)
+    # Extract page-1 text once (full download) and reuse for both Signal 1
+    # (char density) and Signal 3 (Haiku prompt) — avoids a second download.
+    first_page_text = _fetch_first_page_text(bucket, key, s3)
+    avg_chars = float(len(first_page_text.strip()))
 
     logger.info(
         "Classifying %s/%s | size=%.2f MB | pages≈%d | avg_chars/page≈%.0f",
@@ -386,9 +372,9 @@ def classify(
     # Signal 3: Claude Haiku (first page)
     # -----------------------------------------------------------------------
     logger.info("Signal 3: invoking Claude Haiku classifier")
-    first_page_text = _extract_first_page_text(bucket, key, s3)
     return _classify_with_haiku(
-        first_page_text=first_page_text,
+        # Truncate to ~3000 chars to keep the Haiku prompt cheap.
+        first_page_text=first_page_text[:3000],
         page_count=page_count,
         file_size_bytes=file_size_bytes,
         avg_chars=avg_chars,
