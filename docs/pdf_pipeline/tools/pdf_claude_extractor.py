@@ -60,24 +60,55 @@ class ClaudeExtractionResult:
 _BASE_EXTRACTION_PROMPT = """\
 You are a legal document analyst specializing in mining, environmental, and safety regulatory documents.
 
-Extract every distinct section from this regulatory PDF as a structured JSON array.
-
-For each section, produce an object with exactly these fields:
-  "title"      : The exact section heading as it appears in the document (string).
-  "body"       : The complete verbatim text of the section, preserving all sub-clauses,
-                 numbered lists, tables (as pipe-delimited text), and schedules (string).
-  "page_start" : The page number where this section begins, 1-based (integer).
-  "page_end"   : The page number where this section ends, inclusive, 1-based (integer).
+Read the attached regulatory PDF and extract EVERY distinct section, then return them by
+calling the emit_sections tool. For each section provide:
+  title      : the exact section heading as it appears in the document.
+  body       : the complete VERBATIM text of the section, preserving sub-clauses, numbered
+               lists, tables (as pipe-delimited rows), and schedules.
+  page_start : 1-based page where the section begins.
+  page_end   : 1-based inclusive page where the section ends.
 
 Rules:
-  - Do NOT summarize. Return the complete verbatim text of every section.
-  - Do NOT merge adjacent sections. Each heading in the document = one entry.
-  - Sub-sections must be included within their parent section's body, not as separate entries.
-  - Tables: represent as pipe-delimited rows within the body text.
+  - Do NOT summarize; return the complete verbatim text of every section.
+  - Do NOT merge adjacent sections — each heading is its own entry.
+  - Sub-sections belong inside their parent section's body, not as separate entries.
   - If a page number cannot be determined, use your best estimate.
 
-Output ONLY the JSON array. No explanation, no markdown fencing, no preamble.\
+Call emit_sections exactly once, with every section in document order.\
 """
+
+# Forced-tool-use schema for reliable structured output. Returning sections through a tool
+# call (rather than a JSON string in free text) makes Bedrock serialize them as an
+# already-parsed object — eliminating the markdown-fence / unescaped-quote parse failures
+# that legal text triggers (e.g. bodies containing 'the ("Act")' or '[Chapter 21:05]').
+_EXTRACT_TOOL = {
+    "toolSpec": {
+        "name": "emit_sections",
+        "description": "Return every distinct section extracted from the regulatory PDF, in document order.",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "required": ["sections"],
+                "properties": {
+                    "sections": {
+                        "type": "array",
+                        "description": "One entry per section/heading in the document, in reading order.",
+                        "items": {
+                            "type": "object",
+                            "required": ["title", "body", "page_start", "page_end"],
+                            "properties": {
+                                "title":      {"type": "string", "description": "Exact section heading as it appears in the document."},
+                                "body":       {"type": "string", "description": "Complete verbatim section text incl. sub-clauses, numbered lists, pipe-delimited tables, and schedules."},
+                                "page_start": {"type": "integer", "description": "1-based page where the section begins."},
+                                "page_end":   {"type": "integer", "description": "1-based inclusive page where the section ends."},
+                            },
+                        },
+                    }
+                },
+            }
+        },
+    }
+}
 
 _CARRY_OVER_TEMPLATE = """\
 [Context from previous batch]
@@ -200,7 +231,15 @@ def _call_claude(
     config: PdfPipelineConfig,
     bedrock_client: Any,
 ) -> tuple[list[dict], int, int]:
-    """Single Bedrock Converse call. Returns (raw_sections, input_tokens, output_tokens)."""
+    """Single Bedrock Converse call using forced tool use.
+
+    Returns (raw_sections, input_tokens, output_tokens). The emit_sections tool is forced
+    via toolChoice, so Claude returns the sections as parsed JSON in toolUse.input rather
+    than as a free-text JSON string — robust against quotes/brackets in legal text.
+    (Citations are not used on this path: forcing a tool suppresses text generation, and
+    citations are a property of generated text, so the two cannot combine. Page-level
+    provenance is retained via each section's page_start/page_end.)
+    """
     prompt = _build_extraction_prompt(context_note)
 
     content_blocks: list[dict] = [
@@ -209,7 +248,6 @@ def _call_claude(
                 "format": "pdf",
                 "name": doc_name,
                 "source": {"bytes": pdf_bytes},
-                "citations": {"enabled": config.citations_enabled},
             }
         },
         {"text": prompt},
@@ -218,6 +256,10 @@ def _call_claude(
     response = bedrock_client.converse(
         modelId=config.claude_model_id,
         messages=[{"role": "user", "content": content_blocks}],
+        toolConfig={
+            "tools": [_EXTRACT_TOOL],
+            "toolChoice": {"tool": {"name": "emit_sections"}},
+        },
         inferenceConfig={
             "maxTokens": config.claude_max_tokens,
             "temperature": 0.0,
@@ -227,19 +269,50 @@ def _call_claude(
     input_tokens = response.get("usage", {}).get("inputTokens", 0)
     output_tokens = response.get("usage", {}).get("outputTokens", 0)
 
-    response_text, citations = _extract_response_text_and_citations(response)
-    raw_sections = _parse_claude_sections(response_text)
-
-    # Attach top-level citations to the last section if parsing returned sections
-    # but the Citations API returned aggregated citations at the response level
-    if citations and raw_sections:
-        raw_sections[-1].setdefault("citations", []).extend(citations)
+    raw_sections = _extract_tool_sections(response)
 
     logger.info(
         "Claude call complete | %d sections | %d input tokens | %d output tokens",
         len(raw_sections), input_tokens, output_tokens,
     )
     return raw_sections, input_tokens, output_tokens
+
+
+def _extract_tool_sections(response: dict) -> list[dict]:
+    """Pull the sections list from the forced emit_sections tool call.
+
+    Bedrock returns the array as already-parsed JSON in toolUse.input — no markdown fences
+    or escaping to recover from. Falls back to the legacy text parser only if (unexpectedly)
+    no tool block is present.
+    """
+    message = response.get("output", {}).get("message", {})
+    for block in message.get("content", []):
+        tool_use = block.get("toolUse")
+        if tool_use and tool_use.get("name") == "emit_sections":
+            inp = tool_use.get("input", {})
+            sections = inp.get("sections", []) if isinstance(inp, dict) else []
+            # Happy path: the model returned a native array.
+            if isinstance(sections, list):
+                return sections
+            # Known Claude quirk: large/complex array values come back as a JSON
+            # *string* — and that string can carry unescaped quotes from the source
+            # text (e.g. '("Act")'), so parse it tolerantly (json -> regex -> repair).
+            if isinstance(sections, str):
+                logger.warning(
+                    "emit_sections returned a stringified array (%d chars); parsing tolerantly",
+                    len(sections),
+                )
+                return _parse_claude_sections(sections)
+            return []
+
+    # Defensive fallback: if no tool block came back, try parsing any text content.
+    text, _ = _extract_response_text_and_citations(response)
+    if text.strip():
+        logger.warning("No emit_sections tool block in response; falling back to text JSON parse")
+        return _parse_claude_sections(text)
+
+    logger.error("Claude returned neither an emit_sections tool call nor parseable text")
+    return []
 
 
 # ---------------------------------------------------------------------------
