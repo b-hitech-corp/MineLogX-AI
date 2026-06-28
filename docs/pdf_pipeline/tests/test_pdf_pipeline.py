@@ -157,8 +157,8 @@ class TestClassifier:
     def test_signal1_scanned_low_chars(self, config):
         """avg_chars < threshold → immediate simple classification via heuristic"""
         with (
-            patch("tools.pdf_classifier._estimate_page_count", return_value=20),
-            patch("tools.pdf_classifier._sample_avg_chars", return_value=50.0),
+            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=20),
+            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="x" * 50),
         ):
             s3 = self._make_s3()
             bedrock = MagicMock()
@@ -172,8 +172,8 @@ class TestClassifier:
     def test_signal2_complex_legal_tag(self, config):
         """S3 tag 'mining_regulation' → complex_legal, no Haiku call"""
         with (
-            patch("tools.pdf_classifier._estimate_page_count", return_value=30),
-            patch("tools.pdf_classifier._sample_avg_chars", return_value=800.0),
+            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=30),
+            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="x" * 800),
         ):
             s3 = self._make_s3(tag_value="mining_regulation")
             bedrock = MagicMock()
@@ -187,8 +187,8 @@ class TestClassifier:
     def test_signal2_simple_tag(self, config):
         """S3 tag 'scanned_form' → simple, no Haiku call"""
         with (
-            patch("tools.pdf_classifier._estimate_page_count", return_value=5),
-            patch("tools.pdf_classifier._sample_avg_chars", return_value=800.0),
+            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=5),
+            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="x" * 800),
         ):
             s3 = self._make_s3(tag_value="scanned_form")
             bedrock = MagicMock()
@@ -200,9 +200,8 @@ class TestClassifier:
     def test_signal3_haiku_high_confidence(self, config):
         """Haiku returns high complexity + high confidence → complex_legal"""
         with (
-            patch("tools.pdf_classifier._estimate_page_count", return_value=25),
-            patch("tools.pdf_classifier._sample_avg_chars", return_value=600.0),
-            patch("tools.pdf_classifier._extract_first_page_text", return_value="Part 1 Preliminary..."),
+            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=25),
+            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="Part 1 Preliminary " + "x" * 600),
         ):
             s3 = self._make_s3()
             bedrock = self._make_bedrock(complexity="high", confidence=0.92)
@@ -214,9 +213,8 @@ class TestClassifier:
     def test_signal3_haiku_low_confidence_safe_default(self, config):
         """Haiku returns low confidence → safe-default to complex_legal"""
         with (
-            patch("tools.pdf_classifier._estimate_page_count", return_value=25),
-            patch("tools.pdf_classifier._sample_avg_chars", return_value=600.0),
-            patch("tools.pdf_classifier._extract_first_page_text", return_value="Some content"),
+            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=25),
+            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="Some content " + "x" * 600),
         ):
             s3 = self._make_s3()
             bedrock = self._make_bedrock(complexity="low", confidence=0.4)
@@ -229,9 +227,8 @@ class TestClassifier:
     def test_signal3_haiku_low_complexity_high_confidence(self, config):
         """Haiku returns low complexity + high confidence → simple"""
         with (
-            patch("tools.pdf_classifier._estimate_page_count", return_value=5),
-            patch("tools.pdf_classifier._sample_avg_chars", return_value=600.0),
-            patch("tools.pdf_classifier._extract_first_page_text", return_value="Standard form"),
+            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=5),
+            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="Standard form " + "x" * 600),
         ):
             s3 = self._make_s3()
             bedrock = self._make_bedrock(complexity="low", confidence=0.9)
@@ -349,14 +346,15 @@ class TestClaudeExtractor:
 
     def test_extract_with_claude_mocked(self, config):
         """Full extract_with_claude() call with mocked Bedrock response."""
-        raw_response = json.dumps([
+        sections = [
             {"title": "Part 1", "body": "Preliminary provisions.", "page_start": 1, "page_end": 3},
             {"title": "Part 2", "body": "Licensing requirements.", "page_start": 4, "page_end": 12},
-        ])
-
+        ]
         mock_bedrock = MagicMock()
         mock_bedrock.converse.return_value = {
-            "output": {"message": {"content": [{"text": raw_response}]}},
+            "output": {"message": {"content": [
+                {"toolUse": {"name": "emit_sections", "input": {"sections": sections}}}
+            ]}},
             "usage": {"inputTokens": 1500, "outputTokens": 800},
         }
 
@@ -379,12 +377,12 @@ class TestClaudeExtractor:
 
     def test_extract_with_claude_page_offset(self, config):
         """Page offsets from mini-batch are added to extracted page numbers."""
-        raw_response = json.dumps([
-            {"title": "Part 3", "body": "Content.", "page_start": 1, "page_end": 5},
-        ])
+        sections = [{"title": "Part 3", "body": "Content.", "page_start": 1, "page_end": 5}]
         mock_bedrock = MagicMock()
         mock_bedrock.converse.return_value = {
-            "output": {"message": {"content": [{"text": raw_response}]}},
+            "output": {"message": {"content": [
+                {"toolUse": {"name": "emit_sections", "input": {"sections": sections}}}
+            ]}},
             "usage": {"inputTokens": 100, "outputTokens": 50},
         }
 
@@ -561,9 +559,9 @@ class TestOpenSearchIngestor:
 
         mock_client = MagicMock()
         mock_client.indices.exists.return_value = True
-        mock_client.mget.return_value = {"docs": [{"_id": "x", "found": False}] * len(sample_sections)}
+        mock_client.delete_by_query.return_value = {"deleted": 0}
 
-        with patch("tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])) as mock_bulk:
+        with patch("pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])) as mock_bulk:
             result = ingest_sections(
                 sections_with_embeddings=embeddings,
                 config=config,
@@ -575,18 +573,15 @@ class TestOpenSearchIngestor:
         assert result.documents_failed == 0
         mock_bulk.assert_called_once()
 
-    def test_ingest_skips_already_indexed(self, config, sample_sections):
+    def test_ingest_deletes_existing_before_indexing(self, config, sample_sections):
+        """NextGen dedup: prior sections of the source doc are deleted, then re-indexed."""
         embeddings = [(s, [0.1] * 1024) for s in sample_sections]
-        all_ids = [s.section_id for s in sample_sections]
 
         mock_client = MagicMock()
         mock_client.indices.exists.return_value = True
-        # Both sections already exist
-        mock_client.mget.return_value = {
-            "docs": [{"_id": sid, "found": True} for sid in all_ids]
-        }
+        mock_client.delete_by_query.return_value = {"deleted": 2}
 
-        with patch("tools.pdf_opensearch_ingestor.os_bulk") as mock_bulk:
+        with patch("pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])) as mock_bulk:
             result = ingest_sections(
                 sections_with_embeddings=embeddings,
                 config=config,
@@ -594,17 +589,19 @@ class TestOpenSearchIngestor:
                 force=False,
             )
 
-        assert result.documents_skipped == 2
-        assert result.documents_indexed == 0
-        mock_bulk.assert_not_called()
+        # delete-before-index ran for the document's source_key, then bulk indexed.
+        mock_client.delete_by_query.assert_called()
+        mock_bulk.assert_called_once()
+        assert result.documents_indexed == 2
 
     def test_ingest_force_overwrites(self, config, sample_sections):
         embeddings = [(s, [0.1] * 1024) for s in sample_sections]
 
         mock_client = MagicMock()
         mock_client.indices.exists.return_value = True
+        mock_client.delete_by_query.return_value = {"deleted": 0}
 
-        with patch("tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])):
+        with patch("pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])):
             result = ingest_sections(
                 sections_with_embeddings=embeddings,
                 config=config,
@@ -612,9 +609,10 @@ class TestOpenSearchIngestor:
                 force=True,
             )
 
-        # force=True → mget is never called, nothing skipped
+        # No custom _id and no mget skip; everything is (re)indexed, nothing skipped.
         mock_client.mget.assert_not_called()
         assert result.documents_skipped == 0
+        assert result.documents_indexed == 2
 
 
 # ===========================================================================
@@ -637,11 +635,11 @@ class TestOrchestrator:
         classification = self._mock_classification(doc_class="simple", page_count=5)
 
         with (
-            patch("agent.pdf_vectorization_pipeline.classify", return_value=classification),
-            patch("agent.pdf_vectorization_pipeline._run_textract_path") as mock_textract,
-            patch("agent.pdf_vectorization_pipeline.embed_sections_batch") as mock_embed,
-            patch("agent.pdf_vectorization_pipeline.ingest_sections") as mock_ingest,
-            patch("agent.pdf_vectorization_pipeline.build_opensearch_client", return_value=MagicMock()),
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.classify", return_value=classification),
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline._run_textract_path") as mock_textract,
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.embed_sections_batch") as mock_embed,
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.ingest_sections") as mock_ingest,
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.build_opensearch_client", return_value=MagicMock()),
         ):
             mock_textract.return_value = (
                 [{"title": "S1", "body": "Sufficient body content here.", "page_start": 1, "page_end": 2}],
@@ -673,12 +671,12 @@ class TestOrchestrator:
         )
 
         with (
-            patch("agent.pdf_vectorization_pipeline.classify", return_value=classification),
-            patch("agent.pdf_vectorization_pipeline._download_pdf", return_value=b"%PDF-1.4"),
-            patch("agent.pdf_vectorization_pipeline._run_claude_single_path") as mock_claude,
-            patch("agent.pdf_vectorization_pipeline.embed_sections_batch") as mock_embed,
-            patch("agent.pdf_vectorization_pipeline.ingest_sections") as mock_ingest,
-            patch("agent.pdf_vectorization_pipeline.build_opensearch_client", return_value=MagicMock()),
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.classify", return_value=classification),
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline._download_pdf", return_value=b"%PDF-1.4"),
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline._run_claude_single_path") as mock_claude,
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.embed_sections_batch") as mock_embed,
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.ingest_sections") as mock_ingest,
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.build_opensearch_client", return_value=MagicMock()),
         ):
             mock_claude.return_value = (
                 [
@@ -710,7 +708,7 @@ class TestOrchestrator:
 
     def test_run_pipeline_classification_failure_returns_error(self, config):
         """Classification exception → pipeline returns error result, does not crash."""
-        with patch("agent.pdf_vectorization_pipeline.classify", side_effect=Exception("S3 error")):
+        with patch("pdf_pipeline.agent.pdf_vectorization_pipeline.classify", side_effect=Exception("S3 error")):
             result = run_pipeline("bucket", "key.pdf", config=config)
 
         assert result.sections_indexed == 0
@@ -721,10 +719,10 @@ class TestOrchestrator:
         """Extraction returns empty list → pipeline reports error gracefully."""
         classification = self._mock_classification()
         with (
-            patch("agent.pdf_vectorization_pipeline.classify", return_value=classification),
-            patch("agent.pdf_vectorization_pipeline._download_pdf", return_value=b"%PDF-1.4"),
-            patch("agent.pdf_vectorization_pipeline._run_claude_single_path") as mock_claude,
-            patch("agent.pdf_vectorization_pipeline.build_opensearch_client", return_value=MagicMock()),
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.classify", return_value=classification),
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline._download_pdf", return_value=b"%PDF-1.4"),
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline._run_claude_single_path") as mock_claude,
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.build_opensearch_client", return_value=MagicMock()),
         ):
             mock_claude.return_value = ([], "claude_native", 1, 0, 0)
             result = run_pipeline("bucket", "key.pdf", config=config)
@@ -761,7 +759,7 @@ class TestLambdaHandler:
 
         with (
             patch.dict(os.environ, {"OPENSEARCH_HOST": "test.aoss.example.com"}),
-            patch("agent.pdf_vectorization_pipeline.run_pipeline") as mock_run,
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.run_pipeline") as mock_run,
         ):
             mock_run.return_value = PdfPipelineResult(
                 file_key="legal/Mining Act (2023).pdf",
@@ -794,7 +792,7 @@ class TestLambdaHandler:
         env = {k: v for k, v in os.environ.items() if k != "OPENSEARCH_HOST"}
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("agent.pdf_vectorization_pipeline.run_pipeline", side_effect=ValueError("OPENSEARCH_HOST not set")),
+            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.run_pipeline", side_effect=ValueError("OPENSEARCH_HOST not set")),
         ):
             result = lambda_handler(event, None)
 

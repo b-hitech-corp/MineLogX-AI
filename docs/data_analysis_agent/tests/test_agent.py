@@ -25,21 +25,21 @@ FILE = "fleet_may_2024.csv"
 
 class TestFleetAgentInit:
     def test_ollama_model_receives_configured_endpoint(self):
-        with patch("agent.orchestrator.OllamaModel") as MockModel:
+        with patch("data_analysis_agent.agent.orchestrator.OllamaModel") as MockModel:
             FleetAgent()
             call_kwargs = MockModel.call_args.kwargs
             assert "host" in call_kwargs
             assert call_kwargs["host"].startswith("http://")
 
     def test_ollama_model_receives_configured_model(self):
-        with patch("agent.orchestrator.OllamaModel") as MockModel:
+        with patch("data_analysis_agent.agent.orchestrator.OllamaModel") as MockModel:
             FleetAgent()
             call_kwargs = MockModel.call_args.kwargs
             assert "model_id" in call_kwargs
             assert call_kwargs["model_id"] == settings.ollama.model
 
     def test_max_turns_from_settings(self):
-        with patch("agent.orchestrator.OllamaModel"):
+        with patch("data_analysis_agent.agent.orchestrator.OllamaModel"):
             agent = FleetAgent()
             assert agent.max_turns > 0
 
@@ -51,7 +51,7 @@ class TestFleetAgentInit:
 class TestFleetAgentRun:
     @pytest.fixture
     def fleet_agent(self):
-        with patch("agent.orchestrator.OllamaModel"):
+        with patch("data_analysis_agent.agent.orchestrator.OllamaModel"):
             return FleetAgent()
 
     def _mock_agent(self, MockAgent, response_text: str):
@@ -61,26 +61,26 @@ class TestFleetAgentRun:
         return instance
 
     def test_returns_agent_result_instance(self, fleet_agent):
-        with patch("agent.orchestrator.Agent") as MockAgent:
+        with patch("data_analysis_agent.agent.orchestrator.Agent") as MockAgent:
             self._mock_agent(MockAgent, "Fleet analysis complete.")
             result = fleet_agent.run("Summarise fleet performance")
             assert isinstance(result, AgentResult)
 
     def test_summary_is_model_response(self, fleet_agent):
-        with patch("agent.orchestrator.Agent") as MockAgent:
+        with patch("data_analysis_agent.agent.orchestrator.Agent") as MockAgent:
             self._mock_agent(MockAgent, "Top vehicle is V003 with 8.1 km/L.")
             result = fleet_agent.run("Who is the most fuel-efficient vehicle?")
             assert result.summary == "Top vehicle is V003 with 8.1 km/L."
 
     def test_charts_empty_when_no_chart_tools_called(self, fleet_agent):
-        with patch("agent.orchestrator.Agent") as MockAgent:
+        with patch("data_analysis_agent.agent.orchestrator.Agent") as MockAgent:
             self._mock_agent(MockAgent, "There are 12 vehicles.")
             result = fleet_agent.run("How many vehicles are in the fleet?")
             assert result.charts == []
 
     def test_run_resets_charts_from_previous_run(self, fleet_agent):
         orch._run_charts = [{"chart_type": "LineChart", "title": "Stale chart"}]
-        with patch("agent.orchestrator.Agent") as MockAgent:
+        with patch("data_analysis_agent.agent.orchestrator.Agent") as MockAgent:
             self._mock_agent(MockAgent, "Done.")
             result = fleet_agent.run("Any question")
             assert result.charts == []
@@ -92,7 +92,7 @@ class TestFleetAgentRun:
             orch._run_charts.append(fake_spec)
             return "Here is the bar chart."
 
-        with patch("agent.orchestrator.Agent") as MockAgent:
+        with patch("data_analysis_agent.agent.orchestrator.Agent") as MockAgent:
             instance = MagicMock()
             instance.side_effect = side_effect
             MockAgent.return_value = instance
@@ -112,7 +112,7 @@ class TestFleetAgentRun:
             orch._run_charts.extend(specs)
             return "Two charts built."
 
-        with patch("agent.orchestrator.Agent") as MockAgent:
+        with patch("data_analysis_agent.agent.orchestrator.Agent") as MockAgent:
             instance = MagicMock()
             instance.side_effect = side_effect
             MockAgent.return_value = instance
@@ -122,14 +122,14 @@ class TestFleetAgentRun:
         assert len(result.charts) == 2
 
     def test_agent_receives_system_prompt(self, fleet_agent):
-        with patch("agent.orchestrator.Agent") as MockAgent:
+        with patch("data_analysis_agent.agent.orchestrator.Agent") as MockAgent:
             self._mock_agent(MockAgent, "Done.")
             fleet_agent.run("Any question")
             _, kwargs = MockAgent.call_args
             assert len(kwargs.get("system_prompt", "")) > 0
 
     def test_agent_receives_full_tool_list(self, fleet_agent):
-        with patch("agent.orchestrator.Agent") as MockAgent:
+        with patch("data_analysis_agent.agent.orchestrator.Agent") as MockAgent:
             self._mock_agent(MockAgent, "Done.")
             fleet_agent.run("Any question")
             _, kwargs = MockAgent.call_args
@@ -145,13 +145,13 @@ class TestFleetAgentRun:
             orch._run_charts.append({"chart_type": "PieChart", "title": "First run"})
             return "First."
 
-        with patch("agent.orchestrator.Agent") as MockAgent:
+        with patch("data_analysis_agent.agent.orchestrator.Agent") as MockAgent:
             instance = MagicMock()
             instance.side_effect = side_effect_first
             MockAgent.return_value = instance
             fleet_agent.run("First question")
 
-        with patch("agent.orchestrator.Agent") as MockAgent:
+        with patch("data_analysis_agent.agent.orchestrator.Agent") as MockAgent:
             self._mock_agent(MockAgent, "Second.")
             result = fleet_agent.run("Second question")
 
@@ -238,7 +238,7 @@ class TestToolWrappers:
     """Each @tool wrapper must delegate to its underlying tool module function."""
 
     def test_csv_loader_delegates(self):
-        with patch("agent.orchestrator.csv_loader.load_csv", return_value={"row_count": 15}) as mock_fn:
+        with patch("data_analysis_agent.agent.orchestrator.csv_loader.load_csv", return_value={"row_count": 15}) as mock_fn:
             result = orch.csv_loader__load_csv(file_path=FILE, use_local_fallback=True)
             mock_fn.assert_called_once_with(
                 file_path=FILE,
@@ -248,7 +248,7 @@ class TestToolWrappers:
             assert result["row_count"] == 15
 
     def test_kpi_calculate_delegates(self):
-        with patch("agent.orchestrator.kpi_engine.calculate_kpi", return_value={"kpis": {}}) as mock_fn:
+        with patch("data_analysis_agent.agent.orchestrator.kpi_engine.calculate_kpi", return_value={"kpis": {}}) as mock_fn:
             orch.kpi_engine__calculate_kpi(file_path=FILE, kpi_names=["fuel_efficiency"])
             mock_fn.assert_called_once_with(
                 file_path=FILE,
@@ -258,17 +258,17 @@ class TestToolWrappers:
             )
 
     def test_kpi_available_delegates(self):
-        with patch("agent.orchestrator.kpi_engine.available_kpis", return_value={"available_kpis": []}) as mock_fn:
+        with patch("data_analysis_agent.agent.orchestrator.kpi_engine.available_kpis", return_value={"available_kpis": []}) as mock_fn:
             orch.kpi_engine__available_kpis()
             mock_fn.assert_called_once()
 
     def test_describe_columns_delegates(self):
-        with patch("agent.orchestrator.stats_analyzer.describe_columns", return_value={}) as mock_fn:
+        with patch("data_analysis_agent.agent.orchestrator.stats_analyzer.describe_columns", return_value={}) as mock_fn:
             orch.stats_analyzer__describe_columns(file_path=FILE)
             mock_fn.assert_called_once_with(file_path=FILE, columns=None)
 
     def test_rank_entities_delegates(self):
-        with patch("agent.orchestrator.stats_analyzer.rank_entities", return_value={}) as mock_fn:
+        with patch("data_analysis_agent.agent.orchestrator.stats_analyzer.rank_entities", return_value={}) as mock_fn:
             orch.stats_analyzer__rank_entities(
                 file_path=FILE, metric_column="fuel_litres", entity_column="vehicle_id"
             )
@@ -282,7 +282,7 @@ class TestToolWrappers:
             )
 
     def test_detect_outliers_delegates(self):
-        with patch("agent.orchestrator.insight_extractor.detect_outliers", return_value={}) as mock_fn:
+        with patch("data_analysis_agent.agent.orchestrator.insight_extractor.detect_outliers", return_value={}) as mock_fn:
             orch.insight_extractor__detect_outliers(file_path=FILE, column="idle_hours")
             mock_fn.assert_called_once_with(
                 file_path=FILE,
@@ -293,7 +293,7 @@ class TestToolWrappers:
             )
 
     def test_detect_trend_delegates(self):
-        with patch("agent.orchestrator.insight_extractor.detect_trend", return_value={}) as mock_fn:
+        with patch("data_analysis_agent.agent.orchestrator.insight_extractor.detect_trend", return_value={}) as mock_fn:
             orch.insight_extractor__detect_trend(
                 file_path=FILE, date_column="date", value_column="distance_km"
             )
@@ -306,12 +306,12 @@ class TestToolWrappers:
 
     def test_check_thresholds_delegates(self):
         rules = [{"column": "idle_hours", "operator": ">", "value": 2.0}]
-        with patch("agent.orchestrator.insight_extractor.check_thresholds", return_value={}) as mock_fn:
+        with patch("data_analysis_agent.agent.orchestrator.insight_extractor.check_thresholds", return_value={}) as mock_fn:
             orch.insight_extractor__check_thresholds(file_path=FILE, rules=rules)
             mock_fn.assert_called_once_with(file_path=FILE, rules=rules)
 
     def test_fleet_performance_summary_delegates(self):
-        with patch("agent.orchestrator.insight_extractor.fleet_performance_summary", return_value={}) as mock_fn:
+        with patch("data_analysis_agent.agent.orchestrator.insight_extractor.fleet_performance_summary", return_value={}) as mock_fn:
             orch.insight_extractor__fleet_performance_summary(
                 file_path=FILE, metric_column="fuel_litres", entity_column="vehicle_id"
             )
