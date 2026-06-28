@@ -17,9 +17,10 @@ Authentication: IAM / SigV4 (service='aoss') — same as the CSV pipeline.
 The Lambda execution role needs aoss:APIAccessAll on the collection.
 
 AOSS NextGen knn_vector note:
-  NextGen collections auto-select HNSW configuration when engine/method are
-  NOT specified. We explicitly specify nmslib/hnsw/cosine for deterministic
-  behavior and future-proofing against NextGen defaults changing.
+  NextGen collections auto-select the HNSW configuration and REJECT an explicit
+  engine/method ("Field parameter 'engine' is not supported"). The mapping
+  therefore declares only type + dimension. Titan vectors are normalized, so the
+  default space yields kNN ranking equivalent to cosine.
 
 Public API
 ----------
@@ -60,15 +61,14 @@ PDF_INDEX_MAPPING = {
             "title":             {"type": "text", "analyzer": "standard",
                                   "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
             "body":              {"type": "text", "analyzer": "standard"},
+            # AOSS NextGen rejects an explicit engine/method ("Field parameter
+            # 'engine' is not supported") and auto-selects the HNSW config — so we
+            # specify only type + dimension, matching the working CSV index mapping.
+            # Titan vectors are normalized (titan_normalize), so cosine vs the
+            # default space gives equivalent kNN ranking.
             "text_embedding":    {
                 "type": "knn_vector",
                 "dimension": 1024,
-                "method": {
-                    "name": "hnsw",
-                    "space_type": "cosine",
-                    "engine": "nmslib",
-                    "parameters": {"ef_construction": 512, "m": 16},
-                },
             },
             "source_bucket":     {"type": "keyword"},
             "source_key":        {"type": "keyword"},
@@ -123,6 +123,12 @@ def build_opensearch_client(config: PdfPipelineConfig) -> OpenSearch:
         verify_certs=config.opensearch_verify_certs,
         connection_class=RequestsHttpConnection,
         pool_maxsize=10,
+        # opensearch-py defaults to a 10s read timeout, which AOSS exceeds on the
+        # first operations against a freshly-created NextGen index (warm-up).
+        # Match the CSV client: longer timeout + retry timed-out requests.
+        timeout=30,
+        max_retries=3,
+        retry_on_timeout=True,
     )
 
 
@@ -157,8 +163,9 @@ def _section_to_doc(
     embedding: list[float],
 ) -> dict:
     return {
-        "_index": "",          # set by the bulk helper
-        "_id": section.section_id,
+        # No _id / _index here: AOSS NextGen vector collections auto-assign the
+        # document _id and reject a custom one. section_id is kept as a normal
+        # field for provenance/dedup.
         "section_id": section.section_id,
         "title": section.title,
         "body": section.body,
@@ -183,28 +190,29 @@ def _section_to_doc(
 # Idempotency check
 # ---------------------------------------------------------------------------
 
-def _section_ids_already_indexed(
-    section_ids: list[str],
-    index_name: str,
+def _delete_existing_by_source(
     client: OpenSearch,
-) -> set[str]:
-    """Return the subset of section_ids that already exist in the index."""
-    if not section_ids:
-        return set()
-    try:
-        resp = client.mget(
-            body={"ids": section_ids},
-            index=index_name,
-            _source=False,
-        )
-        return {
-            doc["_id"]
-            for doc in resp.get("docs", [])
-            if doc.get("found", False)
-        }
-    except Exception:
-        logger.debug("mget idempotency check failed — assuming nothing indexed", exc_info=True)
-        return set()
+    index_name: str,
+    source_keys: set[str],
+) -> None:
+    """Delete previously-indexed sections for these source documents (dedup).
+
+    AOSS NextGen auto-assigns _id and forbids a custom one, so we cannot upsert by
+    a stable section_id. Instead we delete the prior sections of each source
+    document before re-indexing — the same delete-before-index pattern the CSV
+    pipeline uses. Non-fatal: a missing index or zero matches is fine.
+    """
+    for sk in source_keys:
+        try:
+            resp = client.delete_by_query(
+                index=index_name,
+                body={"query": {"term": {"source_key": sk}}},
+            )
+            deleted = resp.get("deleted", 0)
+            if deleted:
+                logger.info("Deleted %d existing section(s) for source_key=%s", deleted, sk)
+        except Exception:
+            logger.debug("delete_by_query failed for %s (non-fatal)", sk, exc_info=True)
 
 
 # ---------------------------------------------------------------------------
@@ -223,8 +231,9 @@ def ingest_sections(
         sections_with_embeddings: List of (SectionRecord, embedding) tuples.
         config: PdfPipelineConfig with index name and batch size.
         opensearch_client: Reusable OpenSearch client (created if None).
-        force: If True, overwrite existing documents. If False (default),
-               skip documents whose section_id is already indexed.
+        force: Retained for API compatibility. Ingest always replaces a source
+               document's prior sections (delete-before-index), since AOSS NextGen
+               forbids a custom _id and cannot upsert — so re-runs stay idempotent.
 
     Returns:
         IngestResult with counts and any errors.
@@ -244,40 +253,19 @@ def ingest_sections(
             documents_skipped=0,
         )
 
-    # Idempotency check (skipped when force=True)
-    already_indexed: set[str] = set()
-    if not force:
-        all_ids = [s.section_id for s, _ in sections_with_embeddings]
-        already_indexed = _section_ids_already_indexed(all_ids, index, client)
-        if already_indexed:
-            logger.info(
-                "Skipping %d already-indexed sections (force=False)",
-                len(already_indexed),
-            )
+    # Dedup: replace any previously-indexed sections of the same source document
+    # before re-indexing. AOSS NextGen forbids a custom _id (so we cannot upsert),
+    # so we delete-before-index — keeping re-runs idempotent (no duplicate sections
+    # pile up). `force` is retained for API compatibility; replacement always runs.
+    source_keys = {s.metadata.source_key for s, _ in sections_with_embeddings}
+    _delete_existing_by_source(client, index, source_keys)
 
-    # Build bulk actions
-    actions: list[dict] = []
+    # Build bulk actions — no custom _id; AOSS NextGen assigns the document _id.
+    actions: list[dict] = [
+        {"_index": index, "_source": _section_to_doc(section, embedding)}
+        for section, embedding in sections_with_embeddings
+    ]
     skipped = 0
-    for section, embedding in sections_with_embeddings:
-        if section.section_id in already_indexed:
-            skipped += 1
-            continue
-        doc = _section_to_doc(section, embedding)
-        doc.pop("_index")  # opensearch bulk helper adds this from index param
-        actions.append({
-            "_index": index,
-            "_id": section.section_id,
-            "_source": doc,
-        })
-
-    if not actions:
-        logger.info("All sections already indexed — nothing to ingest")
-        return IngestResult(
-            index_name=index,
-            documents_indexed=0,
-            documents_failed=0,
-            documents_skipped=skipped,
-        )
 
     # Batch bulk requests
     total_indexed = 0
