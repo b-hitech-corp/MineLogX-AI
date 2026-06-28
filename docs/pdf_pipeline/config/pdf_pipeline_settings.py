@@ -90,7 +90,10 @@ class PdfPipelineConfig:
     claude_model_id: str = field(
         default_factory=lambda: os.getenv(
             "PDF_CLAUDE_MODEL_ID",
-            "us.anthropic.claude-sonnet-4-6-20250514-v1:0",
+            # Valid Bedrock identifier in this account (the CSV pipeline confirmed
+            # this exact string returns 200). The previous "-20250514-v1:0" suffix
+            # was a non-existent version and raised ValidationException.
+            "us.anthropic.claude-sonnet-4-6",
         )
     )
     claude_max_tokens: int = 8192
@@ -102,7 +105,9 @@ class PdfPipelineConfig:
     claude_haiku_model_id: str = field(
         default_factory=lambda: os.getenv(
             "PDF_HAIKU_MODEL_ID",
-            "us.anthropic.claude-haiku-4-5-20251001",
+            # Verified against the Bedrock console for this account. The previous
+            # value was missing the "-v1:0" version suffix.
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         )
     )
     haiku_max_tokens: int = 512
