@@ -1,3 +1,35 @@
 .idea/
 
 build/
+
+# === Secrets / credentials (never commit) ===
+.env
+.env.*
+!.env.example
+*.pem
+.aws/
+
+# === AWS discovery dumps (contain account IDs / ARNs) ===
+infrastructure/discovery/
+
+# === Terraform ===
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+**/terraform.tfvars
+**/*.auto.tfvars
+# scratch config produced by `terraform plan -generate-config-out`
+**/generated.tf
+
+# === CloudFormation ===
+**/cloudformation/params/*.local.json
+packaged-*.yaml
+
+# === Python (Fabric / Lambdas) ===
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
