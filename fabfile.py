@@ -49,14 +49,18 @@ CFN_ROOT = TARGET_ROOT / "infrastructure" / "cloudformation"
 # CloudFormation layers deployed per environment, in dependency order.
 CFN_LAYERS = [
     "network",
+    "security-groups",
     "s3",
     "iam",
+    "cloudwatch",
     "lambda",
     "apigw",
+    "ec2",
     "eventbridge",
     "step-functions",
     "opensearch-serverless",
     "bedrock-guardrails",
+    "amplify",
 ]
 
 # Fixed environments have their own Terraform root module under environments/.

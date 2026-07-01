@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  MineLogX EC2 Ollama FALLBACK LLM tier — parity with the Terraform ec2_llm module.
+  Backup for when Amazon Bedrock is unavailable. Gated by EnableLlmFallback and
+  retained on stack delete/replace so it is never removed implicitly.
+
+Parameters:
+  NamePrefix:
+    Type: String
+  Environment:
+    Type: String
+  ProjectApnId:
+    Type: String
+    Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+  EnableLlmFallback:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: Whether to create the fallback instances in this environment.
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+  KeyName:
+    Type: String
+    Default: ''
+  GpuAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: AMI for the GPU model hosts (qwen3, gemma3).
+  EmbeddingsAmiId:
+    Type: AWS::EC2::Image::Id
+  GpuInstanceType:
+    Type: String
+    Default: g5.2xlarge
+  EmbeddingsInstanceType:
+    Type: String
+    Default: t3.large
+  IamInstanceProfile:
+    Type: String
+    Default: AmazonSSMRoleForInstancesQuickSetup
+
+Conditions:
+  EnableFallback: !Equals [!Ref EnableLlmFallback, 'true']
+  HasKey: !Not [!Equals [!Ref KeyName, '']]
+
+Resources:
+  Qwen3Instance:
+    Type: AWS::EC2::Instance
+    Condition: EnableFallback
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ImageId: !Ref GpuAmiId
+      InstanceType: !Ref GpuInstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroupId]
+      KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
+      IamInstanceProfile: !Ref IamInstanceProfile
+      EbsOptimized: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: { VolumeType: gp3, VolumeSize: 200, Encrypted: true }
+      MetadataOptions: { HttpTokens: required, HttpPutResponseHopLimit: 2 }
+      Tags:
+        - { Key: Name, Value: !Sub '${NamePrefix}-qwen3' }
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+  Gemma3Instance:
+    Type: AWS::EC2::Instance
+    Condition: EnableFallback
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ImageId: !Ref GpuAmiId
+      InstanceType: !Ref GpuInstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroupId]
+      KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
+      IamInstanceProfile: !Ref IamInstanceProfile
+      EbsOptimized: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: { VolumeType: gp3, VolumeSize: 200, Encrypted: true }
+      MetadataOptions: { HttpTokens: required, HttpPutResponseHopLimit: 2 }
+      Tags:
+        - { Key: Name, Value: !Sub '${NamePrefix}-gemma3' }
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+  EmbeddingsInstance:
+    Type: AWS::EC2::Instance
+    Condition: EnableFallback
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      ImageId: !Ref EmbeddingsAmiId
+      InstanceType: !Ref EmbeddingsInstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroupId]
+      KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
+      IamInstanceProfile: !Ref IamInstanceProfile
+      EbsOptimized: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs: { VolumeType: gp3, VolumeSize: 100, Encrypted: true }
+      MetadataOptions: { HttpTokens: required, HttpPutResponseHopLimit: 2 }
+      Tags:
+        - { Key: Name, Value: !Sub '${NamePrefix}-embeddings' }
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+Outputs:
+  Qwen3PrivateIp:
+    Condition: EnableFallback
+    Value: !GetAtt Qwen3Instance.PrivateIp
+  Gemma3PrivateIp:
+    Condition: EnableFallback
+    Value: !GetAtt Gemma3Instance.PrivateIp
+  EmbeddingsPrivateIp:
+    Condition: EnableFallback
+    Value: !GetAtt EmbeddingsInstance.PrivateIp
