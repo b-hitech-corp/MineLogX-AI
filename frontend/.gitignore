@@ -1,0 +1,22 @@
+# === Dependencias ===
+node_modules/
+.pnp
+.pnp.*
+
+# === Salida de build ===
+dist/
+dist-ssr/
+build/
+*.local
+
+# === Caché de Vite ===
+.vite/
+
+# === TypeScript ===
+*.tsbuildinfo
+
+# === Variables de entorno (NO versionar secretos) ===
+.env
+*.zip
+docs
+.DS_Store
