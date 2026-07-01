@@ -10,16 +10,16 @@ variable "project_apn_id" {
 
 variable "environment" {
   type    = string
-  default = "dev"
+  default = "qa"
 }
 
 variable "name_prefix" {
   type    = string
-  default = "minelogx-dev"
+  default = "minelogx-qa"
 }
 
 variable "enable_llm_fallback" {
-  description = "EC2 Ollama fallback tier. Off in dev (Bedrock is primary)."
+  description = "EC2 Ollama fallback tier. Off in qa."
   type        = bool
   default     = false
 }

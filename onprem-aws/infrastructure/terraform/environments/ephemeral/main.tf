@@ -1,5 +1,6 @@
-# Environment root — thin wrapper over modules/env_stack.
-# Identical across dev/qa/prod/ephemeral; only variable defaults differ.
+# Ephemeral per-developer environment — thin wrapper over modules/env_stack.
+# Isolated by Terraform WORKSPACE (one per dev, e.g. dev-cesar). Fabric passes
+# -var name_prefix / -var environment; defaults below are placeholders.
 terraform {
   required_version = ">= 1.5.0"
   required_providers {
@@ -8,7 +9,7 @@ terraform {
       version = "~> 5.0"
     }
   }
-  # backend "s3" configured per environment (distinct key) — see ../../backend.tf.
+  # Ephemeral state uses workspaces (not a per-env key) — see ../../backend.tf.
 }
 
 provider "aws" {

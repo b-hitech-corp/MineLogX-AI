@@ -8,18 +8,19 @@ variable "project_apn_id" {
   default = "pc:13uw3s8iyvze74tlcq3o0w8r6"
 }
 
+# Fabric passes -var environment=dev-<user> and -var name_prefix=minelogx-dev-<user>.
 variable "environment" {
   type    = string
-  default = "dev"
+  default = "ephemeral"
 }
 
 variable "name_prefix" {
   type    = string
-  default = "minelogx-dev"
+  default = "minelogx-ephemeral"
 }
 
 variable "enable_llm_fallback" {
-  description = "EC2 Ollama fallback tier. Off in dev (Bedrock is primary)."
+  description = "EC2 Ollama fallback tier. Off for ephemeral dev sandboxes."
   type        = bool
   default     = false
 }
