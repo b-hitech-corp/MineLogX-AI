@@ -22,9 +22,9 @@ provider "aws" {
 
   default_tags {
     tags = {
-      "aws-apn-id" = var.project_apn_id
-      "Project"    = "MineLogX-AI"
-      "ManagedBy"  = "terraform"
+      "aws-apn-id"  = var.project_apn_id
+      "Project"     = "MineLogX-AI"
+      "ManagedBy"   = "terraform"
       "Environment" = var.environment
     }
   }
