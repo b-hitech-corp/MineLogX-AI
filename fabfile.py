@@ -5,7 +5,7 @@ Two responsibilities:
 
 1. Environment orchestration (`env.*`): create / destroy / plan / list
    infrastructure environments through EITHER Terraform OR CloudFormation,
-   selected with `--engine`. Supports both fixed environments (dev/staging/prod)
+   selected with `--engine`. Supports both fixed environments (dev/qa/prod)
    and ephemeral per-developer environments (`dev-<user>`).
 
 2. Remote ops on the POC Ollama EC2 instances (`ollama.*`): health checks,
@@ -19,7 +19,7 @@ Conventions:
 Usage:
   fab --list
   fab env.up   --env=dev-cesar --engine=terraform
-  fab env.plan --env=staging   --engine=cloudformation
+  fab env.plan --env=qa   --engine=cloudformation
   fab env.down --env=dev-cesar --engine=terraform
   fab env.list
   fab ollama.health-check
@@ -39,9 +39,12 @@ PROJECT_APN_ID = "pc:13uw3s8iyvze74tlcq3o0w8r6"
 NAME_PREFIX = "minelogx"
 
 REPO_ROOT = Path(__file__).resolve().parent
-TF_ROOT = REPO_ROOT / "infrastructure" / "terraform"
+# Deployment target (framework layout). Override with MINELOGX_TARGET.
+TARGET = os.environ.get("MINELOGX_TARGET", "onprem-aws")
+TARGET_ROOT = REPO_ROOT / TARGET
+TF_ROOT = TARGET_ROOT / "infrastructure" / "terraform"
 TF_ENVS = TF_ROOT / "environments"
-CFN_ROOT = REPO_ROOT / "infrastructure" / "cloudformation"
+CFN_ROOT = TARGET_ROOT / "infrastructure" / "cloudformation"
 
 # CloudFormation layers deployed per environment, in dependency order.
 CFN_LAYERS = [
@@ -57,7 +60,7 @@ CFN_LAYERS = [
 ]
 
 # Fixed environments have their own Terraform root module under environments/.
-FIXED_ENVS = {"dev", "staging", "prod"}
+FIXED_ENVS = {"dev", "qa", "prod"}
 
 # POC Ollama EC2 instances (see CLAUDE.md — POC only, to be replaced by Bedrock).
 INSTANCES = {
@@ -122,7 +125,7 @@ def _require_engine(engine):
 # --------------------------------------------------------------------------- #
 @task(
     help={
-        "env": "Environment name (dev|staging|prod|dev-<user>).",
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
         "engine": "terraform | cloudformation",
     }
 )

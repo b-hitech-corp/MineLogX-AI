@@ -13,7 +13,7 @@
 #>
 param(
   [string]$Region = "us-east-1",
-  [string]$Out    = "infrastructure/discovery"
+  [string]$Out    = "$PSScriptRoot/../infrastructure/discovery"
 )
 
 $ErrorActionPreference = "Continue"

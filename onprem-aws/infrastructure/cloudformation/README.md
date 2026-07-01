@@ -1,7 +1,7 @@
 # CloudFormation definition
 
 An **equivalent, deployable** definition of the MineLogX-AI architecture, used
-to stand up **new** environments (ephemeral / dev / staging). It does **not**
+to stand up **new** environments (ephemeral / dev / qa). It does **not**
 co-manage the hand-deployed POC resources — those are owned by Terraform
 (see `../README.md` → ownership rule).
 

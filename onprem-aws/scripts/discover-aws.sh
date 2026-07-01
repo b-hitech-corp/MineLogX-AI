@@ -21,7 +21,8 @@ set -euo pipefail
 PROJECT_TAG_KEY="aws-apn-id"
 PROJECT_TAG_VALUE="pc:13uw3s8iyvze74tlcq3o0w8r6"
 REGION="${REGION:-us-east-1}"
-OUT="${OUT:-infrastructure/discovery}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OUT="${OUT:-$SCRIPT_DIR/../infrastructure/discovery}"
 
 TAG_FILTER="Key=${PROJECT_TAG_KEY},Values=${PROJECT_TAG_VALUE}"
 

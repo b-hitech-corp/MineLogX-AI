@@ -14,7 +14,7 @@ variable "project_apn_id" {
 }
 
 variable "environment" {
-  description = "Environment name: dev | staging | prod | dev-<user> (ephemeral)."
+  description = "Environment name: dev | qa | prod | dev-<user> (ephemeral)."
   type        = string
 }
 

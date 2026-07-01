@@ -13,7 +13,7 @@ infrastructure/
 │   ├── modules/                # Reusable modules (vpc, s3, lambda, api_gateway, ...)
 │   ├── environments/           # Root modules per environment
 │   │   ├── _imported-poc/      # Adopts the hand-deployed POC via import blocks
-│   │   ├── dev/ staging/ prod/ # Fixed shared environments
+│   │   ├── dev/ qa/ prod/ # Fixed shared environments
 │   │   └── ephemeral/          # Per-developer disposable env (minelogx-dev-<user>)
 │   └── imports/                # import {} blocks generated during POC import
 ├── cloudformation/             # Equivalent, deployable CFN definition (new envs)
@@ -31,7 +31,7 @@ drift/deletion conflicts:
 - **Terraform owns the imported POC** — it is the source of truth for what is
   already deployed.
 - **CloudFormation** holds an equivalent, deployable definition used to stand up
-  **new** environments (ephemeral / dev / staging). It does not co-manage the
+  **new** environments (ephemeral / dev / qa). It does not co-manage the
   POC resources.
 - **Fabric** selects the engine per environment (`--engine=terraform|cloudformation`).
 

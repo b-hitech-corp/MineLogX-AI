@@ -47,7 +47,7 @@ jobs:
       - id: check
         # Frontend lives on its own branch; skip cleanly when absent here.
         run: |
-          if [ -f frontend/package.json ]; then echo "exists=yes" >> "$GITHUB_OUTPUT";
+          if [ -f shared/frontend/package.json ]; then echo "exists=yes" >> "$GITHUB_OUTPUT";
           else echo "exists=no" >> "$GITHUB_OUTPUT"; fi
       - if: steps.check.outputs.exists == 'yes'
         uses: pnpm/action-setup@v4
@@ -56,9 +56,9 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: frontend/pnpm-lock.yaml
+          cache-dependency-path: shared/frontend/pnpm-lock.yaml
       - if: steps.check.outputs.exists == 'yes'
-        working-directory: frontend
+        working-directory: shared/frontend
         run: |
           pnpm install --frozen-lockfile
           pnpm lint
