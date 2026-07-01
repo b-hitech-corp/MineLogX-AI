@@ -44,7 +44,7 @@ repos:
     rev: v1.52.1
     hooks:
       - id: cfn-lint
-        files: infrastructure/cloudformation/.*\.(ya?ml|json)$
+        files: .*/infrastructure/cloudformation/.*\.(ya?ml|json)$
 
   # --- TS/JS/React: eslint + tsc (only when frontend files are staged) ---
   - repo: local
@@ -53,5 +53,5 @@ repos:
         name: eslint + tsc (frontend)
         language: system
         pass_filenames: false
-        files: ^frontend/.*\.(ts|tsx|js|jsx)$
-        entry: bash -c 'cd frontend && pnpm lint && pnpm exec tsc --noEmit'
+        files: ^shared/frontend/.*\.(ts|tsx|js|jsx)$
+        entry: bash -c 'cd shared/frontend && pnpm lint && pnpm exec tsc --noEmit'

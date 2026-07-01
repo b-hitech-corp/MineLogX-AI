@@ -12,4 +12,4 @@ rules:
 ignore: |
   .venv/
   # frontend has its own tooling (eslint/prettier); its lockfiles are generated.
-  frontend/
+  shared/frontend/

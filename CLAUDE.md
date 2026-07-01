@@ -10,49 +10,38 @@ MineLogX AI is an operational intelligence platform for mining operations built 
 
 The infrastructure is defined as IaC in **both Terraform and CloudFormation in parallel** — each tool holds a full, equivalent definition of the platform (see IaC Strategy below). **Fabric is the orchestration layer**: it drives environment lifecycle through either engine (`--engine=terraform|cloudformation`) and also handles remote operations on the POC EC2 instances.
 
-> **Current status:** The POC is deployed by hand in the AWS account tagged `aws-apn-id = pc:13uw3s8iyvze74tlcq3o0w8r6`. The first IaC milestone is to **import** that POC into Terraform (source of truth) and mirror it in CloudFormation, then evolve toward the target architecture. Run `scripts/discover-aws.sh` (or `.ps1`) to snapshot the live account into `infrastructure/discovery/` before importing.
+> **Current status:** The POC is deployed by hand in the AWS account tagged `aws-apn-id = pc:13uw3s8iyvze74tlcq3o0w8r6`. The first IaC milestone is to **import** that POC into Terraform (source of truth) and mirror it in CloudFormation, then evolve toward the target architecture. Run `onprem-aws/scripts/discover-aws.sh` (or `.ps1`) to snapshot the live account into `onprem-aws/infrastructure/discovery/` before importing.
 
 ---
 
 ## Repository Structure
 
 ```
-minelogx-platform/
-├── CLAUDE.md                        # This file
-├── fabfile.py                       # Fabric: env.* orchestration + ollama.* remote ops
-├── scripts/
-│   ├── discover-aws.sh              # Read-only AWS inventory (Git Bash)
-│   └── discover-aws.ps1             # Read-only AWS inventory (PowerShell)
-├── infrastructure/
-│   ├── terraform/                   # State owner of the imported POC
-│   │   ├── versions.tf              # Terraform + provider constraints
-│   │   ├── variables.tf             # Shared variables
-│   │   ├── backend.tf               # Remote state (S3 + DynamoDB) — bootstrap first
-│   │   ├── modules/                 # vpc, security_groups, s3, iam, lambda,
-│   │   │                            # api_gateway, ec2, eventbridge,
-│   │   │                            # step_functions, opensearch, bedrock
-│   │   ├── environments/            # Root modules per environment
-│   │   │   ├── _imported-poc/       # Adopts the POC via import blocks
-│   │   │   ├── dev/ staging/ prod/  # Fixed shared environments
-│   │   │   └── ephemeral/           # Per-developer env (workspace dev-<user>)
-│   │   └── imports/                 # import {} blocks for the POC
-│   ├── cloudformation/              # Equivalent CFN definition for new envs
-│   │   ├── network/ s3/ iam/ lambda/ apigw/ eventbridge/
-│   │   ├── step-functions/ opensearch-serverless/ bedrock-guardrails/
-│   │   └── params/                  # <env>.params.json per environment
-│   └── discovery/                   # gitignored — output of discover-aws.*
-├── backend/
-│   ├── lambdas/
-│   │   ├── ml-layer/                # ML analysis Lambda
-│   │   ├── rag-layer/               # RAG compliance Lambda
-│   │   ├── schema-inspector/        # CSV schema inspector
-│   │   ├── chunker/                 # CSV chunk processor
-│   │   ├── pdf-processor/           # PDF text processor
-│   │   └── file-classification/     # PDF file classifier
-│   └── agents/
-│       ├── data-analysis/           # Bedrock Claude data analysis agent
-│       └── rag-agent/               # Bedrock RAG compliance agent
-└── frontend/                        # React application (AWS Amplify)
+MineLogX-AI/                          # framework root
+├── CLAUDE.md  README.md  CONTRIBUTING.md  AGENTS.md
+├── fabfile.py                        # Fabric orchestrator (env.* + ollama.*), target-aware (MINELOGX_TARGET)
+├── pyproject.toml  uv.lock  .python-version    # uv, Python >= 3.11
+├── .pre-commit-config.yaml  .yamllint  .gitattributes
+├── .github/workflows/lint.yml        # CI linters
+├── docs/
+├── shared/                           # cloud-agnostic core
+│   ├── modules/ connectors/ templates/
+│   └── frontend/                     # React app / AWS Amplify (cloud-agnostic UI)
+├── onprem-aws/                       # AWS target — reference implementation
+│   ├── infrastructure/
+│   │   ├── terraform/                # State owner of the imported POC
+│   │   │   ├── versions.tf  variables.tf  backend.tf
+│   │   │   ├── modules/              # vpc, security_groups, s3, iam, lambda, api_gateway, ...
+│   │   │   ├── environments/         # _imported-poc, dev/qa/prod, ephemeral
+│   │   │   └── imports/              # import {} blocks for the POC
+│   │   ├── cloudformation/           # Equivalent CFN definition for new envs
+│   │   │   ├── network/ s3/ iam/ lambda/ apigw/ eventbridge/
+│   │   │   ├── step-functions/ opensearch-serverless/ bedrock-guardrails/
+│   │   │   └── params/
+│   │   └── discovery/                # gitignored — output of discover-aws.*
+│   ├── backend/                      # Lambda + Bedrock agent code
+│   ├── scripts/                      # discover-aws.{sh,ps1}
+│   └── (planned) pipelines/ connectors/ modules/ tests/
 ```
 
 ---
@@ -170,7 +159,7 @@ USER = "ubuntu"
 # --- Environment orchestration (env.*) ---
 fab env.up   --env=dev-cesar --engine=terraform       # ephemeral per-dev env
 fab env.up   --env=dev-cesar --engine=cloudformation  # same env, other engine
-fab env.plan --env=staging   --engine=terraform       # preview changes
+fab env.plan --env=qa   --engine=terraform       # preview changes
 fab env.down --env=dev-cesar --engine=terraform       # tear down (prod is guarded)
 fab env.list                                          # active workspaces + stacks
 
@@ -221,7 +210,7 @@ or they fight over drift/deletion. Therefore:
 - **Terraform is the state owner of the imported POC** (`environments/_imported-poc`).
   It is the source of truth for what is already deployed.
 - **CloudFormation holds an equivalent, deployable definition** used to stand up
-  **new** environments (ephemeral / dev / staging). It does **not** co-manage the
+  **new** environments (ephemeral / dev / qa). It does **not** co-manage the
   POC's live resources.
 - When adding or changing infrastructure, update **both** definitions and keep
   them at parity (verified in CI).
@@ -230,7 +219,7 @@ or they fight over drift/deletion. Therefore:
 - **Ephemeral per-developer:** `dev-<user>` (e.g. `dev-cesar`), created/destroyed
   on demand. Terraform isolates them with a **workspace**; CloudFormation with a
   stack-name prefix `minelogx-dev-<user>-<layer>`.
-- **Fixed shared:** `dev`, `staging`, `prod` — each a dedicated Terraform root
+- **Fixed shared:** `dev`, `qa`, `prod` — each a dedicated Terraform root
   module under `environments/` and its own CFN parameter file.
 
 All environments are driven through Fabric (`fab env.up/plan/down/list`), never

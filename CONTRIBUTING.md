@@ -37,10 +37,10 @@ The SSO token lasts the session; re-run `aws sso login` when it expires.
 ## 3. Snapshot the deployed POC (Phase 2 — import)
 
 ```bash
-bash scripts/discover-aws.sh          # PowerShell: ./scripts/discover-aws.ps1
+bash onprem-aws/scripts/discover-aws.sh    # PowerShell: ./onprem-aws/scripts/discover-aws.ps1
 ```
 
-Read-only. Output lands in `infrastructure/discovery/` (gitignored — it holds
+Read-only. Output lands in `onprem-aws/infrastructure/discovery/` (gitignored — it holds
 account IDs/ARNs). Do not commit it.
 
 ## 4. Development environments (Fabric)
@@ -54,7 +54,7 @@ uv run fab env.list                                          # active workspaces
 uv run fab env.down --env=dev-<user>                         # tear down (prod is guarded)
 ```
 
-Fixed environments are `dev` / `staging` / `prod`; ephemeral ones are
+Fixed environments are `dev` / `qa` / `prod`; ephemeral ones are
 `dev-<user>`. See the IaC Strategy and ownership rules in `CLAUDE.md`.
 
 ## 5. Branches, commits, PRs

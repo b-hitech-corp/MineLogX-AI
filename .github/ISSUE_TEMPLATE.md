@@ -19,4 +19,4 @@
 <!-- terraform | cloudformation | fabric | lambda | frontend | docs | ci -->
 
 ## Additional context
-<!-- Logs, links, env (dev/staging/prod), region, screenshots -->
+<!-- Logs, links, env (dev/qa/prod), region, screenshots -->
