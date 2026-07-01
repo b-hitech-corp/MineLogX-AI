@@ -1,0 +1,15 @@
+extends: default
+
+rules:
+  line-length:
+    max: 120
+    level: warning
+  document-start: disable
+  # GitHub Actions uses `on:` — don't flag it as a truthy value.
+  truthy:
+    allowed-values: ["true", "false", "on"]
+
+ignore: |
+  .venv/
+  # frontend has its own tooling (eslint/prettier); its lockfiles are generated.
+  frontend/

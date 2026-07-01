@@ -1,0 +1,13 @@
+# Normalize line endings: store LF in the repo; check out native on each OS.
+# Stops the CRLF<->LF churn between Windows devs and the pre-commit hooks.
+* text=auto eol=lf
+
+# Binary assets — never normalize.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.webp binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.pem  binary

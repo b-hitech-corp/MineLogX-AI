@@ -120,18 +120,27 @@ def _require_engine(engine):
 # --------------------------------------------------------------------------- #
 # env.* — environment orchestration
 # --------------------------------------------------------------------------- #
-@task(help={"env": "Environment name (dev|staging|prod|dev-<user>).",
-            "engine": "terraform | cloudformation"})
+@task(
+    help={
+        "env": "Environment name (dev|staging|prod|dev-<user>).",
+        "engine": "terraform | cloudformation",
+    }
+)
 def up(c, env, engine="terraform"):
     """Create/update an environment (fixed or ephemeral)."""
     _require_engine(engine)
     print(f"==> up: env={env} engine={engine} region={REGION}")
 
     if engine == "terraform":
-        _tf(c, env, "apply", "-auto-approve",
+        _tf(
+            c,
+            env,
+            "apply",
+            "-auto-approve",
             f'-var="environment={env}"',
             f'-var="aws_region={REGION}"',
-            f'-var="name_prefix={NAME_PREFIX}-{env}"')
+            f'-var="name_prefix={NAME_PREFIX}-{env}"',
+        )
         return
 
     params = _cfn_params(env)
@@ -159,10 +168,14 @@ def plan(c, env, engine="terraform"):
     print(f"==> plan: env={env} engine={engine}")
 
     if engine == "terraform":
-        _tf(c, env, "plan",
+        _tf(
+            c,
+            env,
+            "plan",
             f'-var="environment={env}"',
             f'-var="aws_region={REGION}"',
-            f'-var="name_prefix={NAME_PREFIX}-{env}"')
+            f'-var="name_prefix={NAME_PREFIX}-{env}"',
+        )
         return
 
     params = _cfn_params(env)
@@ -184,14 +197,21 @@ def down(c, env, engine="terraform"):
     """Destroy an environment. Guarded against fixed prod."""
     _require_engine(engine)
     if env == "prod":
-        raise SystemExit("Refusing to destroy 'prod'. Tear it down manually if you must.")
+        raise SystemExit(
+            "Refusing to destroy 'prod'. Tear it down manually if you must."
+        )
     print(f"==> down: env={env} engine={engine}")
 
     if engine == "terraform":
-        _tf(c, env, "destroy", "-auto-approve",
+        _tf(
+            c,
+            env,
+            "destroy",
+            "-auto-approve",
             f'-var="environment={env}"',
             f'-var="aws_region={REGION}"',
-            f'-var="name_prefix={NAME_PREFIX}-{env}"')
+            f'-var="name_prefix={NAME_PREFIX}-{env}"',
+        )
         if _is_ephemeral(env):
             with c.cd(_tf_workdir(env)):
                 c.run("terraform workspace select default")
@@ -228,34 +248,45 @@ def list(c):
 def health_check(c):
     """Check all Ollama instances are responding."""
     for name, host in INSTANCES.items():
-        conn = Connection(host, user=SSH_USER,
-                          connect_kwargs={"key_filename": KEY_PATH})
-        result = conn.run("curl -s http://localhost:11434/api/tags", hide=True, warn=True)
+        conn = Connection(
+            host, user=SSH_USER, connect_kwargs={"key_filename": KEY_PATH}
+        )
+        result = conn.run(
+            "curl -s http://localhost:11434/api/tags", hide=True, warn=True
+        )
         print(f"{name}: {'OK' if result.ok else 'FAILED'}")
 
 
 @task(name="restart-ollama")
 def restart_ollama(c):
     """Restart the Ollama Docker container on all instances."""
-    group = SerialGroup(*INSTANCES.values(), user=SSH_USER,
-                        connect_kwargs={"key_filename": KEY_PATH})
+    group = SerialGroup(
+        *INSTANCES.values(), user=SSH_USER, connect_kwargs={"key_filename": KEY_PATH}
+    )
     group.run("docker restart ollama")
 
 
-@task(name="pull-model", help={"host": "Instance key (qwen3|gemma3|embeddings).",
-                               "model": "Model tag, e.g. qwen3:8b"})
+@task(
+    name="pull-model",
+    help={
+        "host": "Instance key (qwen3|gemma3|embeddings).",
+        "model": "Model tag, e.g. qwen3:8b",
+    },
+)
 def pull_model(c, host, model):
     """Pull a new model on a specific instance."""
-    conn = Connection(INSTANCES[host], user=SSH_USER,
-                      connect_kwargs={"key_filename": KEY_PATH})
+    conn = Connection(
+        INSTANCES[host], user=SSH_USER, connect_kwargs={"key_filename": KEY_PATH}
+    )
     conn.run(f"ollama pull {model}")
 
 
 @task(help={"host": "Instance key (qwen3|gemma3|embeddings)."})
 def logs(c, host):
     """Tail Ollama container logs on a specific instance."""
-    conn = Connection(INSTANCES[host], user=SSH_USER,
-                      connect_kwargs={"key_filename": KEY_PATH})
+    conn = Connection(
+        INSTANCES[host], user=SSH_USER, connect_kwargs={"key_filename": KEY_PATH}
+    )
     conn.run("docker logs --tail 100 ollama")
 
 
