@@ -8,7 +8,9 @@ This file provides context and behavioral instructions for Claude Code agents wo
 
 MineLogX AI is an operational intelligence platform for mining operations built on AWS. It combines IoT telemetry analytics, machine learning anomaly detection, and compliance Q&A (RAG) powered by Amazon Bedrock.
 
-The infrastructure is defined as IaC using both Terraform and AWS CloudFormation depending on the resource type (see IaC Strategy below). Fabric is used for remote operations and deployment automation on EC2 instances.
+The infrastructure is defined as IaC in **both Terraform and CloudFormation in parallel** — each tool holds a full, equivalent definition of the platform (see IaC Strategy below). **Fabric is the orchestration layer**: it drives environment lifecycle through either engine (`--engine=terraform|cloudformation`) and also handles remote operations on the POC EC2 instances.
+
+> **Current status:** The POC is deployed by hand in the AWS account tagged `aws-apn-id = pc:13uw3s8iyvze74tlcq3o0w8r6`. The first IaC milestone is to **import** that POC into Terraform (source of truth) and mirror it in CloudFormation, then evolve toward the target architecture. Run `scripts/discover-aws.sh` (or `.ps1`) to snapshot the live account into `infrastructure/discovery/` before importing.
 
 ---
 
@@ -17,28 +19,28 @@ The infrastructure is defined as IaC using both Terraform and AWS CloudFormation
 ```
 minelogx-platform/
 ├── CLAUDE.md                        # This file
-├── fabfile.py                       # Fabric tasks for remote operations
+├── fabfile.py                       # Fabric: env.* orchestration + ollama.* remote ops
+├── scripts/
+│   ├── discover-aws.sh              # Read-only AWS inventory (Git Bash)
+│   └── discover-aws.ps1             # Read-only AWS inventory (PowerShell)
 ├── infrastructure/
-│   ├── terraform/                   # Terraform modules
-│   │   ├── main.tf
-│   │   ├── variables.tf
-│   │   ├── outputs.tf
-│   │   ├── terraform.tfvars         # Never commit — contains secrets
-│   │   └── modules/
-│   │       ├── vpc/
-│   │       ├── security_groups/
-│   │       ├── s3/
-│   │       ├── opensearch/
-│   │       ├── lambda/
-│   │       ├── api_gateway/
-│   │       ├── eventbridge/
-│   │       ├── step_functions/
-│   │       └── iam/
-│   └── cloudformation/              # CloudFormation templates
-│       ├── bedrock-guardrails.yaml
-│       ├── opensearch-serverless.yaml
-│       ├── step-functions-csv.yaml
-│       └── step-functions-pdf.yaml
+│   ├── terraform/                   # State owner of the imported POC
+│   │   ├── versions.tf              # Terraform + provider constraints
+│   │   ├── variables.tf             # Shared variables
+│   │   ├── backend.tf               # Remote state (S3 + DynamoDB) — bootstrap first
+│   │   ├── modules/                 # vpc, security_groups, s3, iam, lambda,
+│   │   │                            # api_gateway, ec2, eventbridge,
+│   │   │                            # step_functions, opensearch, bedrock
+│   │   ├── environments/            # Root modules per environment
+│   │   │   ├── _imported-poc/       # Adopts the POC via import blocks
+│   │   │   ├── dev/ staging/ prod/  # Fixed shared environments
+│   │   │   └── ephemeral/           # Per-developer env (workspace dev-<user>)
+│   │   └── imports/                 # import {} blocks for the POC
+│   ├── cloudformation/              # Equivalent CFN definition for new envs
+│   │   ├── network/ s3/ iam/ lambda/ apigw/ eventbridge/
+│   │   ├── step-functions/ opensearch-serverless/ bedrock-guardrails/
+│   │   └── params/                  # <env>.params.json per environment
+│   └── discovery/                   # gitignored — output of discover-aws.*
 ├── backend/
 │   ├── lambdas/
 │   │   ├── ml-layer/                # ML analysis Lambda
@@ -132,12 +134,18 @@ These will be replaced by Bedrock in production. Managed via Fabric.
 
 ## Fabric — Remote Operations
 
-Fabric is a high-level Python library for executing shell commands remotely over SSH, built on top of Invoke and Paramiko. It is used in this project for automating operations on EC2 instances running Ollama models.
+Fabric (with Invoke) is the automation entrypoint for the project. It has two task namespaces:
+- **`env.*`** — infrastructure environment lifecycle, running Terraform **or** CloudFormation (`--engine`).
+- **`ollama.*`** — remote SSH operations on the POC EC2 instances running Ollama.
 
 ### Installation
 
+This project uses **uv** as the package manager and requires **Python >= 3.11**
+(pinned in `.python-version`, declared in `pyproject.toml`).
+
 ```bash
-pip install fabric
+uv sync          # create .venv and install deps (fabric) from pyproject/uv.lock
+uv run fab --list
 ```
 
 ### fabfile.py Structure
@@ -159,20 +167,18 @@ USER = "ubuntu"
 ### Common Fabric Tasks
 
 ```bash
-# Check all Ollama instances are running
-fab health-check
+# --- Environment orchestration (env.*) ---
+fab env.up   --env=dev-cesar --engine=terraform       # ephemeral per-dev env
+fab env.up   --env=dev-cesar --engine=cloudformation  # same env, other engine
+fab env.plan --env=staging   --engine=terraform       # preview changes
+fab env.down --env=dev-cesar --engine=terraform       # tear down (prod is guarded)
+fab env.list                                          # active workspaces + stacks
 
-# Pull a new model on a specific instance
-fab pull-model --host=qwen3 --model=qwen3:8b
-
-# Restart Ollama container on all instances
-fab restart-ollama
-
-# Deploy updated Lambda code
-fab deploy-lambda --function=ml-layer
-
-# Check logs on a specific instance
-fab logs --host=gemma3
+# --- Ollama POC remote ops (ollama.*) ---
+fab ollama.health-check                               # check all instances
+fab ollama.pull-model --host=qwen3 --model=qwen3:8b   # pull a model
+fab ollama.restart-ollama                             # restart on all instances
+fab ollama.logs --host=gemma3                         # tail container logs
 ```
 
 ### Example Fabric Task Pattern
@@ -205,21 +211,46 @@ def restart_ollama(c):
 
 ## IaC Strategy
 
-### Use Terraform for:
-- VPC, subnets, security groups, route tables, NAT/Internet Gateway
-- S3 buckets and lifecycle policies
-- IAM roles and policies
-- Lambda functions and Function URLs
-- API Gateway (REST and HTTP)
-- EventBridge rules and schedulers
-- CloudWatch log groups and alarms
-- EC2 instances (Ollama — POC only)
+**Dual-tool, Fabric-orchestrated.** The platform is defined **in full in both
+Terraform and CloudFormation**. The two definitions are kept at parity; Fabric
+selects the engine per environment via `--engine`.
 
-### Use CloudFormation for:
-- Amazon Bedrock Guardrails (not yet fully supported in Terraform AWS provider)
-- Amazon OpenSearch Serverless collections and access policies
-- AWS Step Functions state machines (complex ASL definitions easier in CFN)
-- Any resource where the Terraform resource type is unstable or incomplete
+### Ownership rule (non-negotiable)
+A live AWS resource can be managed by only **one** engine at a time — never both,
+or they fight over drift/deletion. Therefore:
+- **Terraform is the state owner of the imported POC** (`environments/_imported-poc`).
+  It is the source of truth for what is already deployed.
+- **CloudFormation holds an equivalent, deployable definition** used to stand up
+  **new** environments (ephemeral / dev / staging). It does **not** co-manage the
+  POC's live resources.
+- When adding or changing infrastructure, update **both** definitions and keep
+  them at parity (verified in CI).
+
+### Environments (both models)
+- **Ephemeral per-developer:** `dev-<user>` (e.g. `dev-cesar`), created/destroyed
+  on demand. Terraform isolates them with a **workspace**; CloudFormation with a
+  stack-name prefix `minelogx-dev-<user>-<layer>`.
+- **Fixed shared:** `dev`, `staging`, `prod` — each a dedicated Terraform root
+  module under `environments/` and its own CFN parameter file.
+
+All environments are driven through Fabric (`fab env.up/plan/down/list`), never
+by hand in the console.
+
+### Discovery → Import workflow (POC capture)
+1. Configure a **dedicated AWS profile** (`aws configure --profile minelogx` or
+   `aws configure sso --profile minelogx`); scope it per shell with
+   `AWS_PROFILE=minelogx` so other projects are unaffected.
+2. Run `scripts/discover-aws.sh` (or `.ps1`) → snapshots the account (filtered by
+   the `aws-apn-id` tag) into `infrastructure/discovery/` (gitignored).
+3. Write `import {}` blocks in `infrastructure/terraform/imports/`, then
+   `terraform plan -generate-config-out=generated.tf`, refactor into `modules/`,
+   `apply` (imports only), and confirm `plan` shows **0 changes**.
+4. Author the equivalent CloudFormation templates per layer.
+
+### Tagging
+Every resource carries `aws-apn-id = pc:13uw3s8iyvze74tlcq3o0w8r6`, `Environment`,
+and `ManagedBy` (`terraform` | `cloudformation`). Terraform applies these via
+`default_tags`; Fabric passes them to `cloudformation deploy --tags`.
 
 ### Applying Changes
 
@@ -440,10 +471,11 @@ aws cloudformation validate-template --template-body file://...
 aws cloudformation describe-stack-events --stack-name minelogx-X
 
 # Fabric
-fab --list                              # List all available tasks
-fab health-check                        # Check all EC2 instances
-fab restart-ollama                      # Restart Ollama on all instances
-fab deploy-lambda --function=ml-layer   # Deploy Lambda function
+fab --list                                    # List all available tasks
+fab env.up --env=dev-cesar --engine=terraform # Stand up an ephemeral env
+fab env.list                                  # List active environments
+fab ollama.health-check                       # Check all EC2 instances
+fab ollama.restart-ollama                     # Restart Ollama on all instances
 
 # AWS CLI helpers
 aws opensearch list-domain-names

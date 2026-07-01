@@ -52,28 +52,52 @@ Read this file completely before taking any action.
 - Push directly to `main` or `develop` branches — always use feature branches
 - Generate or suggest hardcoded AWS credentials, API keys, or secrets in any file
 
+### IaC dual-tool rule (Terraform + CloudFormation)
+
+Infrastructure is defined **in parallel in both Terraform and CloudFormation**,
+orchestrated by Fabric (`fab env.*`, `--engine=terraform|cloudformation`). See
+`CLAUDE.md` → *IaC Strategy* for the full rules. Agents must:
+
+- Treat **Terraform as the state owner of the imported POC**
+  (`infrastructure/terraform/environments/_imported-poc`) — never introduce a
+  CloudFormation stack that manages the same live resources.
+- When adding or changing infrastructure, update **both** the Terraform and the
+  CloudFormation definitions and keep them at parity.
+- Create/destroy environments **only through Fabric tasks**, never with raw
+  console clicks. Ephemeral envs are `dev-<user>` (Terraform workspace); fixed
+  envs are `dev`/`staging`/`prod`.
+- Populate `infrastructure/discovery/` only via `scripts/discover-aws.sh` (read
+  only) and never commit it (gitignored — contains account IDs/ARNs).
+
 ### File modification boundaries
 
 ```
 ✅ Agents may freely modify:
 infrastructure/terraform/modules/**
+infrastructure/terraform/environments/{dev,staging,ephemeral}/**
 infrastructure/cloudformation/**
 backend/lambdas/**
 backend/agents/**
+scripts/**
 fabfile.py
 *.md documentation files
 
 ⚠️ Agents must ask before modifying:
-infrastructure/terraform/main.tf
+infrastructure/terraform/versions.tf
 infrastructure/terraform/variables.tf
-infrastructure/terraform/outputs.tf
+infrastructure/terraform/backend.tf
+infrastructure/terraform/environments/prod/**
+infrastructure/terraform/environments/_imported-poc/**   # POC state owner
+infrastructure/terraform/imports/**                        # POC import blocks
 Any file affecting IAM roles or policies
 
 ❌ Agents must never modify:
 .env files
 terraform.tfvars
 *.pem key files
+.aws/ credential files
 terraform.tfstate
+infrastructure/discovery/**                                # gitignored account dump
 Any file in .git/
 ```
 
@@ -272,7 +296,8 @@ When adding a new Bedrock Agent or AI component to the platform:
 ## Related Files
 
 - `CLAUDE.md` — Claude Code specific instructions, IaC strategy, git conventions
-- `infrastructure/cloudformation/bedrock-guardrails.yaml` — Guardrail definition
+- `infrastructure/cloudformation/bedrock-guardrails/` — Guardrail stack
 - `backend/agents/data-analysis/` — Data Analysis Agent implementation
 - `backend/agents/rag-agent/` — RAG Compliance Agent implementation
-- `fabfile.py` — EC2 remote operations (POC Ollama instances)
+- `fabfile.py` — `env.*` environment orchestration + `ollama.*` EC2 remote ops
+- `scripts/discover-aws.sh` / `.ps1` — read-only AWS inventory for POC import
