@@ -65,7 +65,7 @@ orchestrated by Fabric (`fab env.*`, `--engine=terraform|cloudformation`). See
   CloudFormation definitions and keep them at parity.
 - Create/destroy environments **only through Fabric tasks**, never with raw
   console clicks. Ephemeral envs are `dev-<user>` (Terraform workspace); fixed
-  envs are `dev`/`staging`/`prod`.
+  envs are `dev`/`qa`/`prod`.
 - Populate `infrastructure/discovery/` only via `scripts/discover-aws.sh` (read
   only) and never commit it (gitignored — contains account IDs/ARNs).
 
@@ -73,22 +73,23 @@ orchestrated by Fabric (`fab env.*`, `--engine=terraform|cloudformation`). See
 
 ```
 ✅ Agents may freely modify:
-infrastructure/terraform/modules/**
-infrastructure/terraform/environments/{dev,staging,ephemeral}/**
-infrastructure/cloudformation/**
-backend/lambdas/**
-backend/agents/**
-scripts/**
+onprem-aws/infrastructure/terraform/modules/**
+onprem-aws/infrastructure/terraform/environments/{dev,qa,ephemeral}/**
+onprem-aws/infrastructure/cloudformation/**
+onprem-aws/backend/lambdas/**
+onprem-aws/backend/agents/**
+onprem-aws/scripts/**
+shared/**
 fabfile.py
 *.md documentation files
 
 ⚠️ Agents must ask before modifying:
-infrastructure/terraform/versions.tf
-infrastructure/terraform/variables.tf
-infrastructure/terraform/backend.tf
-infrastructure/terraform/environments/prod/**
-infrastructure/terraform/environments/_imported-poc/**   # POC state owner
-infrastructure/terraform/imports/**                        # POC import blocks
+onprem-aws/infrastructure/terraform/versions.tf
+onprem-aws/infrastructure/terraform/variables.tf
+onprem-aws/infrastructure/terraform/backend.tf
+onprem-aws/infrastructure/terraform/environments/prod/**
+onprem-aws/infrastructure/terraform/environments/_imported-poc/**   # POC state owner
+onprem-aws/infrastructure/terraform/imports/**                        # POC import blocks
 Any file affecting IAM roles or policies
 
 ❌ Agents must never modify:
@@ -97,7 +98,7 @@ terraform.tfvars
 *.pem key files
 .aws/ credential files
 terraform.tfstate
-infrastructure/discovery/**                                # gitignored account dump
+onprem-aws/infrastructure/discovery/**                     # gitignored account dump
 Any file in .git/
 ```
 

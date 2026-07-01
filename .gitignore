@@ -10,7 +10,7 @@ build/
 .aws/
 
 # === AWS discovery dumps (contain account IDs / ARNs) ===
-infrastructure/discovery/
+**/infrastructure/discovery/
 
 # === Terraform ===
 **/.terraform/
@@ -21,7 +21,7 @@ crash.log
 **/terraform.tfvars
 **/*.auto.tfvars
 # scratch config produced by `terraform plan -generate-config-out`
-**/generated.tf
+**/generated*.tf
 
 # === CloudFormation ===
 **/cloudformation/params/*.local.json

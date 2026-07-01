@@ -56,92 +56,37 @@ See [`docs/cloud-setup-guides/`](docs/cloud-setup-guides/) for a deeper walkthro
 ## 🧱 Project Structure
 
 ```
-MinelogX-AI-framework/
-├── README.md
-├── LICENSE
-├── CONTRIBUTING.md
-├── docs/
-│   ├── architecture.md
-│   ├── usage-examples.md
-│   ├── development-guide.md
-│   ├── cloud-setup-guides/
-│   │   ├── aws.md
-│   │   ├── azure.md
-│   │   ├── ibm-cloud.md
-│   │   ├── snowflake.md
-│   └── on-prem.md
-├── onprem-only/
-│   ├── infrastructure/
-│   │   ├── terraform/
-│   │   ├── ansible/
-│   │   └── k8s/
-│   ├── pipelines/
-│   ├── connectors/
-│   ├── modules/
-│   ├── tests/
-│   ├── scripts/
-│   └── README.md
-├── onprem-aws/
-│   ├── infrastructure/
-│   ├── pipelines/
-│   ├── connectors/
-│   ├── modules/
-│   ├── tests/
-│   ├── scripts/
-│   └── README.md
-├── onprem-aws-snowflake/
-│   ├── infrastructure/
-│   ├── pipelines/
-│   ├── connectors/
-│   ├── modules/
-│   ├── tests/
-│   ├── scripts/
-│   └── README.md
-├── onprem-azure/
-│   ├── infrastructure/
-│   ├── pipelines/
-│   ├── connectors/
-│   ├── modules/
-│   ├── tests/
-│   ├── scripts/
-│   └── README.md
-├── onprem-azure-snowflake/
-│   ├── infrastructure/
-│   ├── pipelines/
-│   ├── connectors/
-│   ├── modules/
-│   ├── tests/
-│   ├── scripts/
-│   └── README.md
-├── onprem-ibm/
-│   ├── infrastructure/
-│   ├── pipelines/
-│   ├── connectors/
-│   ├── modules/
-│   ├── tests/
-│   ├── scripts/
-│   └── README.md
-├── onprem-ibm-snowflake/
-│   ├── infrastructure/
-│   ├── pipelines/
-│   ├── connectors/
-│   ├── modules/
-│   ├── tests/
-│   ├── scripts/
-│   └── README.md
-├── shared/
-│   ├── modules/
-│   ├── connectors/
-│   ├── templates/
-│   └── README.md
+MineLogX-AI/
+├── README.md  LICENSE  CONTRIBUTING.md
+├── pyproject.toml  uv.lock  .python-version     # uv, Python >= 3.11
+├── .pre-commit-config.yaml  .yamllint  .gitattributes
+├── fabfile.py                                   # Fabric orchestrator (env.* + ollama.*)
 ├── .github/
-│   ├── workflows/   # CI/CD actions
+│   ├── workflows/lint.yml                       # CI: ruff, bandit, pip-audit, yamllint, gitleaks, web
 │   ├── ISSUE_TEMPLATE.md
 │   └── PULL_REQUEST_TEMPLATE.md
-└── LICENSE
+├── docs/                                        # architecture, api, cloud-setup guides
+├── shared/                                      # cloud-agnostic core
+│   ├── modules/  connectors/  templates/
+│   ├── frontend/            # React app / AWS Amplify (cloud-agnostic UI)
+│   └── README.md
+├── onprem-aws/                                  # ✅ AWS target — reference implementation
+│   ├── infrastructure/
+│   │   ├── terraform/       # state owner of the imported POC (+ environments/{dev,qa,prod,ephemeral}, modules/, imports/)
+│   │   └── cloudformation/  # equivalent CFN definition for new environments
+│   ├── backend/             # Lambda + Bedrock agent code
+│   ├── scripts/             # discover-aws.{sh,ps1} — read-only account inventory
+│   ├── (planned) pipelines/  connectors/  modules/  tests/
+│   └── README.md
+└── (planned) onprem-azure/  onprem-ibm/  onprem-*-snowflake/  onprem-only/
 ```
 
-`shared/` holds the cloud-agnostic core: protocol adapters, data schemas, agent contracts, and templates that every `onprem-*` deployment target consumes. Provider-specific folders (`onprem-aws`, `onprem-azure`, `onprem-ibm`, and their Snowflake-paired variants) implement those contracts using each provider's native services.
+Only **`onprem-aws`** (the reference implementation) and **`shared`** exist today.
+The other deployment targets (`onprem-azure`, `onprem-ibm`, the Snowflake-paired
+variants, `onprem-only`) are on the roadmap and added when a client needs them —
+we don't scaffold empty target trees.
+
+`shared/` holds the cloud-agnostic core: protocol adapters, data schemas, agent contracts, and templates that every `onprem-*` deployment target consumes. Provider-specific folders implement those contracts using each provider's native services. Repo-wide tooling (uv, pre-commit, CI, Fabric) lives at the root.
 
 ---
 
