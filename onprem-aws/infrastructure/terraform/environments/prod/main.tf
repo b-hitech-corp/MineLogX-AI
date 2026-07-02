@@ -9,7 +9,7 @@ terraform {
       version = "~> 5.0"
     }
   }
-  # backend "s3" configured per environment (distinct key) — see ../../backend.tf.
+  backend "s3" {} # partial — filled by fabfile via -backend-config (bootstrap first)
 }
 
 provider "aws" {

@@ -38,6 +38,10 @@ REGION = os.environ.get("AWS_REGION", "us-east-1")
 PROJECT_APN_ID = "pc:13uw3s8iyvze74tlcq3o0w8r6"
 NAME_PREFIX = "minelogx"
 
+# Terraform remote state (bootstrap once with scripts/bootstrap-backend.sh).
+STATE_BUCKET = os.environ.get("TF_STATE_BUCKET", "minelogx-terraform-state")
+STATE_LOCK_TABLE = os.environ.get("TF_STATE_LOCK_TABLE", "minelogx-terraform-locks")
+
 REPO_ROOT = Path(__file__).resolve().parent
 # Deployment target (framework layout). Override with MINELOGX_TARGET.
 TARGET = os.environ.get("MINELOGX_TARGET", "onprem-aws")
@@ -96,8 +100,20 @@ def _tf_workdir(env):
 def _tf(c, env, *args):
     """Run terraform in the env's working dir, selecting a workspace if ephemeral."""
     workdir = _tf_workdir(env)
+    # Fixed envs get their own state key; ephemeral envs share one key and are
+    # isolated by Terraform workspace.
+    state_key = (
+        f"{TARGET}/{env if env in FIXED_ENVS else 'ephemeral'}/terraform.tfstate"
+    )
     with c.cd(workdir):
-        c.run("terraform init -input=false")
+        c.run(
+            "terraform init -input=false -reconfigure "
+            f'-backend-config="bucket={STATE_BUCKET}" '
+            f'-backend-config="key={state_key}" '
+            f'-backend-config="region={REGION}" '
+            f'-backend-config="dynamodb_table={STATE_LOCK_TABLE}" '
+            f'-backend-config="encrypt=true"'
+        )
         if _is_ephemeral(env):
             # `|| true` so re-selecting an existing workspace is idempotent.
             c.run(f"terraform workspace select {env} || terraform workspace new {env}")

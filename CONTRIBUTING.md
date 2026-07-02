@@ -12,14 +12,17 @@ rules, see [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md).
 | Terraform >= 1.5 | IaC (`terraform` hooks, `fab env.*`) | only if you touch `infrastructure/terraform` |
 | Node 20 + pnpm | frontend lint/build | only if you touch `frontend/` |
 
-## 1. Repo setup
+## 1. Repo setup — one command
 
 ```bash
-uv sync                 # creates .venv, installs deps from uv.lock
-uvx pre-commit install  # enable git hooks (ruff, bandit, yamllint, tf, cfn-lint, eslint)
+./scripts/dev-setup.sh          # PowerShell: ./scripts/dev-setup.ps1
 ```
 
-Run all hooks manually any time: `uvx pre-commit run --all-files`.
+Creates the `.venv`, installs deps (incl. pre-commit), and installs the git hooks
+so linters (ruff, bandit, yamllint, terraform, cfn-lint, eslint) run on **every
+commit** automatically. Idempotent — safe to re-run. After this, just commit.
+
+Run all hooks manually any time: `uv run pre-commit run --all-files`.
 
 ## 2. AWS access (SSO)
 
