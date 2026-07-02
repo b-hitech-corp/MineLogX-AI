@@ -14,29 +14,38 @@
 
 ### 🛠 Requirements
 
-- Python 3.9+
-- pip
-- Terraform (primary IaC tool across all targets)
-- (Optional) Docker
-- Cloud CLI for your chosen target (AWS CLI, Azure CLI, IBM Cloud CLI) — not required for on-prem-only deployments
+- [uv](https://docs.astral.sh/uv/) — manages the Python env (requires Python **3.11+**)
+- AWS CLI v2 — for the AWS target (SSO login)
+- Terraform >= 1.5 — only if you deploy through the Terraform engine
+- (Optional) Node 20 + pnpm — only if you work on the frontend
 
 ### 🧑‍💻 Install & Run
 
+Clone the repo and run the **one-command dev setup** — it creates the virtualenv,
+installs dependencies (via uv), and wires the pre-commit git hooks:
+
 ```bash
-git clone https://github.com/yourusername/MineLogX-AI.git
+git clone git@github.com:b-hitech-corp/MineLogX-AI.git
 cd MineLogX-AI
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python app.py
+bash scripts/dev-setup.sh          # Windows PowerShell: ./scripts/dev-setup.ps1
 ```
 
-### 🐳 Docker Option
+Then drive environments with Fabric (no venv activation needed — `uv run` handles it):
 
 ```bash
-docker build -t minelogx-ai .
-docker run -v $(pwd)/data:/app/data minelogx-ai --log data/sample.log
+uv run fab --list                    # list available tasks
+uv run fab env.plan dev-cesar cf     # preview a CloudFormation environment
+uv run fab env.up   dev-cesar        # deploy with Terraform (default engine)
 ```
+
+One-time state backend, before the first Terraform deploy:
+
+```bash
+bash onprem-aws/scripts/bootstrap-backend.sh
+```
+
+For AWS SSO access, the demo → IaC import flow, and full conventions, see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ### ☁️ Choosing a Deployment Target
 

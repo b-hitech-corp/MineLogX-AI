@@ -29,6 +29,7 @@ Or add a shell alias:  alias mlx='uv run fab'   ->   mlx env.plan dev-cesar cf
 """
 
 import os
+import shutil
 from pathlib import Path
 
 from fabric import Connection, SerialGroup, task
@@ -41,6 +42,14 @@ REGION = os.environ.get("AWS_REGION", "us-east-1")
 PROJECT_APN_ID = "pc:13uw3s8iyvze74tlcq3o0w8r6"
 PROD_APN_ID = "pc:925kllxsozl58ehxuk1rxxd8z"  # PROD uses a distinct APN id
 NAME_PREFIX = "minelogx"
+
+# Resolve the terraform binary in an OS-agnostic way. Precedence:
+#   1. TERRAFORM_BIN env var (bulletproof override — survives venv/PATH quirks)
+#   2. terraform on PATH (shutil.which — works on Windows/Linux/Mac)
+#   3. bare "terraform" fallback
+# We pass the resolved path to Fabric so its subprocess finds terraform even when
+# PATH is mangled by a venv activate script or cmd.exe vs Git Bash differences.
+TERRAFORM = os.environ.get("TERRAFORM_BIN") or shutil.which("terraform") or "terraform"
 
 # Terraform remote state (bootstrap once with scripts/bootstrap-backend.sh).
 STATE_BUCKET = os.environ.get("TF_STATE_BUCKET", "minelogx-terraform-state")
@@ -85,7 +94,9 @@ INSTANCES = {
     "gemma3": "ec2-100-31-82-64.compute-1.amazonaws.com",
     "embeddings": "ec2-3-208-23-94.compute-1.amazonaws.com",
 }
-KEY_PATH = os.environ.get("EC2_KEY_PATH", "~/.ssh/minelogx-demo-poc-keypair.pem")
+KEY_PATH = os.path.expanduser(
+    os.environ.get("EC2_KEY_PATH", "~/.ssh/minelogx-demo-poc-keypair.pem")
+)
 SSH_USER = "ubuntu"
 
 
@@ -116,7 +127,7 @@ def _tf(c, env, *args):
     )
     with c.cd(workdir):
         c.run(
-            "terraform init -input=false -reconfigure "
+            f'"{TERRAFORM}" init -input=false -reconfigure '
             f'-backend-config="bucket={STATE_BUCKET}" '
             f'-backend-config="key={state_key}" '
             f'-backend-config="region={REGION}" '
@@ -126,9 +137,9 @@ def _tf(c, env, *args):
         if _is_ephemeral(env):
             # Select the workspace, creating it on first use (shell-agnostic —
             # no `||`, which breaks under cmd.exe on Windows).
-            if not c.run(f"terraform workspace select {env}", warn=True).ok:
-                c.run(f"terraform workspace new {env}")
-        c.run(" ".join(["terraform", *args]))
+            if not c.run(f'"{TERRAFORM}" workspace select {env}', warn=True).ok:
+                c.run(f'"{TERRAFORM}" workspace new {env}')
+        c.run(" ".join([f'"{TERRAFORM}"', *args]))
 
 
 def _cfn_stack(env, layer):
@@ -196,10 +207,11 @@ def _cfn(c, env, execute):
 # env.* — environment orchestration
 # --------------------------------------------------------------------------- #
 @task(
+    positional=["env", "engine"],
     help={
         "env": "Environment name (dev|qa|prod|dev-<user>).",
         "engine": "terraform | cloudformation",
-    }
+    },
 )
 def up(c, env, engine="terraform"):
     """Create/update an environment (fixed or ephemeral)."""
@@ -223,7 +235,10 @@ def up(c, env, engine="terraform"):
     _cfn(c, env, execute=True)
 
 
-@task(help={"env": "Environment name.", "engine": "terraform | cloudformation"})
+@task(
+    positional=["env", "engine"],
+    help={"env": "Environment name.", "engine": "terraform | cloudformation"},
+)
 def plan(c, env, engine="terraform"):
     """Preview changes without applying (terraform plan / CFN change set)."""
     engine = _norm_engine(engine)
@@ -245,7 +260,10 @@ def plan(c, env, engine="terraform"):
     _cfn(c, env, execute=False)
 
 
-@task(help={"env": "Environment name.", "engine": "terraform | cloudformation"})
+@task(
+    positional=["env", "engine"],
+    help={"env": "Environment name.", "engine": "terraform | cloudformation"},
+)
 def down(c, env, engine="terraform"):
     """Destroy an environment. Guarded against fixed prod."""
     engine = _norm_engine(engine)
@@ -269,8 +287,8 @@ def down(c, env, engine="terraform"):
         )
         if _is_ephemeral(env):
             with c.cd(_tf_workdir(env)):
-                c.run("terraform workspace select default", warn=True)
-                c.run(f"terraform workspace delete {env}", warn=True)
+                c.run(f'"{TERRAFORM}" workspace select default', warn=True)
+                c.run(f'"{TERRAFORM}" workspace delete {env}', warn=True)
         return
 
     # CloudFormation: one parent stack — deleting it removes all nested children.
@@ -286,7 +304,7 @@ def list(c):
     _ensure_aws(c)
     print("== Terraform workspaces (ephemeral) ==")
     with c.cd(str(TF_ENVS / "ephemeral")):
-        c.run("terraform workspace list", warn=True)
+        c.run(f'"{TERRAFORM}" workspace list', warn=True)
     print("\n== CloudFormation stacks (minelogx-*) ==")
     c.run(
         f"aws cloudformation list-stacks --region {REGION} "
