@@ -1,31 +1,26 @@
 #!/usr/bin/env bash
 #
-# One-shot developer bootstrap. Run once after cloning; then just commit.
-#   ./scripts/dev-setup.sh
+# setup-dev.sh — one-command developer setup for MineLogX-AI.
+# Installs the Python env and wires the pre-commit git hook so linters run
+# automatically on every commit. Run once after cloning.
 #
-# Idempotent: safe to re-run. Sets up the Python env and the pre-commit git hook
-# so linters (ruff, bandit, yamllint, terraform, cfn-lint, eslint) run on every
-# commit automatically.
+# Usage:  bash scripts/setup-dev.sh
+#
 set -euo pipefail
 
-cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"  # repo root
-
-if ! command -v uv >/dev/null 2>&1; then
-  echo "ERROR: 'uv' is not installed."
-  echo "  Install it: https://docs.astral.sh/uv/getting-started/installation/"
-  exit 1
-fi
-
-echo "==> uv sync (create .venv + install deps incl. pre-commit)"
+echo "==> uv sync (Python env + deps)"
 uv sync
 
-echo "==> installing git hooks (pre-commit)"
-uv run pre-commit install --install-hooks
+echo "==> installing pre-commit as a uv tool (stable on PATH)"
+uv tool install pre-commit --quiet || uv tool upgrade pre-commit
 
-# Non-blocking checks for infra tooling.
-command -v terraform >/dev/null 2>&1 || echo "  note: 'terraform' not found — needed for infra work."
-command -v aws        >/dev/null 2>&1 || echo "  note: 'aws' CLI not found — needed for AWS access."
+echo "==> installing the git pre-commit hook"
+uv tool run pre-commit install
 
 echo
-echo "Done. Hooks are active — just make your changes and commit."
-echo "Run all checks manually anytime: uv run pre-commit run --all-files"
+echo "Done. Linters now run on every 'git commit'."
+echo "Run all checks manually any time with:  uv tool run pre-commit run --all-files"
+echo
+echo "Optional (only if you work on that layer):"
+echo "  - Terraform:  install terraform + run 'terraform fmt -recursive' / validate"
+echo "  - Frontend:   install Node + pnpm (the eslint hook self-skips without pnpm)"

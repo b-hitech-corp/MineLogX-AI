@@ -1,28 +1,23 @@
 <#
 .SYNOPSIS
-  One-shot developer bootstrap (Windows/PowerShell). Run once after cloning.
-    ./scripts/dev-setup.ps1
-  Idempotent. Sets up the Python env and the pre-commit git hook so linters run
-  on every commit automatically.
+  One-command developer setup for MineLogX-AI (PowerShell).
+  Installs the Python env and wires the pre-commit git hook. Run once after cloning.
+.EXAMPLE
+  ./scripts/setup-dev.ps1
 #>
 $ErrorActionPreference = "Stop"
-Set-Location (Join-Path $PSScriptRoot "..")  # repo root
 
-if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
-  Write-Host "ERROR: 'uv' is not installed."
-  Write-Host "  Install it: https://docs.astral.sh/uv/getting-started/installation/"
-  exit 1
-}
-
-Write-Host "==> uv sync (create .venv + install deps incl. pre-commit)"
+Write-Host "==> uv sync (Python env + deps)"
 uv sync
 
-Write-Host "==> installing git hooks (pre-commit)"
-uv run pre-commit install --install-hooks
+Write-Host "==> installing pre-commit as a uv tool (stable on PATH)"
+try { uv tool install pre-commit } catch { uv tool upgrade pre-commit }
 
-if (-not (Get-Command terraform -ErrorAction SilentlyContinue)) { Write-Host "  note: 'terraform' not found — needed for infra work." }
-if (-not (Get-Command aws -ErrorAction SilentlyContinue))       { Write-Host "  note: 'aws' CLI not found — needed for AWS access." }
+Write-Host "==> installing the git pre-commit hook"
+uv tool run pre-commit install
 
-Write-Host ""
-Write-Host "Done. Hooks are active — just make your changes and commit."
-Write-Host "Run all checks manually anytime: uv run pre-commit run --all-files"
+Write-Host "`nDone. Linters now run on every 'git commit'."
+Write-Host "Run all checks manually any time with:  uv tool run pre-commit run --all-files"
+Write-Host "`nOptional (only if you work on that layer):"
+Write-Host "  - Terraform: install terraform + run 'terraform fmt -recursive' / validate"
+Write-Host "  - Frontend:  install Node + pnpm (the eslint hook self-skips without pnpm)"
