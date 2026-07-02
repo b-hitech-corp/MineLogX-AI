@@ -17,18 +17,16 @@ Parameters:
     AllowedValues: ['true', 'false']
     Default: 'false'
     Description: Whether to create the fallback instances in this environment.
-  SubnetId:
-    Type: AWS::EC2::Subnet::Id
-  SecurityGroupId:
-    Type: AWS::EC2::SecurityGroup::Id
   KeyName:
     Type: String
     Default: ''
   GpuAmiId:
     Type: AWS::EC2::Image::Id
-    Description: AMI for the GPU model hosts (qwen3, gemma3).
+    Default: ami-09343c2dd0ee54c92
+    Description: AMI for the GPU model hosts (qwen3, gemma3). Default = POC AMI.
   EmbeddingsAmiId:
     Type: AWS::EC2::Image::Id
+    Default: ami-091138d0f0d41ff90
   GpuInstanceType:
     Type: String
     Default: g5.2xlarge
@@ -52,8 +50,10 @@ Resources:
     Properties:
       ImageId: !Ref GpuAmiId
       InstanceType: !Ref GpuInstanceType
-      SubnetId: !Ref SubnetId
-      SecurityGroupIds: [!Ref SecurityGroupId]
+      SubnetId:
+        Fn::ImportValue: !Sub '${NamePrefix}-private-subnet-1'
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub '${NamePrefix}-sg-llm-id'
       KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
       IamInstanceProfile: !Ref IamInstanceProfile
       EbsOptimized: true
@@ -74,8 +74,10 @@ Resources:
     Properties:
       ImageId: !Ref GpuAmiId
       InstanceType: !Ref GpuInstanceType
-      SubnetId: !Ref SubnetId
-      SecurityGroupIds: [!Ref SecurityGroupId]
+      SubnetId:
+        Fn::ImportValue: !Sub '${NamePrefix}-private-subnet-1'
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub '${NamePrefix}-sg-llm-id'
       KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
       IamInstanceProfile: !Ref IamInstanceProfile
       EbsOptimized: true
@@ -96,8 +98,10 @@ Resources:
     Properties:
       ImageId: !Ref EmbeddingsAmiId
       InstanceType: !Ref EmbeddingsInstanceType
-      SubnetId: !Ref SubnetId
-      SecurityGroupIds: [!Ref SecurityGroupId]
+      SubnetId:
+        Fn::ImportValue: !Sub '${NamePrefix}-private-subnet-1'
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub '${NamePrefix}-sg-llm-id'
       KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
       IamInstanceProfile: !Ref IamInstanceProfile
       EbsOptimized: true

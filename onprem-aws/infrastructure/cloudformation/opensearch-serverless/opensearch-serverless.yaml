@@ -15,9 +15,6 @@ Parameters:
   ProjectApnId:
     Type: String
     Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
-  DataAccessPrincipalArns:
-    Type: CommaDelimitedList
-    Description: IAM principal ARNs granted read/write to the collection & indices.
   AllowPublicNetwork:
     Type: String
     AllowedValues: ['true', 'false']
@@ -44,11 +41,9 @@ Resources:
     Properties:
       Name: !Sub '${NamePrefix}-data'
       Type: data
-      Policy: !Sub
-        - '[{"Rules":[{"ResourceType":"index","Resource":["index/${NamePrefix}-vectors/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/${NamePrefix}-vectors"],"Permission":["aoss:*"]}],"Principal":${Principals}}]'
-        - Principals: !Sub
-            - '["${joined}"]'
-            - joined: !Join ['","', !Ref DataAccessPrincipalArns]
+      # Default: any IAM principal in the account (subject to their IAM perms).
+      # Tighten to specific ingest/agent role ARNs later.
+      Policy: !Sub '[{"Rules":[{"ResourceType":"index","Resource":["index/${NamePrefix}-vectors/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/${NamePrefix}-vectors"],"Permission":["aoss:*"]}],"Principal":["arn:aws:iam::${AWS::AccountId}:root"]}]'
 
   Collection:
     Type: AWS::OpenSearchServerless::Collection
