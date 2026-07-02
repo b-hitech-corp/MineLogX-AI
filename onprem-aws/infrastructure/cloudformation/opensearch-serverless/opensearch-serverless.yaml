@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  MineLogX vector store — Amazon OpenSearch Serverless (VECTORSEARCH) collection
+  + encryption/network/data-access policies. Managed in CloudFormation (the
+  Terraform aws provider mishandles this resource — see CLAUDE.md IaC Strategy).
+  NOTE: the vector indices (csv_telemetry_vecs 1024d Cohere, pdf_legal_vecs 1536d
+  Titan) are DATA-PLANE objects created by the ingest Lambda via the OpenSearch
+  API — not by CloudFormation.
+
+Parameters:
+  NamePrefix:
+    Type: String
+  Environment:
+    Type: String
+  ProjectApnId:
+    Type: String
+    Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+  AllowPublicNetwork:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'true'
+    Description: Public collection/dashboard access (set false to require a VPC endpoint).
+
+Resources:
+  EncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub '${NamePrefix}-enc'
+      Type: encryption
+      Policy: !Sub '{"Rules":[{"ResourceType":"collection","Resource":["collection/${NamePrefix}-vectors"]}],"AWSOwnedKey":true}'
+
+  NetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: !Sub '${NamePrefix}-net'
+      Type: network
+      Policy: !Sub '[{"Rules":[{"ResourceType":"collection","Resource":["collection/${NamePrefix}-vectors"]},{"ResourceType":"dashboard","Resource":["collection/${NamePrefix}-vectors"]}],"AllowFromPublic":${AllowPublicNetwork}}]'
+
+  DataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: !Sub '${NamePrefix}-data'
+      Type: data
+      # Default: any IAM principal in the account (subject to their IAM perms).
+      # Tighten to specific ingest/agent role ARNs later.
+      Policy: !Sub '[{"Rules":[{"ResourceType":"index","Resource":["index/${NamePrefix}-vectors/*"],"Permission":["aoss:*"]},{"ResourceType":"collection","Resource":["collection/${NamePrefix}-vectors"],"Permission":["aoss:*"]}],"Principal":["arn:aws:iam::${AWS::AccountId}:root"]}]'
+
+  Collection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn: [EncryptionPolicy, NetworkPolicy, DataAccessPolicy]
+    Properties:
+      Name: !Sub '${NamePrefix}-vectors'
+      Type: VECTORSEARCH
+      Description: MineLogX hybrid (kNN + BM25) vector store
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+Outputs:
+  CollectionEndpoint:
+    Value: !GetAtt Collection.CollectionEndpoint
+  CollectionArn:
+    Value: !GetAtt Collection.Arn

@@ -1,0 +1,5 @@
+[
+  { "ParameterKey": "Environment",  "ParameterValue": "dev" },
+  { "ParameterKey": "NamePrefix",   "ParameterValue": "minelogx-dev" },
+  { "ParameterKey": "ProjectApnId", "ParameterValue": "pc:13uw3s8iyvze74tlcq3o0w8r6" }
+]

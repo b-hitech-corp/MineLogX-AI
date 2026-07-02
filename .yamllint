@@ -1,0 +1,20 @@
+extends: default
+
+rules:
+  line-length:
+    max: 120
+    level: warning
+  document-start: disable
+  # GitHub Actions uses `on:` — don't flag it as a truthy value.
+  truthy:
+    allowed-values: ["true", "false", "on"]
+  # CloudFormation templates use compact flow mappings: { Key: x, Value: y }.
+  braces:
+    max-spaces-inside: 1
+  brackets:
+    max-spaces-inside: 1
+
+ignore: |
+  .venv/
+  # frontend has its own tooling (eslint/prettier); its lockfiles are generated.
+  shared/frontend/

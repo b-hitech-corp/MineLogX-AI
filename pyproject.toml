@@ -1,0 +1,19 @@
+[project]
+name = "minelogx-ai"
+version = "0.1.0"
+description = "MineLogX-AI — operational intelligence platform for mining operations on AWS (IaC + Fabric automation, Bedrock/OpenSearch backend)"
+requires-python = ">=3.11"
+dependencies = [
+    "fabric>=3.0",  # pulls invoke + paramiko; used by fabfile.py
+]
+
+# Installed into the project .venv by `uv sync` so the pre-commit git hook
+# resolves against a stable interpreter (see scripts/dev-setup.*).
+[dependency-groups]
+dev = [
+    "pre-commit>=4.0",
+]
+
+[tool.uv]
+# Repo is tooling, not an installable package — don't build the root project.
+package = false

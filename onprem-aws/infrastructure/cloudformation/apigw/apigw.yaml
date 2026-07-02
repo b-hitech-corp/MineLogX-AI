@@ -1,0 +1,31 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MineLogX REST API — parity with the Terraform api_gateway module.
+
+Parameters:
+  NamePrefix:
+    Type: String
+  Environment:
+    Type: String
+  ProjectApnId:
+    Type: String
+    Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+  ApiDescription:
+    Type: String
+    Default: MineLogX API
+
+Resources:
+  RestApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub '${NamePrefix}-api'
+      Description: !Ref ApiDescription
+      EndpointConfiguration: { Types: [REGIONAL] }
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+Outputs:
+  RestApiId:
+    Value: !Ref RestApi
+  RootResourceId:
+    Value: !GetAtt RestApi.RootResourceId
