@@ -17,6 +17,35 @@ build/
 
 # === Variables de entorno (NO versionar secretos) ===
 .env
-*.zip
-docs
+.env.*
+!.env.example
+
+# === Logs ===
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# === Pruebas / cobertura ===
+coverage/
+*.lcov
+
+# === Cachés de herramientas ===
+.eslintcache
+.cache/
+.temp/
+
+# === Editor / IDE ===
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.sw?
+
+# === Sistema operativo ===
 .DS_Store
+Thumbs.db
+
+# === Misceláneos ===
+*.zip
