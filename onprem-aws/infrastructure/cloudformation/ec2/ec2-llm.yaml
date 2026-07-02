@@ -27,7 +27,7 @@ Parameters:
   GpuAmiId:
     Type: AWS::EC2::Image::Id
     Default: ami-09343c2dd0ee54c92
-    Description: AMI for the GPU model hosts (qwen3, gemma3). Default = POC AMI.
+    Description: AMI for the GPU model hosts (qwen3, gemma3). Default = demo AMI.
   EmbeddingsAmiId:
     Type: AWS::EC2::Image::Id
     Default: ami-091138d0f0d41ff90

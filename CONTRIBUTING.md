@@ -37,7 +37,7 @@ aws sts get-caller-identity                             # verify Account 1253965
 
 The SSO token lasts the session; re-run `aws sso login` when it expires.
 
-## 3. Snapshot the deployed POC (Phase 2 — import)
+## 3. Snapshot the deployed demo (Phase 2 — import)
 
 ```bash
 bash onprem-aws/scripts/discover-aws.sh    # PowerShell: ./onprem-aws/scripts/discover-aws.ps1

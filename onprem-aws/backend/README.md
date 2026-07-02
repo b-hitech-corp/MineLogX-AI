@@ -15,7 +15,7 @@ backend/
 └── agents/                     # Bedrock agents (NOT Lambdas): data-analysis, rag-agent
 ```
 
-Conventions (match the imported POC):
+Conventions (match the imported demo):
 - Runtime **Python 3.11**, handler **`lambda_function.lambda_handler`**.
 - One folder per function; keep the handler thin.
 - **Cloud-agnostic logic** (KPI math, parsing, chunking) goes in the repo-root
@@ -25,7 +25,7 @@ Conventions (match the imported POC):
 
 The Terraform `lambda` module (and the CloudFormation `lambda` stack) package each
 folder into a zip and wire it to the function. The Lambda import blocks in
-`infrastructure/terraform/environments/_imported-poc/poc-imports.tf` are currently
+`infrastructure/terraform/environments/_imported-demo/demo-imports.tf` are currently
 **deferred** precisely because the code artifact wasn't in the repo yet — once the
 code lands here, we re-enable them (zip + `source_code_hash`) and deploy via
 `fab env.up`.

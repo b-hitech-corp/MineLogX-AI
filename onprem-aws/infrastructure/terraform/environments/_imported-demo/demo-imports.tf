@@ -1,8 +1,8 @@
-# POC import blocks — account 586928288932, us-east-1.
+# demo import blocks — account 586928288932, us-east-1.
 # Source of truth: onprem-aws/infrastructure/discovery/tagged-resources.json (tag aws-apn-id).
 #
 # Workflow:
-#   cd onprem-aws/infrastructure/terraform/environments/_imported-poc
+#   cd onprem-aws/infrastructure/terraform/environments/_imported-demo
 #   terraform init
 #   terraform plan -generate-config-out=generated.tf   # generates HCL for the below
 #   # review generated.tf, then refactor into ../../modules/*
@@ -33,7 +33,7 @@ import {
   id = "sg-072b050667fa07443"
 }
 
-# --- Compute: Ollama POC EC2 instances ---
+# --- Compute: Ollama demo EC2 instances ---
 import {
   to = aws_instance.qwen3
   id = "i-04ae7cc1172b65ca9"
@@ -90,7 +90,7 @@ import {
 }
 
 # ===========================================================================
-# Connected untagged dependencies (mapped as part of the POC).
+# Connected untagged dependencies (mapped as part of the demo).
 # ===========================================================================
 
 # --- Networking: vpc-0a7b98533f5eaa246 ("vpc", tagged) ---
@@ -263,5 +263,5 @@ import {
 #  * AOSS collection + security policies + S3 Vectors bucket/index — CloudFormation.
 #  * KMS keys & SSM instance profile — reference-only (shared/account-level).
 # NEXT: refactor generated*.tf into ../../modules/* (parametrized), then instantiate
-#       dev/qa/prod and finally delete the POC.
+#       dev/qa/prod and finally delete the demo.
 # ---------------------------------------------------------------------------

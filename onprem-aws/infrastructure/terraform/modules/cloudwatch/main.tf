@@ -6,7 +6,7 @@ variable "lambda_names" {
 }
 
 variable "retention_in_days" {
-  description = "Log retention. 0 = never expire (POC default)."
+  description = "Log retention. 0 = never expire (demo default)."
   type        = number
   default     = 30
 }

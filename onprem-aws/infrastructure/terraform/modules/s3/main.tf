@@ -1,4 +1,4 @@
-# Project S3 buckets — modeled on the POC (telemetry + legislation data lakes).
+# Project S3 buckets — modeled on the demo (telemetry + legislation data lakes).
 # Names are prefixed per environment for global uniqueness.
 
 variable "name_prefix" {

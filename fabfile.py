@@ -8,7 +8,7 @@ Two responsibilities:
    selected with `--engine`. Supports both fixed environments (dev/qa/prod)
    and ephemeral per-developer environments (`dev-<user>`).
 
-2. Remote ops on the POC Ollama EC2 instances (`ollama.*`): health checks,
+2. Remote ops on the demo Ollama EC2 instances (`ollama.*`): health checks,
    restarts, model pulls, log tailing — the original Fabric use case.
 
 Conventions:
@@ -46,6 +46,11 @@ NAME_PREFIX = "minelogx"
 STATE_BUCKET = os.environ.get("TF_STATE_BUCKET", "minelogx-terraform-state")
 STATE_LOCK_TABLE = os.environ.get("TF_STATE_LOCK_TABLE", "minelogx-terraform-locks")
 
+# SSO profile used to auto-refresh the token (override per dev with AWS_SSO_PROFILE).
+SSO_LOGIN_PROFILE = os.environ.get(
+    "AWS_SSO_PROFILE", "125396563242_B_Hitech-586928288932"
+)
+
 REPO_ROOT = Path(__file__).resolve().parent
 # Deployment target (framework layout). Override with MINELOGX_TARGET.
 TARGET = os.environ.get("MINELOGX_TARGET", "onprem-aws")
@@ -74,7 +79,7 @@ CFN_LAYERS = [
 # Fixed environments have their own Terraform root module under environments/.
 FIXED_ENVS = {"dev", "qa", "prod"}
 
-# POC Ollama EC2 instances (see CLAUDE.md — POC only, to be replaced by Bedrock).
+# demo Ollama EC2 instances (see CLAUDE.md — demo only, to be replaced by Bedrock).
 INSTANCES = {
     "qwen3": "ec2-98-81-228-187.compute-1.amazonaws.com",
     "gemma3": "ec2-100-31-82-64.compute-1.amazonaws.com",
@@ -148,6 +153,18 @@ def _apn(env):
     return PROD_APN_ID if env == "prod" else PROJECT_APN_ID
 
 
+def _ensure_aws(c):
+    """Auto-refresh the SSO token if missing/expired (opens the browser once).
+
+    SSO requires an interactive login, so this can't be fully silent — but it
+    triggers `aws sso login` for you instead of failing with an expired token.
+    """
+    if c.run("aws sts get-caller-identity", hide=True, warn=True).ok:
+        return
+    print("==> AWS SSO token missing/expired — refreshing (a browser may open)...")
+    c.run(f"aws sso login --profile {SSO_LOGIN_PROFILE}")
+
+
 def _cfn(c, env, execute):
     """Package + deploy the single parent stack (nested children) as minelogx-<env>.
 
@@ -187,6 +204,7 @@ def _cfn(c, env, execute):
 def up(c, env, engine="terraform"):
     """Create/update an environment (fixed or ephemeral)."""
     engine = _norm_engine(engine)
+    _ensure_aws(c)
     print(f"==> up: env={env} engine={engine} region={REGION}")
 
     if engine == "terraform":
@@ -209,6 +227,7 @@ def up(c, env, engine="terraform"):
 def plan(c, env, engine="terraform"):
     """Preview changes without applying (terraform plan / CFN change set)."""
     engine = _norm_engine(engine)
+    _ensure_aws(c)
     print(f"==> plan: env={env} engine={engine}")
 
     if engine == "terraform":
@@ -230,6 +249,7 @@ def plan(c, env, engine="terraform"):
 def down(c, env, engine="terraform"):
     """Destroy an environment. Guarded against fixed prod."""
     engine = _norm_engine(engine)
+    _ensure_aws(c)
     if env == "prod":
         raise SystemExit(
             "Refusing to destroy 'prod'. Tear it down manually if you must."
@@ -263,6 +283,7 @@ def down(c, env, engine="terraform"):
 @task
 def list(c):
     """List active environments (Terraform workspaces + minelogx-* CFN stacks)."""
+    _ensure_aws(c)
     print("== Terraform workspaces (ephemeral) ==")
     with c.cd(str(TF_ENVS / "ephemeral")):
         c.run("terraform workspace list", warn=True)
@@ -277,7 +298,7 @@ def list(c):
 
 
 # --------------------------------------------------------------------------- #
-# ollama.* — POC EC2 remote ops (unchanged use case)
+# ollama.* — demo EC2 remote ops (unchanged use case)
 # --------------------------------------------------------------------------- #
 @task(name="health-check")
 def health_check(c):

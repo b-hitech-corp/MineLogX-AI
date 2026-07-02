@@ -72,7 +72,7 @@ MineLogX-AI/
 │   └── README.md
 ├── onprem-aws/                                  # ✅ AWS target — reference implementation
 │   ├── infrastructure/
-│   │   ├── terraform/       # state owner of the imported POC (+ environments/{dev,qa,prod,ephemeral}, modules/, imports/)
+│   │   ├── terraform/       # state owner of the imported demo (+ environments/{dev,qa,prod,ephemeral}, modules/, imports/)
 │   │   └── cloudformation/  # equivalent CFN definition for new environments
 │   ├── backend/             # Lambda + Bedrock agent code
 │   ├── scripts/             # discover-aws.{sh,ps1} — read-only account inventory

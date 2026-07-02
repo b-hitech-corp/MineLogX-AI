@@ -1,4 +1,4 @@
-# Parametrized VPC network, modeled on the imported POC (minelogx-demo-poc-vpc):
+# Parametrized VPC network, modeled on the imported demo (minelogx-demo-poc-vpc):
 # public + private subnets, IGW, single NAT, S3 gateway endpoint.
 
 resource "aws_vpc" "this" {
@@ -79,7 +79,7 @@ resource "aws_route_table_association" "private" {
   route_table_id = aws_route_table.private[count.index].id
 }
 
-# --- S3 gateway endpoint (private access to S3, as in the POC) ---
+# --- S3 gateway endpoint (private access to S3, as in the demo) ---
 resource "aws_vpc_endpoint" "s3" {
   vpc_id            = aws_vpc.this.id
   service_name      = "com.amazonaws.${data.aws_region.current.name}.s3"

@@ -7,15 +7,15 @@ Terraform and CloudFormation, and orchestrated per-environment by **Fabric**
 
 ```
 infrastructure/
-├── terraform/                  # Terraform definition (state owner of the imported POC)
+├── terraform/                  # Terraform definition (state owner of the imported demo)
 │   ├── versions.tf             # Terraform + AWS provider version constraints
 │   ├── backend.tf              # Remote state (S3 + DynamoDB lock) — bootstrap first
 │   ├── modules/                # Reusable modules (vpc, s3, lambda, api_gateway, ...)
 │   ├── environments/           # Root modules per environment
-│   │   ├── _imported-poc/      # Adopts the hand-deployed POC via import blocks
+│   │   ├── _imported-demo/      # Adopts the hand-deployed demo via import blocks
 │   │   ├── dev/ qa/ prod/ # Fixed shared environments
 │   │   └── ephemeral/          # Per-developer disposable env (minelogx-dev-<user>)
-│   └── imports/                # import {} blocks generated during POC import
+│   └── imports/                # import {} blocks generated during demo import
 ├── cloudformation/             # Equivalent, deployable CFN definition (new envs)
 │   ├── network/ s3/ iam/ lambda/ apigw/ eventbridge/
 │   ├── step-functions/ opensearch-serverless/ bedrock-guardrails/
@@ -28,11 +28,11 @@ infrastructure/
 A live AWS resource can only be managed by **one** engine at a time. To avoid
 drift/deletion conflicts:
 
-- **Terraform owns the imported POC** — it is the source of truth for what is
+- **Terraform owns the imported demo** — it is the source of truth for what is
   already deployed.
 - **CloudFormation** holds an equivalent, deployable definition used to stand up
   **new** environments (ephemeral / dev / qa). It does not co-manage the
-  POC resources.
+  demo resources.
 - **Fabric** selects the engine per environment (`--engine=terraform|cloudformation`).
 
 ## Bootstrapping remote state (one-time, before import)
