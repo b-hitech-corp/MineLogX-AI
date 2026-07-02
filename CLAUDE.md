@@ -8,9 +8,9 @@ This file provides context and behavioral instructions for Claude Code agents wo
 
 MineLogX AI is an operational intelligence platform for mining operations built on AWS. It combines IoT telemetry analytics, machine learning anomaly detection, and compliance Q&A (RAG) powered by Amazon Bedrock.
 
-The infrastructure is defined as IaC in **both Terraform and CloudFormation in parallel** — each tool holds a full, equivalent definition of the platform (see IaC Strategy below). **Fabric is the orchestration layer**: it drives environment lifecycle through either engine (`--engine=terraform|cloudformation`) and also handles remote operations on the POC EC2 instances.
+The infrastructure is defined as IaC in **both Terraform and CloudFormation in parallel** — each tool holds a full, equivalent definition of the platform (see IaC Strategy below). **Fabric is the orchestration layer**: it drives environment lifecycle through either engine (`--engine=terraform|cloudformation`) and also handles remote operations on the demo EC2 instances.
 
-> **Current status:** The POC is deployed by hand in the AWS account tagged `aws-apn-id = pc:13uw3s8iyvze74tlcq3o0w8r6`. The first IaC milestone is to **import** that POC into Terraform (source of truth) and mirror it in CloudFormation, then evolve toward the target architecture. Run `onprem-aws/scripts/discover-aws.sh` (or `.ps1`) to snapshot the live account into `onprem-aws/infrastructure/discovery/` before importing.
+> **Current status:** The demo is deployed by hand in the AWS account tagged `aws-apn-id = pc:13uw3s8iyvze74tlcq3o0w8r6`. The first IaC milestone is to **import** that demo into Terraform (source of truth) and mirror it in CloudFormation, then evolve toward the target architecture. Run `onprem-aws/scripts/discover-aws.sh` (or `.ps1`) to snapshot the live account into `onprem-aws/infrastructure/discovery/` before importing.
 
 ---
 
@@ -29,11 +29,11 @@ MineLogX-AI/                          # framework root
 │   └── frontend/                     # React app / AWS Amplify (cloud-agnostic UI)
 ├── onprem-aws/                       # AWS target — reference implementation
 │   ├── infrastructure/
-│   │   ├── terraform/                # State owner of the imported POC
+│   │   ├── terraform/                # State owner of the imported demo
 │   │   │   ├── versions.tf  variables.tf  backend.tf
 │   │   │   ├── modules/              # vpc, security_groups, s3, iam, lambda, api_gateway, ...
-│   │   │   ├── environments/         # _imported-poc, dev/qa/prod, ephemeral
-│   │   │   └── imports/              # import {} blocks for the POC
+│   │   │   ├── environments/         # _imported-demo, dev/qa/prod, ephemeral
+│   │   │   └── imports/              # import {} blocks for the demo
 │   │   ├── cloudformation/           # Equivalent CFN definition for new envs
 │   │   │   ├── network/ s3/ iam/ lambda/ apigw/ eventbridge/
 │   │   │   ├── step-functions/ opensearch-serverless/ bedrock-guardrails/
@@ -59,7 +59,7 @@ MineLogX-AI/                          # framework root
 | CSV Pipeline | EventBridge Scheduler → Step Functions → Lambda → Bedrock Claude → Bedrock Cohere | Batch telemetry vectorization |
 | PDF Pipeline | S3 PutObject → EventBridge → Lambda File Classification → Textract/Bedrock Claude → Lambda → Bedrock Titan | Event-driven legal doc vectorization |
 | Storage | Amazon S3 | Raw data, curated data, vector inputs, logs |
-| Remote Ops | Fabric + EC2 | Deployment automation for Ollama instances (POC only) |
+| Remote Ops | Fabric + EC2 | Deployment automation for Ollama instances (demo only) |
 
 ### S3 Bucket Structure
 
@@ -109,7 +109,7 @@ A single reusable guardrail named `iot-mining-poc-guardrail-v1` must be applied 
 
 Guardrail must detect/block: prompt injection, system prompt extraction, access control bypass, hidden tool calls, OpenSearch/S3 modification attempts, and ingestion pipeline triggers. Also filter PII: emails, phone numbers, addresses, employee IDs, contract IDs, site IDs.
 
-### EC2 Ollama Instances (POC only)
+### EC2 Ollama Instances (demo only)
 
 These will be replaced by Bedrock in production. Managed via Fabric.
 
@@ -125,7 +125,7 @@ These will be replaced by Bedrock in production. Managed via Fabric.
 
 Fabric (with Invoke) is the automation entrypoint for the project. It has two task namespaces:
 - **`env.*`** — infrastructure environment lifecycle, running Terraform **or** CloudFormation (`--engine`).
-- **`ollama.*`** — remote SSH operations on the POC EC2 instances running Ollama.
+- **`ollama.*`** — remote SSH operations on the demo EC2 instances running Ollama.
 
 ### Installation
 
@@ -163,7 +163,7 @@ fab env.plan --env=qa   --engine=terraform       # preview changes
 fab env.down --env=dev-cesar --engine=terraform       # tear down (prod is guarded)
 fab env.list                                          # active workspaces + stacks
 
-# --- Ollama POC remote ops (ollama.*) ---
+# --- Ollama demo remote ops (ollama.*) ---
 fab ollama.health-check                               # check all instances
 fab ollama.pull-model --host=qwen3 --model=qwen3:8b   # pull a model
 fab ollama.restart-ollama                             # restart on all instances
@@ -207,11 +207,11 @@ selects the engine per environment via `--engine`.
 ### Ownership rule (non-negotiable)
 A live AWS resource can be managed by only **one** engine at a time — never both,
 or they fight over drift/deletion. Therefore:
-- **Terraform is the state owner of the imported POC** (`environments/_imported-poc`).
+- **Terraform is the state owner of the imported demo** (`environments/_imported-demo`).
   It is the source of truth for what is already deployed.
 - **CloudFormation holds an equivalent, deployable definition** used to stand up
   **new** environments (ephemeral / dev / qa). It does **not** co-manage the
-  POC's live resources.
+  demo's live resources.
 - When adding or changing infrastructure, update **both** definitions and keep
   them at parity (verified in CI).
 
@@ -225,7 +225,7 @@ or they fight over drift/deletion. Therefore:
 All environments are driven through Fabric (`fab env.up/plan/down/list`), never
 by hand in the console.
 
-### Discovery → Import workflow (POC capture)
+### Discovery → Import workflow (demo capture)
 1. Configure a **dedicated AWS profile** (`aws configure --profile minelogx` or
    `aws configure sso --profile minelogx`); scope it per shell with
    `AWS_PROFILE=minelogx` so other projects are unaffected.
@@ -374,9 +374,9 @@ OPENSEARCH_PDF_INDEX            # pdf_legal_vecs
 BEDROCK_GUARDRAIL_ID
 BEDROCK_GUARDRAIL_VERSION
 S3_BUCKET_NAME                  # iot-mining-poc
-QWEN3_ENDPOINT                  # POC only
-GEMMA3_ENDPOINT                 # POC only
-EMBEDDINGS_ENDPOINT             # POC only
+QWEN3_ENDPOINT                  # demo only
+GEMMA3_ENDPOINT                 # demo only
+EMBEDDINGS_ENDPOINT             # demo only
 EC2_KEY_PATH                    # Path to .pem file for Fabric
 ```
 
@@ -419,7 +419,7 @@ def lambda_handler(event, context):
 3. **Raw data is untrusted** — validate before any Bedrock operation
 4. **Bedrock Guardrails are mandatory** at all AI touchpoints — never bypass
 5. **Multi-tenant isolation** is a Phase 2 requirement — design IAM and S3 policies with tenant separation in mind
-6. **EC2 Ollama instances are POC-only** — will be replaced by Bedrock in production
+6. **EC2 Ollama instances are demo-only** — will be replaced by Bedrock in production
 7. **Terraform remote state** must use S3 + DynamoDB — never local state
 8. **CloudFormation stacks** prefixed with `minelogx-` for easy identification
 9. **Fabric tasks** should be idempotent — safe to run multiple times

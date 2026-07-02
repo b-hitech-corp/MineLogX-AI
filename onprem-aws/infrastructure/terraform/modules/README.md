@@ -3,7 +3,7 @@
 Reusable building blocks consumed by the root modules under `../environments/`.
 Each module lives in its own folder with `main.tf`, `variables.tf`, `outputs.tf`.
 
-Planned modules (created as the POC import and target architecture progress):
+Planned modules (created as the demo import and target architecture progress):
 
 | Module            | Purpose                                                      |
 |-------------------|--------------------------------------------------------------|
@@ -13,7 +13,7 @@ Planned modules (created as the POC import and target architecture progress):
 | `iam`             | Roles/policies (least privilege) for Lambda / pipelines      |
 | `lambda`          | The 8 `minelogx-*` API Lambdas + pipeline Lambdas            |
 | `api_gateway`     | REST API fronting the Lambdas                                |
-| `ec2`             | Ollama POC instances (to be retired for Bedrock)             |
+| `ec2`             | Ollama demo instances (to be retired for Bedrock)             |
 | `eventbridge`     | Rules + Scheduler for the CSV/PDF pipelines                  |
 | `step_functions`  | CSV / PDF vectorization state machines                       |
 | `opensearch`      | Serverless collection + `csv_telemetry_vecs`/`pdf_legal_vecs`|

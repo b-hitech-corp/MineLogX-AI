@@ -19,7 +19,7 @@ rules, see [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md).
 ```
 
 Creates the `.venv`, installs deps (incl. pre-commit), and installs the git hooks
-so linters (ruff, bandit, yamllint, terraform, cfn-lint, eslint) run on **every
+so linters (ruff, bandit, yamllint, cfn-lint, eslint) run on **every
 commit** automatically. Idempotent — safe to re-run. After this, just commit.
 
 Run all hooks manually any time: `uv run pre-commit run --all-files`.
@@ -37,7 +37,7 @@ aws sts get-caller-identity                             # verify Account 1253965
 
 The SSO token lasts the session; re-run `aws sso login` when it expires.
 
-## 3. Snapshot the deployed POC (Phase 2 — import)
+## 3. Snapshot the deployed demo (Phase 2 — import)
 
 ```bash
 bash onprem-aws/scripts/discover-aws.sh    # PowerShell: ./onprem-aws/scripts/discover-aws.ps1

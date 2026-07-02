@@ -5,7 +5,7 @@ variable "aws_region" {
 
 variable "project_apn_id" {
   type    = string
-  default = "pc:13uw3s8iyvze74tlcq3o0w8r6"
+  default = "pc:925kllxsozl58ehxuk1rxxd8z" # PROD uses a distinct APN id
 }
 
 variable "environment" {

@@ -58,8 +58,8 @@ Infrastructure is defined **in parallel in both Terraform and CloudFormation**,
 orchestrated by Fabric (`fab env.*`, `--engine=terraform|cloudformation`). See
 `CLAUDE.md` → *IaC Strategy* for the full rules. Agents must:
 
-- Treat **Terraform as the state owner of the imported POC**
-  (`infrastructure/terraform/environments/_imported-poc`) — never introduce a
+- Treat **Terraform as the state owner of the imported demo**
+  (`infrastructure/terraform/environments/_imported-demo`) — never introduce a
   CloudFormation stack that manages the same live resources.
 - When adding or changing infrastructure, update **both** the Terraform and the
   CloudFormation definitions and keep them at parity.
@@ -88,8 +88,8 @@ onprem-aws/infrastructure/terraform/versions.tf
 onprem-aws/infrastructure/terraform/variables.tf
 onprem-aws/infrastructure/terraform/backend.tf
 onprem-aws/infrastructure/terraform/environments/prod/**
-onprem-aws/infrastructure/terraform/environments/_imported-poc/**   # POC state owner
-onprem-aws/infrastructure/terraform/imports/**                        # POC import blocks
+onprem-aws/infrastructure/terraform/environments/_imported-demo/**   # demo state owner
+onprem-aws/infrastructure/terraform/imports/**                        # demo import blocks
 Any file affecting IAM roles or policies
 
 ❌ Agents must never modify:
@@ -301,4 +301,4 @@ When adding a new Bedrock Agent or AI component to the platform:
 - `backend/agents/data-analysis/` — Data Analysis Agent implementation
 - `backend/agents/rag-agent/` — RAG Compliance Agent implementation
 - `fabfile.py` — `env.*` environment orchestration + `ollama.*` EC2 remote ops
-- `scripts/discover-aws.sh` / `.ps1` — read-only AWS inventory for POC import
+- `scripts/discover-aws.sh` / `.ps1` — read-only AWS inventory for demo import

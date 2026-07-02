@@ -1,6 +1,6 @@
 # EC2 Ollama instances — FALLBACK LLM tier.
 #
-# These are NOT POC-throwaway: they stay as a backup for when Amazon Bedrock is
+# These are NOT demo-throwaway: they stay as a backup for when Amazon Bedrock is
 # unavailable. Toggle per environment with `enabled`; `prevent_destroy` guards
 # against accidental deletion. (CloudFormation equivalent: a Condition gating the
 # resources + DeletionPolicy/UpdateReplacePolicy: Retain.)
@@ -34,7 +34,7 @@ variable "iam_instance_profile" {
   default     = "AmazonSSMRoleForInstancesQuickSetup"
 }
 
-# One entry per model host. Defaults mirror the imported POC.
+# One entry per model host. Defaults mirror the imported demo.
 variable "instances" {
   description = "Map of logical name => {ami, instance_type, root_volume_gb}."
   type = map(object({

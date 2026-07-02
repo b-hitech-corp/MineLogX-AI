@@ -1,4 +1,4 @@
-# Lambda execution roles — modeled on the POC service roles (ml, rag).
+# Lambda execution roles — modeled on the demo service roles (ml, rag).
 # One role per logical Lambda, with basic execution logging + optional extra
 # managed/inline policies (S3 read, Bedrock invoke, etc.) passed per environment.
 

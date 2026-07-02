@@ -1,11 +1,11 @@
 # Terraform import blocks
 
 This folder holds `import {}` blocks (Terraform >= 1.5) that adopt the
-hand-deployed POC into Terraform state, plus the config generated from them.
+hand-deployed demo into Terraform state, plus the config generated from them.
 
 ## Workflow (run after `scripts/discover-aws.sh` populates `../../discovery/`)
 
-1. Fill in `poc-imports.tf` with one `import` block per real resource, using
+1. Fill in `demo-imports.tf` with one `import` block per real resource, using
    the IDs/ARNs found in `infrastructure/discovery/*.json`. Example:
 
    ```hcl
@@ -22,7 +22,7 @@ hand-deployed POC into Terraform state, plus the config generated from them.
 2. Generate HCL for the imported resources:
 
    ```bash
-   cd infrastructure/terraform/environments/_imported-poc
+   cd infrastructure/terraform/environments/_imported-demo
    terraform plan -generate-config-out=generated.tf
    ```
 
@@ -30,7 +30,7 @@ hand-deployed POC into Terraform state, plus the config generated from them.
 
    ```bash
    terraform apply     # adopts state; must show only imports, no destroys
-   terraform plan      # must report 0 changes (faithful capture of the POC)
+   terraform plan      # must report 0 changes (faithful capture of the demo)
    ```
 
 `generated.tf` is a scratch artifact — do not commit it as-is; fold it into modules.

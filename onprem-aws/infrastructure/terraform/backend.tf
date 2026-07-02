@@ -11,7 +11,7 @@
 # dev/qa where they are.
 #
 # NOTE: `key` is scoped per environment — one distinct state key each, e.g.
-#   onprem-aws/_imported-poc/terraform.tfstate
+#   onprem-aws/_imported-demo/terraform.tfstate
 #   onprem-aws/dev/terraform.tfstate
 #   onprem-aws/qa/terraform.tfstate
 #   onprem-aws/prod/terraform.tfstate   # → separate bucket/account in the future
@@ -20,7 +20,7 @@
 # terraform {
 #   backend "s3" {
 #     bucket         = "minelogx-terraform-state"
-#     key            = "onprem-aws/_imported-poc/terraform.tfstate"
+#     key            = "onprem-aws/_imported-demo/terraform.tfstate"
 #     region         = "us-east-1"
 #     dynamodb_table = "minelogx-terraform-locks"
 #     encrypt        = true

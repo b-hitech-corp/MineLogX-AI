@@ -1,5 +1,5 @@
 # Amplify hosting app + branch — modeled on minelogx-frontend-poc / demo.
-# repository/oauth_token are optional (manual deploys leave them null, as in POC).
+# repository/oauth_token are optional (manual deploys leave them null, as in demo).
 
 variable "name_prefix" {
   type = string
@@ -37,7 +37,7 @@ resource "aws_amplify_app" "this" {
   repository            = var.repository
   environment_variables = var.environment_variables
 
-  # SPA fallback (serve index.html on 404), as in the POC.
+  # SPA fallback (serve index.html on 404), as in the demo.
   custom_rule {
     source = "/<*>"
     status = "404-200"

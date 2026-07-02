@@ -8,7 +8,7 @@ Two responsibilities:
    selected with `--engine`. Supports both fixed environments (dev/qa/prod)
    and ephemeral per-developer environments (`dev-<user>`).
 
-2. Remote ops on the POC Ollama EC2 instances (`ollama.*`): health checks,
+2. Remote ops on the demo Ollama EC2 instances (`ollama.*`): health checks,
    restarts, model pulls, log tailing — the original Fabric use case.
 
 Conventions:
@@ -16,16 +16,20 @@ Conventions:
   - Mandatory tags on every resource: aws-apn-id, Environment, ManagedBy
   - AWS profile is taken from the AWS_PROFILE env var (see AWS CLI setup).
 
-Usage:
-  fab --list
-  fab env.up   --env=dev-cesar --engine=terraform
-  fab env.plan --env=qa   --engine=cloudformation
-  fab env.down --env=dev-cesar --engine=terraform
+Usage (env and engine are positional; engine defaults to terraform):
+  fab env.up   dev-cesar          # terraform (default)
+  fab env.plan dev-cesar cf       # cloudformation  (aliases: tf / cf)
+  fab env.down dev-cesar
   fab env.list
   fab ollama.health-check
+
+Tip: activate the venv to drop the `uv run` prefix —
+  source .venv/Scripts/activate   # Windows/Git Bash;  .venv/bin/activate on macOS/Linux
+Or add a shell alias:  alias mlx='uv run fab'   ->   mlx env.plan dev-cesar cf
 """
 
 import os
+import shutil
 from pathlib import Path
 
 from fabric import Connection, SerialGroup, task
@@ -36,11 +40,25 @@ from invoke import Collection
 # --------------------------------------------------------------------------- #
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 PROJECT_APN_ID = "pc:13uw3s8iyvze74tlcq3o0w8r6"
+PROD_APN_ID = "pc:925kllxsozl58ehxuk1rxxd8z"  # PROD uses a distinct APN id
 NAME_PREFIX = "minelogx"
+
+# Resolve the terraform binary in an OS-agnostic way. Precedence:
+#   1. TERRAFORM_BIN env var (bulletproof override — survives venv/PATH quirks)
+#   2. terraform on PATH (shutil.which — works on Windows/Linux/Mac)
+#   3. bare "terraform" fallback
+# We pass the resolved path to Fabric so its subprocess finds terraform even when
+# PATH is mangled by a venv activate script or cmd.exe vs Git Bash differences.
+TERRAFORM = os.environ.get("TERRAFORM_BIN") or shutil.which("terraform") or "terraform"
 
 # Terraform remote state (bootstrap once with scripts/bootstrap-backend.sh).
 STATE_BUCKET = os.environ.get("TF_STATE_BUCKET", "minelogx-terraform-state")
 STATE_LOCK_TABLE = os.environ.get("TF_STATE_LOCK_TABLE", "minelogx-terraform-locks")
+
+# SSO profile used to auto-refresh the token (override per dev with AWS_SSO_PROFILE).
+SSO_LOGIN_PROFILE = os.environ.get(
+    "AWS_SSO_PROFILE", "125396563242_B_Hitech-586928288932"
+)
 
 REPO_ROOT = Path(__file__).resolve().parent
 # Deployment target (framework layout). Override with MINELOGX_TARGET.
@@ -70,13 +88,15 @@ CFN_LAYERS = [
 # Fixed environments have their own Terraform root module under environments/.
 FIXED_ENVS = {"dev", "qa", "prod"}
 
-# POC Ollama EC2 instances (see CLAUDE.md — POC only, to be replaced by Bedrock).
+# demo Ollama EC2 instances (see CLAUDE.md — demo only, to be replaced by Bedrock).
 INSTANCES = {
     "qwen3": "ec2-98-81-228-187.compute-1.amazonaws.com",
     "gemma3": "ec2-100-31-82-64.compute-1.amazonaws.com",
     "embeddings": "ec2-3-208-23-94.compute-1.amazonaws.com",
 }
-KEY_PATH = os.environ.get("EC2_KEY_PATH", "~/.ssh/minelogx-demo-poc-keypair.pem")
+KEY_PATH = os.path.expanduser(
+    os.environ.get("EC2_KEY_PATH", "~/.ssh/minelogx-demo-poc-keypair.pem")
+)
 SSH_USER = "ubuntu"
 
 
@@ -107,7 +127,7 @@ def _tf(c, env, *args):
     )
     with c.cd(workdir):
         c.run(
-            "terraform init -input=false -reconfigure "
+            f'"{TERRAFORM}" init -input=false -reconfigure '
             f'-backend-config="bucket={STATE_BUCKET}" '
             f'-backend-config="key={state_key}" '
             f'-backend-config="region={REGION}" '
@@ -115,43 +135,88 @@ def _tf(c, env, *args):
             f'-backend-config="encrypt=true"'
         )
         if _is_ephemeral(env):
-            # `|| true` so re-selecting an existing workspace is idempotent.
-            c.run(f"terraform workspace select {env} || terraform workspace new {env}")
-        c.run(" ".join(["terraform", *args]))
+            # Select the workspace, creating it on first use (shell-agnostic —
+            # no `||`, which breaks under cmd.exe on Windows).
+            if not c.run(f'"{TERRAFORM}" workspace select {env}', warn=True).ok:
+                c.run(f'"{TERRAFORM}" workspace new {env}')
+        c.run(" ".join([f'"{TERRAFORM}"', *args]))
 
 
 def _cfn_stack(env, layer):
     return f"{NAME_PREFIX}-{env}-{layer}"
 
 
-def _cfn_params(env):
-    """Parameter file for the environment (falls back to the base env name)."""
-    candidates = [CFN_ROOT / "params" / f"{env}.params.json"]
-    if _is_ephemeral(env):
-        candidates.append(CFN_ROOT / "params" / f"{env.split('-')[0]}.params.json")
-    for p in candidates:
-        if p.exists():
-            return p
-    return None
+# CFN parameters are computed inline per environment in up()/plan() so that
+# ephemeral dev-<user> stacks get a unique NamePrefix. The params/*.json files
+# are kept for manual `aws cloudformation deploy` and advanced per-env overrides.
 
 
-def _require_engine(engine):
+def _norm_engine(engine):
+    """Accept short aliases: tf -> terraform, cf -> cloudformation."""
+    engine = {"tf": "terraform", "cf": "cloudformation"}.get(engine, engine)
     if engine not in ("terraform", "cloudformation"):
-        raise SystemExit("Error: --engine must be 'terraform' or 'cloudformation'.")
+        raise SystemExit("Error: engine must be terraform|tf or cloudformation|cf.")
+    return engine
+
+
+def _apn(env):
+    """Project aws-apn-id tag. PROD uses a distinct APN id (see PROD_APN_ID)."""
+    return PROD_APN_ID if env == "prod" else PROJECT_APN_ID
+
+
+def _ensure_aws(c):
+    """Auto-refresh the SSO token if missing/expired (opens the browser once).
+
+    SSO requires an interactive login, so this can't be fully silent — but it
+    triggers `aws sso login` for you instead of failing with an expired token.
+    """
+    if c.run("aws sts get-caller-identity", hide=True, warn=True).ok:
+        return
+    print("==> AWS SSO token missing/expired — refreshing (a browser may open)...")
+    c.run(f"aws sso login --profile {SSO_LOGIN_PROFILE}")
+
+
+def _cfn(c, env, execute):
+    """Package + deploy the single parent stack (nested children) as minelogx-<env>.
+
+    `package` uploads the child templates to S3 and rewrites TemplateURLs.
+    execute=False creates a change set without applying (plan).
+    """
+    apn = _apn(env)
+    fallback = "true" if env == "prod" else "false"
+    with c.cd(str(CFN_ROOT)):
+        c.run(
+            "aws cloudformation package --template-file parent.yaml "
+            f"--s3-bucket {STATE_BUCKET} --s3-prefix cfn/{env} "
+            f"--output-template-file packaged-parent.yaml --region {REGION}"
+        )
+        cmd = (
+            "aws cloudformation deploy --template-file packaged-parent.yaml "
+            f"--stack-name {NAME_PREFIX}-{env} "
+            f"--parameter-overrides NamePrefix={NAME_PREFIX}-{env} Environment={env} "
+            f"ProjectApnId={apn} EnableLlmFallback={fallback} "
+            f"--tags aws-apn-id={apn} Environment={env} ManagedBy=cloudformation "
+            f"--capabilities CAPABILITY_NAMED_IAM --region {REGION}"
+        )
+        if not execute:
+            cmd += " --no-execute-changeset"
+        c.run(cmd)
 
 
 # --------------------------------------------------------------------------- #
 # env.* — environment orchestration
 # --------------------------------------------------------------------------- #
 @task(
+    positional=["env", "engine"],
     help={
         "env": "Environment name (dev|qa|prod|dev-<user>).",
         "engine": "terraform | cloudformation",
-    }
+    },
 )
 def up(c, env, engine="terraform"):
     """Create/update an environment (fixed or ephemeral)."""
-    _require_engine(engine)
+    engine = _norm_engine(engine)
+    _ensure_aws(c)
     print(f"==> up: env={env} engine={engine} region={REGION}")
 
     if engine == "terraform":
@@ -163,31 +228,21 @@ def up(c, env, engine="terraform"):
             f'-var="environment={env}"',
             f'-var="aws_region={REGION}"',
             f'-var="name_prefix={NAME_PREFIX}-{env}"',
+            f'-var="project_apn_id={_apn(env)}"',
         )
         return
 
-    params = _cfn_params(env)
-    param_arg = f"--parameter-overrides file://{params}" if params else ""
-    for layer in CFN_LAYERS:
-        template = CFN_ROOT / layer / f"{layer}.yaml"
-        if not template.exists():
-            print(f"    (skip {layer}: {template} not present yet)")
-            continue
-        c.run(
-            f"aws cloudformation deploy "
-            f"--template-file {template} "
-            f"--stack-name {_cfn_stack(env, layer)} "
-            f"{param_arg} "
-            f"--tags aws-apn-id={PROJECT_APN_ID} Environment={env} ManagedBy=cloudformation "
-            f"--capabilities CAPABILITY_NAMED_IAM "
-            f"--region {REGION}"
-        )
+    _cfn(c, env, execute=True)
 
 
-@task(help={"env": "Environment name.", "engine": "terraform | cloudformation"})
+@task(
+    positional=["env", "engine"],
+    help={"env": "Environment name.", "engine": "terraform | cloudformation"},
+)
 def plan(c, env, engine="terraform"):
     """Preview changes without applying (terraform plan / CFN change set)."""
-    _require_engine(engine)
+    engine = _norm_engine(engine)
+    _ensure_aws(c)
     print(f"==> plan: env={env} engine={engine}")
 
     if engine == "terraform":
@@ -198,27 +253,21 @@ def plan(c, env, engine="terraform"):
             f'-var="environment={env}"',
             f'-var="aws_region={REGION}"',
             f'-var="name_prefix={NAME_PREFIX}-{env}"',
+            f'-var="project_apn_id={_apn(env)}"',
         )
         return
 
-    params = _cfn_params(env)
-    param_arg = f"--parameter-overrides file://{params}" if params else ""
-    for layer in CFN_LAYERS:
-        template = CFN_ROOT / layer / f"{layer}.yaml"
-        if not template.exists():
-            continue
-        c.run(
-            f"aws cloudformation deploy --no-execute-changeset "
-            f"--template-file {template} "
-            f"--stack-name {_cfn_stack(env, layer)} "
-            f"{param_arg} --capabilities CAPABILITY_NAMED_IAM --region {REGION}"
-        )
+    _cfn(c, env, execute=False)
 
 
-@task(help={"env": "Environment name.", "engine": "terraform | cloudformation"})
+@task(
+    positional=["env", "engine"],
+    help={"env": "Environment name.", "engine": "terraform | cloudformation"},
+)
 def down(c, env, engine="terraform"):
     """Destroy an environment. Guarded against fixed prod."""
-    _require_engine(engine)
+    engine = _norm_engine(engine)
+    _ensure_aws(c)
     if env == "prod":
         raise SystemExit(
             "Refusing to destroy 'prod'. Tear it down manually if you must."
@@ -234,38 +283,40 @@ def down(c, env, engine="terraform"):
             f'-var="environment={env}"',
             f'-var="aws_region={REGION}"',
             f'-var="name_prefix={NAME_PREFIX}-{env}"',
+            f'-var="project_apn_id={_apn(env)}"',
         )
         if _is_ephemeral(env):
             with c.cd(_tf_workdir(env)):
-                c.run("terraform workspace select default")
-                c.run(f"terraform workspace delete {env} || true")
+                c.run(f'"{TERRAFORM}" workspace select default', warn=True)
+                c.run(f'"{TERRAFORM}" workspace delete {env}', warn=True)
         return
 
-    # CloudFormation: delete stacks in reverse dependency order.
-    for layer in reversed(CFN_LAYERS):
-        c.run(
-            f"aws cloudformation delete-stack "
-            f"--stack-name {_cfn_stack(env, layer)} --region {REGION} || true"
-        )
+    # CloudFormation: one parent stack — deleting it removes all nested children.
+    c.run(
+        f"aws cloudformation delete-stack --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        warn=True,
+    )
 
 
 @task
 def list(c):
     """List active environments (Terraform workspaces + minelogx-* CFN stacks)."""
+    _ensure_aws(c)
     print("== Terraform workspaces (ephemeral) ==")
     with c.cd(str(TF_ENVS / "ephemeral")):
-        c.run("terraform workspace list || true")
+        c.run(f'"{TERRAFORM}" workspace list', warn=True)
     print("\n== CloudFormation stacks (minelogx-*) ==")
     c.run(
         f"aws cloudformation list-stacks --region {REGION} "
         f"--stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE "
         f"--query \"StackSummaries[?starts_with(StackName, '{NAME_PREFIX}-')].StackName\" "
-        f"--output table || true"
+        f"--output table",
+        warn=True,
     )
 
 
 # --------------------------------------------------------------------------- #
-# ollama.* — POC EC2 remote ops (unchanged use case)
+# ollama.* — demo EC2 remote ops (unchanged use case)
 # --------------------------------------------------------------------------- #
 @task(name="health-check")
 def health_check(c):

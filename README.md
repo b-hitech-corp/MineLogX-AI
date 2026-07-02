@@ -14,29 +14,38 @@
 
 ### 🛠 Requirements
 
-- Python 3.9+
-- pip
-- Terraform (primary IaC tool across all targets)
-- (Optional) Docker
-- Cloud CLI for your chosen target (AWS CLI, Azure CLI, IBM Cloud CLI) — not required for on-prem-only deployments
+- [uv](https://docs.astral.sh/uv/) — manages the Python env (requires Python **3.11+**)
+- AWS CLI v2 — for the AWS target (SSO login)
+- Terraform >= 1.5 — only if you deploy through the Terraform engine
+- (Optional) Node 20 + pnpm — only if you work on the frontend
 
 ### 🧑‍💻 Install & Run
 
+Clone the repo and run the **one-command dev setup** — it creates the virtualenv,
+installs dependencies (via uv), and wires the pre-commit git hooks:
+
 ```bash
-git clone https://github.com/yourusername/MineLogX-AI.git
+git clone git@github.com:b-hitech-corp/MineLogX-AI.git
 cd MineLogX-AI
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-python app.py
+bash scripts/dev-setup.sh          # Windows PowerShell: ./scripts/dev-setup.ps1
 ```
 
-### 🐳 Docker Option
+Then drive environments with Fabric (no venv activation needed — `uv run` handles it):
 
 ```bash
-docker build -t minelogx-ai .
-docker run -v $(pwd)/data:/app/data minelogx-ai --log data/sample.log
+uv run fab --list                    # list available tasks
+uv run fab env.plan dev-cesar cf     # preview a CloudFormation environment
+uv run fab env.up   dev-cesar        # deploy with Terraform (default engine)
 ```
+
+One-time state backend, before the first Terraform deploy:
+
+```bash
+bash onprem-aws/scripts/bootstrap-backend.sh
+```
+
+For AWS SSO access, the demo → IaC import flow, and full conventions, see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ### ☁️ Choosing a Deployment Target
 
@@ -72,7 +81,7 @@ MineLogX-AI/
 │   └── README.md
 ├── onprem-aws/                                  # ✅ AWS target — reference implementation
 │   ├── infrastructure/
-│   │   ├── terraform/       # state owner of the imported POC (+ environments/{dev,qa,prod,ephemeral}, modules/, imports/)
+│   │   ├── terraform/       # state owner of the imported demo (+ environments/{dev,qa,prod,ephemeral}, modules/, imports/)
 │   │   └── cloudformation/  # equivalent CFN definition for new environments
 │   ├── backend/             # Lambda + Bedrock agent code
 │   ├── scripts/             # discover-aws.{sh,ps1} — read-only account inventory
@@ -87,6 +96,28 @@ variants, `onprem-only`) are on the roadmap and added when a client needs them �
 we don't scaffold empty target trees.
 
 `shared/` holds the cloud-agnostic core: protocol adapters, data schemas, agent contracts, and templates that every `onprem-*` deployment target consumes. Provider-specific folders implement those contracts using each provider's native services. Repo-wide tooling (uv, pre-commit, CI, Fabric) lives at the root.
+
+---
+
+## 🚀 Environments (Fabric)
+
+Both IaC engines deploy the same environment through Fabric. `env` and `engine`
+are **positional** (engine defaults to `terraform`; aliases `tf` / `cf`):
+
+```bash
+fab env.up   dev-cesar        # Terraform (default engine)
+fab env.plan dev-cesar cf     # CloudFormation (one nested stack: minelogx-dev-cesar)
+fab env.down dev-cesar
+fab env.list
+```
+
+- **Fixed** envs: `dev` / `qa` / `prod`. **Ephemeral** per-dev: `dev-<name>`
+  (isolated by Terraform workspace / CFN stack `minelogx-dev-<name>`).
+- Drop the `uv run` prefix by activating the venv
+  (`source .venv/Scripts/activate`) or `alias mlx='uv run fab'`.
+- One-time state backend bootstrap: `bash onprem-aws/scripts/bootstrap-backend.sh`.
+
+Full dev setup and conventions: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ---
 
