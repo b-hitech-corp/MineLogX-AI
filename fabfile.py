@@ -119,8 +119,10 @@ def _tf(c, env, *args):
             f'-backend-config="encrypt=true"'
         )
         if _is_ephemeral(env):
-            # `|| true` so re-selecting an existing workspace is idempotent.
-            c.run(f"terraform workspace select {env} || terraform workspace new {env}")
+            # Select the workspace, creating it on first use (shell-agnostic —
+            # no `||`, which breaks under cmd.exe on Windows).
+            if not c.run(f"terraform workspace select {env}", warn=True).ok:
+                c.run(f"terraform workspace new {env}")
         c.run(" ".join(["terraform", *args]))
 
 
@@ -247,13 +249,14 @@ def down(c, env, engine="terraform"):
         )
         if _is_ephemeral(env):
             with c.cd(_tf_workdir(env)):
-                c.run("terraform workspace select default")
-                c.run(f"terraform workspace delete {env} || true")
+                c.run("terraform workspace select default", warn=True)
+                c.run(f"terraform workspace delete {env}", warn=True)
         return
 
     # CloudFormation: one parent stack — deleting it removes all nested children.
     c.run(
-        f"aws cloudformation delete-stack --stack-name {NAME_PREFIX}-{env} --region {REGION}"
+        f"aws cloudformation delete-stack --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        warn=True,
     )
 
 
@@ -262,13 +265,14 @@ def list(c):
     """List active environments (Terraform workspaces + minelogx-* CFN stacks)."""
     print("== Terraform workspaces (ephemeral) ==")
     with c.cd(str(TF_ENVS / "ephemeral")):
-        c.run("terraform workspace list || true")
+        c.run("terraform workspace list", warn=True)
     print("\n== CloudFormation stacks (minelogx-*) ==")
     c.run(
         f"aws cloudformation list-stacks --region {REGION} "
         f"--stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE "
         f"--query \"StackSummaries[?starts_with(StackName, '{NAME_PREFIX}-')].StackName\" "
-        f"--output table || true"
+        f"--output table",
+        warn=True,
     )
 
 
