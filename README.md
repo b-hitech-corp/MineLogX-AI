@@ -90,6 +90,28 @@ we don't scaffold empty target trees.
 
 ---
 
+## 🚀 Environments (Fabric)
+
+Both IaC engines deploy the same environment through Fabric. `env` and `engine`
+are **positional** (engine defaults to `terraform`; aliases `tf` / `cf`):
+
+```bash
+fab env.up   dev-cesar        # Terraform (default engine)
+fab env.plan dev-cesar cf     # CloudFormation (one nested stack: minelogx-dev-cesar)
+fab env.down dev-cesar
+fab env.list
+```
+
+- **Fixed** envs: `dev` / `qa` / `prod`. **Ephemeral** per-dev: `dev-<name>`
+  (isolated by Terraform workspace / CFN stack `minelogx-dev-<name>`).
+- Drop the `uv run` prefix by activating the venv
+  (`source .venv/Scripts/activate`) or `alias mlx='uv run fab'`.
+- One-time state backend bootstrap: `bash onprem-aws/scripts/bootstrap-backend.sh`.
+
+Full dev setup and conventions: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+---
+
 ## 🤖 AI Agents
 
 MineLogX ships two reference agent types, defined behind a provider-agnostic interface so the same capabilities can run on any supported cloud:

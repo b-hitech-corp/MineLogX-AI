@@ -16,13 +16,16 @@ Conventions:
   - Mandatory tags on every resource: aws-apn-id, Environment, ManagedBy
   - AWS profile is taken from the AWS_PROFILE env var (see AWS CLI setup).
 
-Usage:
-  fab --list
-  fab env.up   --env=dev-cesar --engine=terraform
-  fab env.plan --env=qa   --engine=cloudformation
-  fab env.down --env=dev-cesar --engine=terraform
+Usage (env and engine are positional; engine defaults to terraform):
+  fab env.up   dev-cesar          # terraform (default)
+  fab env.plan dev-cesar cf       # cloudformation  (aliases: tf / cf)
+  fab env.down dev-cesar
   fab env.list
   fab ollama.health-check
+
+Tip: activate the venv to drop the `uv run` prefix —
+  source .venv/Scripts/activate   # Windows/Git Bash;  .venv/bin/activate on macOS/Linux
+Or add a shell alias:  alias mlx='uv run fab'   ->   mlx env.plan dev-cesar cf
 """
 
 import os
@@ -130,9 +133,12 @@ def _cfn_stack(env, layer):
 # are kept for manual `aws cloudformation deploy` and advanced per-env overrides.
 
 
-def _require_engine(engine):
+def _norm_engine(engine):
+    """Accept short aliases: tf -> terraform, cf -> cloudformation."""
+    engine = {"tf": "terraform", "cf": "cloudformation"}.get(engine, engine)
     if engine not in ("terraform", "cloudformation"):
-        raise SystemExit("Error: --engine must be 'terraform' or 'cloudformation'.")
+        raise SystemExit("Error: engine must be terraform|tf or cloudformation|cf.")
+    return engine
 
 
 def _apn(env):
@@ -178,7 +184,7 @@ def _cfn(c, env, execute):
 )
 def up(c, env, engine="terraform"):
     """Create/update an environment (fixed or ephemeral)."""
-    _require_engine(engine)
+    engine = _norm_engine(engine)
     print(f"==> up: env={env} engine={engine} region={REGION}")
 
     if engine == "terraform":
@@ -200,7 +206,7 @@ def up(c, env, engine="terraform"):
 @task(help={"env": "Environment name.", "engine": "terraform | cloudformation"})
 def plan(c, env, engine="terraform"):
     """Preview changes without applying (terraform plan / CFN change set)."""
-    _require_engine(engine)
+    engine = _norm_engine(engine)
     print(f"==> plan: env={env} engine={engine}")
 
     if engine == "terraform":
@@ -221,7 +227,7 @@ def plan(c, env, engine="terraform"):
 @task(help={"env": "Environment name.", "engine": "terraform | cloudformation"})
 def down(c, env, engine="terraform"):
     """Destroy an environment. Guarded against fixed prod."""
-    _require_engine(engine)
+    engine = _norm_engine(engine)
     if env == "prod":
         raise SystemExit(
             "Refusing to destroy 'prod'. Tear it down manually if you must."
