@@ -9,7 +9,7 @@ terraform {
       version = "~> 5.0"
     }
   }
-  # Ephemeral state uses workspaces (not a per-env key) — see ../../backend.tf.
+  backend "s3" {} # partial — filled by fabfile; workspace isolates per-dev state
 }
 
 provider "aws" {

@@ -1,0 +1,92 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  MineLogX Bedrock Guardrail (per AGENTS.md: iot-mining-poc-guardrail-v1).
+  Applied at every AI touchpoint: user queries, chunks before embedding, and
+  final agent responses. Blocks prompt attacks/jailbreaks, denies off-scope
+  topics, and filters PII / mining operational identifiers.
+
+Parameters:
+  NamePrefix:
+    Type: String
+  Environment:
+    Type: String
+  ProjectApnId:
+    Type: String
+    Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+
+Resources:
+  Guardrail:
+    Type: AWS::Bedrock::Guardrail
+    Properties:
+      Name: !Sub '${NamePrefix}-guardrail'
+      Description: MineLogX guardrail — prompt-attack, topic denial, PII filtering.
+      BlockedInputMessaging: 'This request cannot be processed.'
+      BlockedOutputsMessaging: 'This response was blocked by policy.'
+
+      ContentPolicyConfig:
+        FiltersConfig:
+          # Prompt injection / jailbreak / system-prompt extraction (input only).
+          - Type: PROMPT_ATTACK
+            InputStrength: HIGH
+            OutputStrength: NONE
+          - Type: HATE
+            InputStrength: HIGH
+            OutputStrength: HIGH
+          - Type: INSULTS
+            InputStrength: MEDIUM
+            OutputStrength: MEDIUM
+          - Type: MISCONDUCT
+            InputStrength: HIGH
+            OutputStrength: HIGH
+
+      TopicPolicyConfig:
+        TopicsConfig:
+          - Name: LegalAdvice
+            Type: DENY
+            Definition: >
+              Requests for legal counsel or advice. The RAG agent provides
+              regulatory information with citations, never legal advice.
+          - Name: FinancialAdvice
+            Type: DENY
+            Definition: Requests for investment, tax, or financial advice.
+          - Name: MedicalAdvice
+            Type: DENY
+            Definition: Requests for medical diagnosis or treatment advice.
+
+      SensitiveInformationPolicyConfig:
+        PiiEntitiesConfig:
+          - Type: EMAIL
+            Action: ANONYMIZE
+          - Type: PHONE
+            Action: ANONYMIZE
+          - Type: ADDRESS
+            Action: ANONYMIZE
+        RegexesConfig:
+          # Mining operational identifiers — tune patterns to real formats.
+          - Name: EmployeeId
+            Pattern: '\bEMP-\d{4,6}\b'
+            Action: ANONYMIZE
+          - Name: ContractId
+            Pattern: '\bCT-\d{4,}\b'
+            Action: ANONYMIZE
+          - Name: SiteId
+            Pattern: '\bSITE-[A-Z0-9]{2,}\b'
+            Action: ANONYMIZE
+
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+  GuardrailVersion:
+    Type: AWS::Bedrock::GuardrailVersion
+    Properties:
+      GuardrailIdentifier: !GetAtt Guardrail.GuardrailId
+      Description: !Sub 'Published version for ${Environment}'
+
+Outputs:
+  GuardrailId:
+    Value: !GetAtt Guardrail.GuardrailId
+  GuardrailArn:
+    Value: !GetAtt Guardrail.GuardrailArn
+  GuardrailVersion:
+    Value: !GetAtt GuardrailVersion.Version
