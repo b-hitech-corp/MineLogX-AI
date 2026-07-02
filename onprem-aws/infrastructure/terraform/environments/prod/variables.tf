@@ -10,18 +10,18 @@ variable "project_apn_id" {
 
 variable "environment" {
   type    = string
-  default = "dev"
+  default = "prod"
 }
 
 variable "name_prefix" {
   type    = string
-  default = "minelogx-dev"
+  default = "minelogx-prod"
 }
 
 variable "enable_llm_fallback" {
-  description = "EC2 Ollama fallback tier. Off in dev (Bedrock is primary)."
+  description = "EC2 Ollama fallback tier. ON in prod — backup when Bedrock is down."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "ssh_ingress_cidrs" {

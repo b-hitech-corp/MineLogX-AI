@@ -1,5 +1,6 @@
 # Environment root — thin wrapper over modules/env_stack.
 # Identical across dev/qa/prod/ephemeral; only variable defaults differ.
+# NOTE: PROD will move to its own AWS account later (see ../../backend.tf).
 terraform {
   required_version = ">= 1.5.0"
   required_providers {

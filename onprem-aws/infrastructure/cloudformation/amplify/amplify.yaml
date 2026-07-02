@@ -1,0 +1,46 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MineLogX Amplify hosting (app + branch) — parity with the Terraform amplify module.
+
+Parameters:
+  NamePrefix:
+    Type: String
+  Environment:
+    Type: String
+  ProjectApnId:
+    Type: String
+    Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+  BranchName:
+    Type: String
+    Default: demo
+  BranchStage:
+    Type: String
+    Default: PRODUCTION
+
+Resources:
+  App:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: !Sub '${NamePrefix}-frontend'
+      Platform: WEB
+      CustomRules:
+        - { Source: '/<*>', Target: /index.html, Status: '404-200' }
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+  Branch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt App.AppId
+      BranchName: !Ref BranchName
+      Stage: !Ref BranchStage
+      EnableAutoBuild: true
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+Outputs:
+  AppId:
+    Value: !GetAtt App.AppId
+  DefaultDomain:
+    Value: !GetAtt App.DefaultDomain
