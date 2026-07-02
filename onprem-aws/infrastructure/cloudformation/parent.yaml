@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  MineLogX environment — single parent stack that composes all layers as nested
+  stacks. Cross-layer values are passed parent-side (Outputs -> Parameters), so
+  there are no account-global Exports. Deploy with `aws cloudformation package`
+  (uploads children to S3) then `deploy` — one stack: minelogx-<env>.
+
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks:
+        - W3002  # TemplateURL is a local path; resolved by `aws cloudformation package`
+
+Parameters:
+  NamePrefix:
+    Type: String
+  Environment:
+    Type: String
+  ProjectApnId:
+    Type: String
+    Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+  EnableLlmFallback:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+
+Resources:
+  Network:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: network/network.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+
+  SecurityGroups:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: security-groups/security-groups.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+        VpcId: !GetAtt Network.Outputs.VpcId
+
+  S3:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: s3/s3.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+
+  Iam:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: iam/iam.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+
+  Cloudwatch:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: cloudwatch/cloudwatch.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+
+  Apigw:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: apigw/apigw.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+
+  Ec2:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ec2/ec2-llm.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+        EnableLlmFallback: !Ref EnableLlmFallback
+        SubnetId: !GetAtt Network.Outputs.PrivateSubnet1Id
+        SecurityGroupId: !GetAtt SecurityGroups.Outputs.SgLlmId
+
+  OpenSearch:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: opensearch-serverless/opensearch-serverless.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+
+  Guardrails:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: bedrock-guardrails/bedrock-guardrails.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+
+  Amplify:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: amplify/amplify.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+
+Outputs:
+  VpcId:
+    Value: !GetAtt Network.Outputs.VpcId
+  ApiId:
+    Value: !GetAtt Apigw.Outputs.RestApiId
+  AmplifyDomain:
+    Value: !GetAtt Amplify.Outputs.DefaultDomain

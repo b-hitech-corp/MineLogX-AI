@@ -19,7 +19,7 @@ rules, see [`CLAUDE.md`](CLAUDE.md) and [`AGENTS.md`](AGENTS.md).
 ```
 
 Creates the `.venv`, installs deps (incl. pre-commit), and installs the git hooks
-so linters (ruff, bandit, yamllint, terraform, cfn-lint, eslint) run on **every
+so linters (ruff, bandit, yamllint, cfn-lint, eslint) run on **every
 commit** automatically. Idempotent — safe to re-run. After this, just commit.
 
 Run all hooks manually any time: `uv run pre-commit run --all-files`.

@@ -9,6 +9,8 @@ Parameters:
   ProjectApnId:
     Type: String
     Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+  VpcId:
+    Type: AWS::EC2::VPC::Id
   OllamaPort:
     Type: Number
     Default: 11434
@@ -29,8 +31,7 @@ Resources:
     Properties:
       GroupName: !Sub '${NamePrefix}-sg-llm'
       GroupDescription: Security group for MineLogX LLM instances
-      VpcId:
-        Fn::ImportValue: !Sub '${NamePrefix}-vpc-id'
+      VpcId: !Ref VpcId
       SecurityGroupIngress:
         - { IpProtocol: tcp, FromPort: !Ref OllamaPort, ToPort: !Ref OllamaPort, CidrIp: !Ref AppIngressCidr, Description: Ollama endpoint }
         - { IpProtocol: tcp, FromPort: !Ref AppExtraPort, ToPort: !Ref AppExtraPort, CidrIp: !Ref AppIngressCidr }
@@ -45,4 +46,3 @@ Resources:
 Outputs:
   SgLlmId:
     Value: !Ref LlmSg
-    Export: { Name: !Sub '${NamePrefix}-sg-llm-id' }

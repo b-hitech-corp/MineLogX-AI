@@ -36,6 +36,7 @@ from invoke import Collection
 # --------------------------------------------------------------------------- #
 REGION = os.environ.get("AWS_REGION", "us-east-1")
 PROJECT_APN_ID = "pc:13uw3s8iyvze74tlcq3o0w8r6"
+PROD_APN_ID = "pc:925kllxsozl58ehxuk1rxxd8z"  # PROD uses a distinct APN id
 NAME_PREFIX = "minelogx"
 
 # Terraform remote state (bootstrap once with scripts/bootstrap-backend.sh).
@@ -124,20 +125,46 @@ def _cfn_stack(env, layer):
     return f"{NAME_PREFIX}-{env}-{layer}"
 
 
-def _cfn_params(env):
-    """Parameter file for the environment (falls back to the base env name)."""
-    candidates = [CFN_ROOT / "params" / f"{env}.params.json"]
-    if _is_ephemeral(env):
-        candidates.append(CFN_ROOT / "params" / f"{env.split('-')[0]}.params.json")
-    for p in candidates:
-        if p.exists():
-            return p
-    return None
+# CFN parameters are computed inline per environment in up()/plan() so that
+# ephemeral dev-<user> stacks get a unique NamePrefix. The params/*.json files
+# are kept for manual `aws cloudformation deploy` and advanced per-env overrides.
 
 
 def _require_engine(engine):
     if engine not in ("terraform", "cloudformation"):
         raise SystemExit("Error: --engine must be 'terraform' or 'cloudformation'.")
+
+
+def _apn(env):
+    """Project aws-apn-id tag. PROD uses a distinct APN id (see PROD_APN_ID)."""
+    return PROD_APN_ID if env == "prod" else PROJECT_APN_ID
+
+
+def _cfn(c, env, execute):
+    """Package + deploy the single parent stack (nested children) as minelogx-<env>.
+
+    `package` uploads the child templates to S3 and rewrites TemplateURLs.
+    execute=False creates a change set without applying (plan).
+    """
+    apn = _apn(env)
+    fallback = "true" if env == "prod" else "false"
+    with c.cd(str(CFN_ROOT)):
+        c.run(
+            "aws cloudformation package --template-file parent.yaml "
+            f"--s3-bucket {STATE_BUCKET} --s3-prefix cfn/{env} "
+            f"--output-template-file packaged-parent.yaml --region {REGION}"
+        )
+        cmd = (
+            "aws cloudformation deploy --template-file packaged-parent.yaml "
+            f"--stack-name {NAME_PREFIX}-{env} "
+            f"--parameter-overrides NamePrefix={NAME_PREFIX}-{env} Environment={env} "
+            f"ProjectApnId={apn} EnableLlmFallback={fallback} "
+            f"--tags aws-apn-id={apn} Environment={env} ManagedBy=cloudformation "
+            f"--capabilities CAPABILITY_NAMED_IAM --region {REGION}"
+        )
+        if not execute:
+            cmd += " --no-execute-changeset"
+        c.run(cmd)
 
 
 # --------------------------------------------------------------------------- #
@@ -163,25 +190,11 @@ def up(c, env, engine="terraform"):
             f'-var="environment={env}"',
             f'-var="aws_region={REGION}"',
             f'-var="name_prefix={NAME_PREFIX}-{env}"',
+            f'-var="project_apn_id={_apn(env)}"',
         )
         return
 
-    params = _cfn_params(env)
-    param_arg = f"--parameter-overrides file://{params}" if params else ""
-    for layer in CFN_LAYERS:
-        template = CFN_ROOT / layer / f"{layer}.yaml"
-        if not template.exists():
-            print(f"    (skip {layer}: {template} not present yet)")
-            continue
-        c.run(
-            f"aws cloudformation deploy "
-            f"--template-file {template} "
-            f"--stack-name {_cfn_stack(env, layer)} "
-            f"{param_arg} "
-            f"--tags aws-apn-id={PROJECT_APN_ID} Environment={env} ManagedBy=cloudformation "
-            f"--capabilities CAPABILITY_NAMED_IAM "
-            f"--region {REGION}"
-        )
+    _cfn(c, env, execute=True)
 
 
 @task(help={"env": "Environment name.", "engine": "terraform | cloudformation"})
@@ -198,21 +211,11 @@ def plan(c, env, engine="terraform"):
             f'-var="environment={env}"',
             f'-var="aws_region={REGION}"',
             f'-var="name_prefix={NAME_PREFIX}-{env}"',
+            f'-var="project_apn_id={_apn(env)}"',
         )
         return
 
-    params = _cfn_params(env)
-    param_arg = f"--parameter-overrides file://{params}" if params else ""
-    for layer in CFN_LAYERS:
-        template = CFN_ROOT / layer / f"{layer}.yaml"
-        if not template.exists():
-            continue
-        c.run(
-            f"aws cloudformation deploy --no-execute-changeset "
-            f"--template-file {template} "
-            f"--stack-name {_cfn_stack(env, layer)} "
-            f"{param_arg} --capabilities CAPABILITY_NAMED_IAM --region {REGION}"
-        )
+    _cfn(c, env, execute=False)
 
 
 @task(help={"env": "Environment name.", "engine": "terraform | cloudformation"})
@@ -234,6 +237,7 @@ def down(c, env, engine="terraform"):
             f'-var="environment={env}"',
             f'-var="aws_region={REGION}"',
             f'-var="name_prefix={NAME_PREFIX}-{env}"',
+            f'-var="project_apn_id={_apn(env)}"',
         )
         if _is_ephemeral(env):
             with c.cd(_tf_workdir(env)):
@@ -241,12 +245,10 @@ def down(c, env, engine="terraform"):
                 c.run(f"terraform workspace delete {env} || true")
         return
 
-    # CloudFormation: delete stacks in reverse dependency order.
-    for layer in reversed(CFN_LAYERS):
-        c.run(
-            f"aws cloudformation delete-stack "
-            f"--stack-name {_cfn_stack(env, layer)} --region {REGION} || true"
-        )
+    # CloudFormation: one parent stack — deleting it removes all nested children.
+    c.run(
+        f"aws cloudformation delete-stack --stack-name {NAME_PREFIX}-{env} --region {REGION}"
+    )
 
 
 @task

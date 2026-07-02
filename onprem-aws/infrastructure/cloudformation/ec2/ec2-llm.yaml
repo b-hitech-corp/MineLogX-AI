@@ -17,6 +17,10 @@ Parameters:
     AllowedValues: ['true', 'false']
     Default: 'false'
     Description: Whether to create the fallback instances in this environment.
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+  SecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
   KeyName:
     Type: String
     Default: ''
@@ -50,10 +54,8 @@ Resources:
     Properties:
       ImageId: !Ref GpuAmiId
       InstanceType: !Ref GpuInstanceType
-      SubnetId:
-        Fn::ImportValue: !Sub '${NamePrefix}-private-subnet-1'
-      SecurityGroupIds:
-        - Fn::ImportValue: !Sub '${NamePrefix}-sg-llm-id'
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroupId]
       KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
       IamInstanceProfile: !Ref IamInstanceProfile
       EbsOptimized: true
@@ -74,10 +76,8 @@ Resources:
     Properties:
       ImageId: !Ref GpuAmiId
       InstanceType: !Ref GpuInstanceType
-      SubnetId:
-        Fn::ImportValue: !Sub '${NamePrefix}-private-subnet-1'
-      SecurityGroupIds:
-        - Fn::ImportValue: !Sub '${NamePrefix}-sg-llm-id'
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroupId]
       KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
       IamInstanceProfile: !Ref IamInstanceProfile
       EbsOptimized: true
@@ -98,10 +98,8 @@ Resources:
     Properties:
       ImageId: !Ref EmbeddingsAmiId
       InstanceType: !Ref EmbeddingsInstanceType
-      SubnetId:
-        Fn::ImportValue: !Sub '${NamePrefix}-private-subnet-1'
-      SecurityGroupIds:
-        - Fn::ImportValue: !Sub '${NamePrefix}-sg-llm-id'
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds: [!Ref SecurityGroupId]
       KeyName: !If [HasKey, !Ref KeyName, !Ref 'AWS::NoValue']
       IamInstanceProfile: !Ref IamInstanceProfile
       EbsOptimized: true
