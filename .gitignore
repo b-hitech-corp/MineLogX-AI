@@ -22,6 +22,8 @@ crash.log
 **/*.auto.tfvars
 # scratch config produced by `terraform plan -generate-config-out`
 **/generated*.tf
+# Lambda deployment zips built by the archive_file data source
+**/modules/lambda/.build/
 
 # === CloudFormation ===
 **/cloudformation/params/*.local.json

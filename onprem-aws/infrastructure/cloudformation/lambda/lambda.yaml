@@ -1,0 +1,102 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  MineLogX Lambdas — parity with the Terraform lambda module. Thin handlers over
+  onprem-aws/backend/ code: api (Frontend & API Layer), csv (CSV pipeline, driven
+  by Step Functions), pdf (event-driven PDF pipeline). `aws cloudformation
+  package` zips + uploads each Code path. Runtime deps (pandas, pdfplumber,
+  opensearch-py, ...) come from a layer built separately — see CLAUDE.md.
+
+Metadata:
+  cfn-lint:
+    config:
+      ignore_checks:
+        - W3002  # Code is a local path; resolved by `aws cloudformation package`
+
+Parameters:
+  NamePrefix:
+    Type: String
+  Environment:
+    Type: String
+  ApiRoleArn:
+    Type: String
+  CsvRoleArn:
+    Type: String
+  PdfRoleArn:
+    Type: String
+  OpenSearchHost:
+    Type: String
+    Description: AOSS collection host WITHOUT scheme (see parent Fn::Split).
+  GuardrailId:
+    Type: String
+    Default: ''
+  TelemetryBucket:
+    Type: String
+  LegislationBucket:
+    Type: String
+
+Resources:
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${NamePrefix}-api'
+      Runtime: python3.11
+      Handler: handler.lambda_handler
+      Role: !Ref ApiRoleArn
+      Timeout: 30
+      MemorySize: 512
+      Code: ../../../backend/lambdas/api
+      Environment:
+        Variables:
+          OPENSEARCH_HOST: !Ref OpenSearchHost
+          GUARDRAIL_ID: !Ref GuardrailId
+      Tags:
+        - { Key: Environment, Value: !Ref Environment }
+
+  CsvFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${NamePrefix}-csv'
+      Runtime: python3.11
+      Handler: csv_pipeline.lambda_function.lambda_handler
+      Role: !Ref CsvRoleArn
+      Timeout: 300
+      MemorySize: 1024
+      Code: ../../../backend
+      Environment:
+        Variables:
+          OPENSEARCH_HOST: !Ref OpenSearchHost
+          OPENSEARCH_INDEX: csv_telemetry_vecs
+          FLEET_S3_BUCKET: !Ref TelemetryBucket
+          FLEET_S3_PREFIX: ''
+          GUARDRAIL_ID: !Ref GuardrailId
+      Tags:
+        - { Key: Environment, Value: !Ref Environment }
+
+  PdfFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${NamePrefix}-pdf'
+      Runtime: python3.11
+      Handler: pdf_pipeline.agent.pdf_vectorization_pipeline.lambda_handler
+      Role: !Ref PdfRoleArn
+      Timeout: 300
+      MemorySize: 1024
+      Code: ../../../backend
+      Environment:
+        Variables:
+          OPENSEARCH_HOST: !Ref OpenSearchHost
+          PDF_OPENSEARCH_INDEX: pdf_legal_vecs
+          PDF_ARTIFACT_BUCKET: !Ref LegislationBucket
+          GUARDRAIL_ID: !Ref GuardrailId
+      Tags:
+        - { Key: Environment, Value: !Ref Environment }
+
+Outputs:
+  ApiFunctionArn:
+    Value: !GetAtt ApiFunction.Arn
+  CsvFunctionArn:
+    Value: !GetAtt CsvFunction.Arn
+  PdfFunctionArn:
+    Value: !GetAtt PdfFunction.Arn
+  PdfFunctionName:
+    Value: !Ref PdfFunction

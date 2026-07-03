@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  MineLogX EventBridge triggers — parity with the Terraform eventbridge module.
+  CSV batch: an EventBridge Scheduler fires the CSV Step Functions on a cron.
+  PDF event-driven: a Rule on S3 "Object Created" invokes the PDF Lambda when a
+  .pdf lands in the legislation bucket (bucket must emit to EventBridge — see s3).
+
+Parameters:
+  NamePrefix:
+    Type: String
+  Environment:
+    Type: String
+  ProjectApnId:
+    Type: String
+    Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+  StateMachineArn:
+    Type: String
+  PdfLambdaArn:
+    Type: String
+  PdfLambdaName:
+    Type: String
+  PdfBucketName:
+    Type: String
+  ScheduleExpression:
+    Type: String
+    Default: 'rate(1 day)'
+
+Resources:
+  # --- CSV batch: Scheduler -> Step Functions ---
+  SchedulerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${NamePrefix}-csv-scheduler-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - { Effect: Allow, Principal: { Service: scheduler.amazonaws.com }, Action: 'sts:AssumeRole' }
+      Policies:
+        - PolicyName: start-csv-sfn
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - { Effect: Allow, Action: 'states:StartExecution', Resource: !Ref StateMachineArn }
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+  CsvBatchSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      Name: !Sub '${NamePrefix}-csv-batch'
+      FlexibleTimeWindow: { Mode: 'OFF' }
+      ScheduleExpression: !Ref ScheduleExpression
+      Target:
+        Arn: !Ref StateMachineArn
+        RoleArn: !GetAtt SchedulerRole.Arn
+
+  # --- PDF event-driven: S3 Object Created -> Lambda ---
+  PdfUploadRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub '${NamePrefix}-pdf-upload'
+      Description: PDF upload to the legislation bucket triggers the PDF pipeline.
+      EventPattern:
+        source: [aws.s3]
+        detail-type: ['Object Created']
+        detail:
+          bucket:
+            name: [!Ref PdfBucketName]
+          object:
+            key:
+              - { suffix: .pdf }
+      Targets:
+        - Id: pdf-lambda
+          Arn: !Ref PdfLambdaArn
+
+  PdfLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PdfLambdaName
+      Action: 'lambda:InvokeFunction'
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt PdfUploadRule.Arn
+
+Outputs:
+  CsvScheduleName:
+    Value: !Ref CsvBatchSchedule
+  PdfRuleArn:
+    Value: !GetAtt PdfUploadRule.Arn

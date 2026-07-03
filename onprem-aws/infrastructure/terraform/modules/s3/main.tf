@@ -16,6 +16,12 @@ variable "buckets" {
   }
 }
 
+variable "eventbridge_buckets" {
+  description = "Logical bucket keys that emit events to EventBridge (for the PDF pipeline)."
+  type        = list(string)
+  default     = []
+}
+
 variable "tags" {
   type    = map(string)
   default = {}
@@ -53,6 +59,12 @@ resource "aws_s3_bucket_public_access_block" "this" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_notification" "eventbridge" {
+  for_each    = toset(var.eventbridge_buckets)
+  bucket      = aws_s3_bucket.this[each.value].id
+  eventbridge = true
 }
 
 output "bucket_ids" {

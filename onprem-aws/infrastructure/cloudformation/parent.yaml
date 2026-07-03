@@ -61,6 +61,10 @@ Resources:
         NamePrefix: !Ref NamePrefix
         Environment: !Ref Environment
         ProjectApnId: !Ref ProjectApnId
+        TelemetryBucketArn: !GetAtt S3.Outputs.TelemetryDataBucketArn
+        LegislationBucketArn: !GetAtt S3.Outputs.LegislationDocumentsBucketArn
+        CollectionArn: !GetAtt OpenSearch.Outputs.CollectionArn
+        GuardrailArn: !GetAtt Guardrails.Outputs.GuardrailArn
 
   Cloudwatch:
     Type: AWS::CloudFormation::Stack
@@ -119,6 +123,45 @@ Resources:
         Environment: !Ref Environment
         ProjectApnId: !Ref ProjectApnId
 
+  Lambda:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: lambda/lambda.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ApiRoleArn: !GetAtt Iam.Outputs.ApiRoleArn
+        CsvRoleArn: !GetAtt Iam.Outputs.CsvRoleArn
+        PdfRoleArn: !GetAtt Iam.Outputs.PdfRoleArn
+        # Strip the scheme — the pipeline OPENSEARCH_HOST wants host only.
+        OpenSearchHost: !Select [1, !Split ['https://', !GetAtt OpenSearch.Outputs.CollectionEndpoint]]
+        GuardrailId: !GetAtt Guardrails.Outputs.GuardrailId
+        TelemetryBucket: !GetAtt S3.Outputs.TelemetryDataBucket
+        LegislationBucket: !GetAtt S3.Outputs.LegislationDocumentsBucket
+
+  StepFunctions:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: step-functions/step-functions.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+        CsvLambdaArn: !GetAtt Lambda.Outputs.CsvFunctionArn
+
+  EventBridge:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: eventbridge/eventbridge.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+        StateMachineArn: !GetAtt StepFunctions.Outputs.StateMachineArn
+        PdfLambdaArn: !GetAtt Lambda.Outputs.PdfFunctionArn
+        PdfLambdaName: !GetAtt Lambda.Outputs.PdfFunctionName
+        PdfBucketName: !GetAtt S3.Outputs.LegislationDocumentsBucket
+
 Outputs:
   VpcId:
     Value: !GetAtt Network.Outputs.VpcId
@@ -126,3 +169,9 @@ Outputs:
     Value: !GetAtt Apigw.Outputs.RestApiId
   AmplifyDomain:
     Value: !GetAtt Amplify.Outputs.DefaultDomain
+  OpenSearchEndpoint:
+    Value: !GetAtt OpenSearch.Outputs.CollectionEndpoint
+  GuardrailId:
+    Value: !GetAtt Guardrails.Outputs.GuardrailId
+  CsvStateMachineArn:
+    Value: !GetAtt StepFunctions.Outputs.StateMachineArn
