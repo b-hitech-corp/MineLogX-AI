@@ -34,14 +34,14 @@ Then drive environments with Fabric (no venv activation needed — `uv run` hand
 
 ```bash
 uv run fab --list                    # list available tasks
-uv run fab env.plan dev-cesar cf     # preview a CloudFormation environment
+uv run fab env.plan dev-cesar --engine cf   # preview a CloudFormation environment
 uv run fab env.up   dev-cesar        # deploy with Terraform (default engine)
 ```
 
 One-time state backend, before the first Terraform deploy:
 
 ```bash
-bash onprem-aws/scripts/bootstrap-backend.sh
+uv run fab env.bootstrap
 ```
 
 For AWS SSO access, the demo → IaC import flow, and full conventions, see
@@ -101,21 +101,22 @@ we don't scaffold empty target trees.
 
 ## 🚀 Environments (Fabric)
 
-Both IaC engines deploy the same environment through Fabric. `env` and `engine`
-are **positional** (engine defaults to `terraform`; aliases `tf` / `cf`):
+Both IaC engines deploy the same environment through Fabric. `env` is positional;
+the engine is the `--engine` flag (defaults to `terraform`; aliases `tf` / `cf`).
+Use the long `--engine` — Fabric reserves the short `-e` for `--echo`.
 
 ```bash
-fab env.up   dev-cesar        # Terraform (default engine)
-fab env.plan dev-cesar cf     # CloudFormation (one nested stack: minelogx-dev-cesar)
-fab env.down dev-cesar
-fab env.list
+uv run fab env.up   dev-cesar                # Terraform (default engine)
+uv run fab env.plan dev-cesar --engine cf    # CloudFormation (nested stack: minelogx-dev-cesar)
+uv run fab env.down dev-cesar --engine cf
+uv run fab env.list
 ```
 
 - **Fixed** envs: `dev` / `qa` / `prod`. **Ephemeral** per-dev: `dev-<name>`
   (isolated by Terraform workspace / CFN stack `minelogx-dev-<name>`).
 - Drop the `uv run` prefix by activating the venv
   (`source .venv/Scripts/activate`) or `alias mlx='uv run fab'`.
-- One-time state backend bootstrap: `bash onprem-aws/scripts/bootstrap-backend.sh`.
+- One-time state backend bootstrap: `uv run fab env.bootstrap`.
 
 Full dev setup and conventions: [`CONTRIBUTING.md`](CONTRIBUTING.md).
 

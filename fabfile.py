@@ -16,16 +16,17 @@ Conventions:
   - Mandatory tags on every resource: aws-apn-id, Environment, ManagedBy
   - AWS profile is taken from the AWS_PROFILE env var (see AWS CLI setup).
 
-Usage (env and engine are positional; engine defaults to terraform):
-  fab env.up   dev-cesar          # terraform (default)
-  fab env.plan dev-cesar cf       # cloudformation  (aliases: tf / cf)
-  fab env.down dev-cesar
-  fab env.list
-  fab ollama.health-check
+Usage (env is positional; engine via --engine, defaults to terraform):
+  uv run fab env.up   dev-cesar                # terraform (default)
+  uv run fab env.plan dev-cesar --engine cf    # cloudformation  (--engine tf|cf)
+  uv run fab env.down dev-cesar --engine cf
+  uv run fab env.list
+  uv run fab ollama.health-check
 
-Tip: activate the venv to drop the `uv run` prefix —
-  source .venv/Scripts/activate   # Windows/Git Bash;  .venv/bin/activate on macOS/Linux
-Or add a shell alias:  alias mlx='uv run fab'   ->   mlx env.plan dev-cesar cf
+Note: use the long flag `--engine` — Fabric reserves the short `-e` for --echo.
+
+Tip: prefer `uv run fab` — it finds terraform via the shell PATH regardless of
+venv activation. If terraform still isn't found, set TERRAFORM_BIN (see below).
 """
 
 import os
@@ -51,9 +52,9 @@ NAME_PREFIX = "minelogx"
 # PATH is mangled by a venv activate script or cmd.exe vs Git Bash differences.
 TERRAFORM = os.environ.get("TERRAFORM_BIN") or shutil.which("terraform") or "terraform"
 
-# Terraform remote state (bootstrap once with scripts/bootstrap-backend.sh).
-STATE_BUCKET = os.environ.get("TF_STATE_BUCKET", "minelogx-terraform-state")
-STATE_LOCK_TABLE = os.environ.get("TF_STATE_LOCK_TABLE", "minelogx-terraform-locks")
+# Terraform remote state (bootstrap once per account with `fab env.bootstrap`).
+STATE_BUCKET = os.environ.get("TF_STATE_BUCKET", "minelogx-poc-terraform-state")
+STATE_LOCK_TABLE = os.environ.get("TF_STATE_LOCK_TABLE", "minelogx-poc-terraform-locks")
 
 # SSO profile used to auto-refresh the token (override per dev with AWS_SSO_PROFILE).
 SSO_LOGIN_PROFILE = os.environ.get(
@@ -207,7 +208,6 @@ def _cfn(c, env, execute):
 # env.* — environment orchestration
 # --------------------------------------------------------------------------- #
 @task(
-    positional=["env", "engine"],
     help={
         "env": "Environment name (dev|qa|prod|dev-<user>).",
         "engine": "terraform | cloudformation",
@@ -236,7 +236,6 @@ def up(c, env, engine="terraform"):
 
 
 @task(
-    positional=["env", "engine"],
     help={"env": "Environment name.", "engine": "terraform | cloudformation"},
 )
 def plan(c, env, engine="terraform"):
@@ -261,7 +260,6 @@ def plan(c, env, engine="terraform"):
 
 
 @task(
-    positional=["env", "engine"],
     help={"env": "Environment name.", "engine": "terraform | cloudformation"},
 )
 def down(c, env, engine="terraform"):
@@ -313,6 +311,55 @@ def list(c):
         f"--output table",
         warn=True,
     )
+
+
+@task
+def bootstrap(c):
+    """Create the Terraform remote-state backend for the CURRENT AWS account.
+
+    Run ONCE per account — dev/qa/prod share this bucket via distinct state keys.
+    Idempotent (skips what already exists). When PROD moves to its own account,
+    run this there too. OS-agnostic (no inline JSON; S3 applies AES256 by default).
+    """
+    _ensure_aws(c)
+    print(
+        f"==> bootstrap: bucket={STATE_BUCKET} table={STATE_LOCK_TABLE} region={REGION}"
+    )
+
+    if c.run(f"aws s3api head-bucket --bucket {STATE_BUCKET}", hide=True, warn=True).ok:
+        print(f"    bucket {STATE_BUCKET} already exists")
+    else:
+        loc = (
+            ""
+            if REGION == "us-east-1"
+            else f" --create-bucket-configuration LocationConstraint={REGION}"
+        )
+        c.run(f"aws s3api create-bucket --bucket {STATE_BUCKET} --region {REGION}{loc}")
+        c.run(
+            f"aws s3api put-bucket-versioning --bucket {STATE_BUCKET} "
+            "--versioning-configuration Status=Enabled"
+        )
+        c.run(
+            f"aws s3api put-public-access-block --bucket {STATE_BUCKET} "
+            "--public-access-block-configuration "
+            "BlockPublicAcls=true,IgnorePublicAcls=true,"
+            "BlockPublicPolicy=true,RestrictPublicBuckets=true"
+        )
+
+    if c.run(
+        f"aws dynamodb describe-table --table-name {STATE_LOCK_TABLE} --region {REGION}",
+        hide=True,
+        warn=True,
+    ).ok:
+        print(f"    lock table {STATE_LOCK_TABLE} already exists")
+    else:
+        c.run(
+            f"aws dynamodb create-table --table-name {STATE_LOCK_TABLE} --region {REGION} "
+            "--attribute-definitions AttributeName=LockID,AttributeType=S "
+            "--key-schema AttributeName=LockID,KeyType=HASH "
+            "--billing-mode PAY_PER_REQUEST"
+        )
+    print("Done. Backend ready — now: uv run fab env.up dev")
 
 
 # --------------------------------------------------------------------------- #
@@ -372,6 +419,7 @@ env.add_task(up)
 env.add_task(plan)
 env.add_task(down)
 env.add_task(list)
+env.add_task(bootstrap)
 
 ollama = Collection("ollama")
 ollama.add_task(health_check)

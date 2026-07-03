@@ -51,10 +51,10 @@ account IDs/ARNs). Do not commit it.
 Each dev gets an isolated stack; pick the engine with `--engine`.
 
 ```bash
-uv run fab env.up   --env=dev-<user> --engine=terraform      # or --engine=cloudformation
-uv run fab env.plan --env=dev-<user>                         # preview only
-uv run fab env.list                                          # active workspaces + stacks
-uv run fab env.down --env=dev-<user>                         # tear down (prod is guarded)
+uv run fab env.up   dev-<user>          # Terraform (default engine)
+uv run fab env.plan dev-<user> --engine cf   # CloudFormation (--engine: tf|cf)
+uv run fab env.list                     # active workspaces + stacks
+uv run fab env.down dev-<user>          # tear down (prod is guarded)
 ```
 
 Fixed environments are `dev` / `qa` / `prod`; ephemeral ones are

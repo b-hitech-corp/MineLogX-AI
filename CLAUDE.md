@@ -432,7 +432,7 @@ def lambda_handler(event, context):
 ```hcl
 terraform {
   backend "s3" {
-    bucket         = "minelogx-terraform-state"
+    bucket         = "minelogx-poc-terraform-state"
     key            = "infrastructure/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "minelogx-terraform-locks"
