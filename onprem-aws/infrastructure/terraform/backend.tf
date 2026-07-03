@@ -19,7 +19,7 @@
 #
 # terraform {
 #   backend "s3" {
-#     bucket         = "minelogx-terraform-state"
+#     bucket         = "minelogx-poc-terraform-state"
 #     key            = "onprem-aws/_imported-demo/terraform.tfstate"
 #     region         = "us-east-1"
 #     dynamodb_table = "minelogx-terraform-locks"

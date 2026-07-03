@@ -35,16 +35,14 @@ drift/deletion conflicts:
   demo resources.
 - **Fabric** selects the engine per environment (`--engine=terraform|cloudformation`).
 
-## Bootstrapping remote state (one-time, before import)
+## Bootstrapping remote state (one-time per AWS account)
+
+Creates the S3 state bucket (`minelogx-poc-terraform-state`) + DynamoDB lock table.
+Shared by dev/qa/prod (isolated by per-env state keys). Idempotent:
 
 ```bash
-aws s3api create-bucket --bucket minelogx-terraform-state --region us-east-1
-aws s3api put-bucket-versioning --bucket minelogx-terraform-state \
-  --versioning-configuration Status=Enabled
-aws dynamodb create-table --table-name minelogx-terraform-locks \
-  --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH \
-  --billing-mode PAY_PER_REQUEST --region us-east-1
+uv run fab env.bootstrap
 ```
 
-Then uncomment the backend block in `terraform/backend.tf` and run `terraform init`.
+Run it once per account — and again when PROD moves to its own account. Fabric
+then wires the backend automatically on `env.up`/`env.plan` via `-backend-config`.
