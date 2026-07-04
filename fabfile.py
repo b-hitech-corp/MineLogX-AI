@@ -516,11 +516,12 @@ def pull(c, pattern="demo-poc"):
         (target / "._deployed-config.json").write_text(cfg, encoding="utf-8")
 
         # Flag likely-vendored top-level entries so they are reviewed before commit.
+        # NOTE: `list` is shadowed by the env.list task in this module — use any().
+        has_distinfo = any(target.glob("*.dist-info"))
         vendored = sorted(
             p.name
             for p in target.iterdir()
-            if p.is_dir()
-            and (p.name in _VENDORED_HINTS or list(p.parent.glob("*.dist-info")))
+            if p.is_dir() and (p.name in _VENDORED_HINTS or has_distinfo)
         )
         own = sorted(p.name for p in target.glob("*.py"))
         print(f"        own source (commit): {own or '—'}")
