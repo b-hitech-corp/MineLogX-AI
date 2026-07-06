@@ -38,6 +38,10 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
             BucketKeyEnabled: true
+      # Emit S3 events to EventBridge — drives the event-driven PDF pipeline.
+      NotificationConfiguration:
+        EventBridgeConfiguration:
+          EventBridgeEnabled: true
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
         BlockPublicPolicy: true
@@ -51,5 +55,9 @@ Resources:
 Outputs:
   TelemetryDataBucket:
     Value: !Ref TelemetryDataBucket
+  TelemetryDataBucketArn:
+    Value: !GetAtt TelemetryDataBucket.Arn
   LegislationDocumentsBucket:
     Value: !Ref LegislationDocumentsBucket
+  LegislationDocumentsBucketArn:
+    Value: !GetAtt LegislationDocumentsBucket.Arn

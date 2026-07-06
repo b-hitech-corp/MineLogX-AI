@@ -22,6 +22,7 @@ Usage (env is positional; engine via --engine, defaults to terraform):
   uv run fab env.down dev-cesar --engine cf
   uv run fab env.list
   uv run fab ollama.health-check
+  uv run fab lambda.pull                       # download the demo Lambda code
 
 Note: use the long flag `--engine` — Fabric reserves the short `-e` for --echo.
 
@@ -31,6 +32,9 @@ venv activation. If terraform still isn't found, set TERRAFORM_BIN (see below).
 
 import os
 import shutil
+import tempfile
+import urllib.request
+import zipfile
 from pathlib import Path
 
 from fabric import Connection, SerialGroup, task
@@ -57,9 +61,18 @@ STATE_BUCKET = os.environ.get("TF_STATE_BUCKET", "minelogx-poc-terraform-state")
 STATE_LOCK_TABLE = os.environ.get("TF_STATE_LOCK_TABLE", "minelogx-poc-terraform-locks")
 
 # SSO profile used to auto-refresh the token (override per dev with AWS_SSO_PROFILE).
+# NOTE: this is the SSO *hub* account (125396563242) — only an identity source.
 SSO_LOGIN_PROFILE = os.environ.get(
     "AWS_SSO_PROFILE", "125396563242_B_Hitech-586928288932"
 )
+
+# Profile used for ALL AWS operations. It assume-roles into the POC account
+# (586928288932); the SSO login above is only the identity source. We FORCE it
+# (rather than trust an ambient AWS_PROFILE, which often points at the SSO hub
+# and would silently hit the wrong account). Override per dev/CI with
+# MINELOGX_AWS_PROFILE (e.g. when PROD moves to its own account).
+WORK_PROFILE = os.environ.get("MINELOGX_AWS_PROFILE", "minelogx-admin")
+os.environ["AWS_PROFILE"] = WORK_PROFILE
 
 REPO_ROOT = Path(__file__).resolve().parent
 # Deployment target (framework layout). Override with MINELOGX_TARGET.
@@ -171,10 +184,21 @@ def _ensure_aws(c):
     SSO requires an interactive login, so this can't be fully silent — but it
     triggers `aws sso login` for you instead of failing with an expired token.
     """
-    if c.run("aws sts get-caller-identity", hide=True, warn=True).ok:
-        return
-    print("==> AWS SSO token missing/expired — refreshing (a browser may open)...")
-    c.run(f"aws sso login --profile {SSO_LOGIN_PROFILE}")
+    ident = c.run(
+        "aws sts get-caller-identity --query Account --output text",
+        hide=True,
+        warn=True,
+    )
+    if not ident.ok:
+        print("==> AWS SSO token missing/expired — refreshing (a browser may open)...")
+        c.run(f"aws sso login --profile {SSO_LOGIN_PROFILE}")
+        ident = c.run(
+            "aws sts get-caller-identity --query Account --output text",
+            hide=True,
+            warn=True,
+        )
+    account = ident.stdout.strip() if ident.ok else "unknown"
+    print(f"==> AWS profile={WORK_PROFILE} account={account} region={REGION}")
 
 
 def _cfn(c, env, execute):
@@ -412,6 +436,125 @@ def logs(c, host):
 
 
 # --------------------------------------------------------------------------- #
+# lambda.* — scan/download the DEMO Lambda code (reference base, engine-agnostic)
+# --------------------------------------------------------------------------- #
+# Directory tree for the pulled demo code — deliberately OUTSIDE backend/ so it
+# never mixes with the target-architecture code the team writes.
+DEMO_LAMBDA_DIR = TARGET_ROOT / "demo" / "lambdas"
+
+# Top-level entries that are almost certainly vendored deps (not our source).
+# Used only to flag files for review before commit — nothing is auto-deleted.
+_VENDORED_HINTS = {
+    "boto3",
+    "botocore",
+    "s3transfer",
+    "dateutil",
+    "urllib3",
+    "six",
+    "jmespath",
+    "certifi",
+    "charset_normalizer",
+    "idna",
+    "requests",
+    "numpy",
+    "pandas",
+    "pyarrow",
+    "bin",
+    "pydantic",
+    "pydantic_core",
+    "typing_extensions",
+}
+
+
+def _short_demo_name(name, pattern):
+    """minelogx-lambda-ml-demo-poc -> ml (strip project prefix + demo suffix)."""
+    short = name
+    for pfx in (f"{NAME_PREFIX}-lambda-", f"{NAME_PREFIX}-"):
+        if short.startswith(pfx):
+            short = short[len(pfx) :]
+            break
+    if short.endswith(f"-{pattern}"):
+        short = short[: -len(f"-{pattern}")]
+    return short or name
+
+
+@task(
+    help={
+        "pattern": "Substring identifying the demo functions (default: demo-poc).",
+    },
+)
+def pull(c, pattern="demo-poc"):
+    """Download the DEPLOYED demo Lambda code into onprem-aws/demo/lambdas/<fn>/.
+
+    Engine-agnostic (uses `aws lambda get-function` + the presigned code URL, not
+    Terraform/CloudFormation). Also dumps each function's live configuration to
+    `._deployed-config.json` as a reference for wiring the target architecture.
+    Vendored dependencies inside the zip are flagged for review before commit.
+    """
+    _ensure_aws(c)
+    res = c.run(
+        f"aws lambda list-functions --region {REGION} "
+        '--query "Functions[].FunctionName" --output text',
+        hide=True,
+    )
+    names = [n for n in res.stdout.split() if pattern in n]
+    if not names:
+        raise SystemExit(f"No Lambda functions matching '{pattern}' in {REGION}.")
+
+    print(f"==> Found {len(names)} demo function(s): {', '.join(names)}")
+    for name in names:
+        short = _short_demo_name(name, pattern)
+        target = DEMO_LAMBDA_DIR / short
+        target.mkdir(parents=True, exist_ok=True)
+
+        # Presigned URL to the deployment package, then download + extract in-process.
+        loc = c.run(
+            f"aws lambda get-function --function-name {name} --region {REGION} "
+            '--query "Code.Location" --output text',
+            hide=True,
+        ).stdout.strip()
+        print(f"    - {name} -> demo/lambdas/{short}/")
+        # get-function always returns an https presigned S3 URL; validate the
+        # scheme before opening it (defends against a file:/ or custom scheme).
+        if not loc.lower().startswith("https://"):
+            raise SystemExit(f"Refusing to download non-https code URL: {loc[:40]}...")
+        with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            urllib.request.urlretrieve(loc, tmp_path)  # nosec B310 - https validated above
+            with zipfile.ZipFile(tmp_path) as zf:
+                zf.extractall(target)
+        finally:
+            os.unlink(tmp_path)
+
+        # Live configuration (handler, runtime, memory, timeout, env vars, layers).
+        cfg = c.run(
+            f"aws lambda get-function-configuration --function-name {name} "
+            f"--region {REGION}",
+            hide=True,
+        ).stdout
+        (target / "._deployed-config.json").write_text(cfg, encoding="utf-8")
+
+        # Flag likely-vendored top-level entries so they are reviewed before commit.
+        # NOTE: `list` is shadowed by the env.list task in this module — use any().
+        has_distinfo = any(target.glob("*.dist-info"))
+        vendored = sorted(
+            p.name
+            for p in target.iterdir()
+            if p.is_dir() and (p.name in _VENDORED_HINTS or has_distinfo)
+        )
+        own = sorted(p.name for p in target.glob("*.py"))
+        print(f"        own source (commit): {own or '—'}")
+        if vendored:
+            print(f"        vendored (review/remove before commit): {vendored}")
+
+    print(
+        "\nDone. Review demo/lambdas/, remove vendored deps, then commit only your "
+        "source. This is the reference base for the target-architecture api handler."
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Namespaces
 # --------------------------------------------------------------------------- #
 env = Collection("env")
@@ -427,6 +570,10 @@ ollama.add_task(restart_ollama)
 ollama.add_task(pull_model)
 ollama.add_task(logs)
 
+lambda_ns = Collection("lambda")
+lambda_ns.add_task(pull)
+
 ns = Collection()
 ns.add_collection(env)
 ns.add_collection(ollama)
+ns.add_collection(lambda_ns)

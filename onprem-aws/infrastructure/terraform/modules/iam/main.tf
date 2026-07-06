@@ -56,3 +56,7 @@ resource "aws_iam_role_policy_attachment" "extra" {
 output "role_arns" {
   value = { for k, v in aws_iam_role.lambda : k => v.arn }
 }
+
+output "role_names" {
+  value = { for k, v in aws_iam_role.lambda : k => v.name }
+}

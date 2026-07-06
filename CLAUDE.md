@@ -215,6 +215,19 @@ or they fight over drift/deletion. Therefore:
 - When adding or changing infrastructure, update **both** definitions and keep
   them at parity (verified in CI).
 
+### Layers provisioned (target architecture)
+Both engines (`modules/env_stack` ↔ `cloudformation/parent.yaml`) provision every
+service in `docs/architecture/`: network, security groups, S3 (with EventBridge
+notifications on the legislation bucket), IAM, CloudWatch, API Gateway, Amplify,
+EC2 Ollama fallback, **OpenSearch Serverless** (VECTORSEARCH collection),
+**Bedrock Guardrail**, three **Lambdas** (`api` / `csv` / `pdf`), the CSV
+**Step Functions** state machine, and **EventBridge** (a Scheduler firing the CSV
+pipeline + a Rule routing PDF uploads to the PDF Lambda). The AOSS vector indices
+(`csv_telemetry_vecs`, `pdf_legal_vecs`) are data-plane objects the ingest Lambdas
+create via the OpenSearch API, not IaC. Lambda **runtime deps** (pandas, pdfplumber,
+opensearch-py, …) are supplied via a layer/container built separately — the IaC
+zips ship code only.
+
 ### Environments (both models)
 - **Ephemeral per-developer:** `dev-<user>` (e.g. `dev-cesar`), created/destroyed
   on demand. Terraform isolates them with a **workspace**; CloudFormation with a

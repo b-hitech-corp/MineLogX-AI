@@ -1,5 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: MineLogX Lambda execution roles (ml, rag) — parity with the Terraform iam module.
+Description: >
+  MineLogX Lambda execution roles (api, csv, pdf) — parity with the Terraform iam
+  module + env_stack inline policies. Each role gets basic execution logging plus
+  scoped Bedrock (InvokeModel + ApplyGuardrail), AOSS (APIAccessAll), S3, and (pdf)
+  Textract permissions.
 
 Parameters:
   NamePrefix:
@@ -9,38 +13,147 @@ Parameters:
   ProjectApnId:
     Type: String
     Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+  TelemetryBucketArn:
+    Type: String
+  LegislationBucketArn:
+    Type: String
+  CollectionArn:
+    Type: String
+  GuardrailArn:
+    Type: String
 
 Resources:
-  MlRole:
+  ApiRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${NamePrefix}-lambda-ml-role'
+      RoleName: !Sub '${NamePrefix}-lambda-api-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: 'sts:AssumeRole' }
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: api-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InvokeModels
+                Effect: Allow
+                Action: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream']
+                Resource:
+                  - 'arn:aws:bedrock:*::foundation-model/*'
+                  - !Sub 'arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*'
+              - Sid: ApplyGuardrail
+                Effect: Allow
+                Action: 'bedrock:ApplyGuardrail'
+                Resource: !Ref GuardrailArn
+              - Sid: Aoss
+                Effect: Allow
+                Action: 'aoss:APIAccessAll'
+                Resource: !Ref CollectionArn
+              - Sid: S3Read
+                Effect: Allow
+                Action: ['s3:GetObject', 's3:ListBucket']
+                Resource:
+                  - !Ref TelemetryBucketArn
+                  - !Sub '${TelemetryBucketArn}/*'
+                  - !Ref LegislationBucketArn
+                  - !Sub '${LegislationBucketArn}/*'
       Tags:
         - { Key: aws-apn-id, Value: !Ref ProjectApnId }
         - { Key: Environment, Value: !Ref Environment }
 
-  RagRole:
+  CsvRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub '${NamePrefix}-lambda-rag-role'
+      RoleName: !Sub '${NamePrefix}-lambda-csv-role'
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
           - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: 'sts:AssumeRole' }
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: csv-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InvokeModels
+                Effect: Allow
+                Action: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream']
+                Resource:
+                  - 'arn:aws:bedrock:*::foundation-model/*'
+                  - !Sub 'arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*'
+              - Sid: ApplyGuardrail
+                Effect: Allow
+                Action: 'bedrock:ApplyGuardrail'
+                Resource: !Ref GuardrailArn
+              - Sid: Aoss
+                Effect: Allow
+                Action: 'aoss:APIAccessAll'
+                Resource: !Ref CollectionArn
+              - Sid: S3ReadWrite
+                Effect: Allow
+                Action: ['s3:GetObject', 's3:PutObject', 's3:ListBucket']
+                Resource:
+                  - !Ref TelemetryBucketArn
+                  - !Sub '${TelemetryBucketArn}/*'
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+  PdfRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${NamePrefix}-lambda-pdf-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - { Effect: Allow, Principal: { Service: lambda.amazonaws.com }, Action: 'sts:AssumeRole' }
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: pdf-access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: InvokeModels
+                Effect: Allow
+                Action: ['bedrock:InvokeModel', 'bedrock:InvokeModelWithResponseStream']
+                Resource:
+                  - 'arn:aws:bedrock:*::foundation-model/*'
+                  - !Sub 'arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*'
+              - Sid: ApplyGuardrail
+                Effect: Allow
+                Action: 'bedrock:ApplyGuardrail'
+                Resource: !Ref GuardrailArn
+              - Sid: Aoss
+                Effect: Allow
+                Action: 'aoss:APIAccessAll'
+                Resource: !Ref CollectionArn
+              - Sid: S3ReadWrite
+                Effect: Allow
+                Action: ['s3:GetObject', 's3:PutObject', 's3:ListBucket']
+                Resource:
+                  - !Ref LegislationBucketArn
+                  - !Sub '${LegislationBucketArn}/*'
+              - Sid: Textract
+                Effect: Allow
+                Action:
+                  - 'textract:AnalyzeDocument'
+                  - 'textract:DetectDocumentText'
+                  - 'textract:StartDocumentAnalysis'
+                  - 'textract:GetDocumentAnalysis'
+                Resource: '*'
       Tags:
         - { Key: aws-apn-id, Value: !Ref ProjectApnId }
         - { Key: Environment, Value: !Ref Environment }
 
 Outputs:
-  MlRoleArn:
-    Value: !GetAtt MlRole.Arn
-  RagRoleArn:
-    Value: !GetAtt RagRole.Arn
+  ApiRoleArn:
+    Value: !GetAtt ApiRole.Arn
+  CsvRoleArn:
+    Value: !GetAtt CsvRole.Arn
+  PdfRoleArn:
+    Value: !GetAtt PdfRole.Arn

@@ -1,0 +1,10 @@
+# Demo Lambda code pulled from AWS by `fab lambda.pull`.
+# Commit only OUR source (handlers + local modules) — keep vendored runtime deps
+# and build metadata out of git. Add package dirs here after reviewing the pull
+# output (e.g. boto3/, botocore/, numpy/, pandas/).
+**/*.dist-info/
+**/__pycache__/
+*.pyc
+
+# Live function configuration snapshot (reference only, may contain account IDs).
+**/._deployed-config.json

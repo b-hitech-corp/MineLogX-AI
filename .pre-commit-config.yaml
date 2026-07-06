@@ -14,17 +14,23 @@ repos:
       - id: detect-private-key   # blocks committing keys (.pem, etc.)
 
   # --- Python: lint + format (ruff) and security (bandit) ---
+  # onprem-aws/demo/ is the client's DEPLOYED demo code, pulled verbatim as a
+  # reference base (fab lambda.pull). We do not lint/reformat it — it must stay
+  # faithful to what is live in AWS.
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.20
     hooks:
       - id: ruff
         args: [--fix]
+        exclude: ^onprem-aws/demo/
       - id: ruff-format
+        exclude: ^onprem-aws/demo/
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.9.4
     hooks:
       - id: bandit   # runs only on staged .py; .venv never reaches here
+        exclude: ^onprem-aws/demo/
 
   # --- YAML ---
   - repo: https://github.com/adrienverge/yamllint
