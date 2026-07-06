@@ -1,7 +1,7 @@
 """
 chunker_serializer — Stage 3 of the CSV Vectorization Pipeline.
 
-Reads the canonical parquet produced by Stage 2, splits it into
+Reads the canonical NDJSON produced by Stage 2, splits it into
 semantically coherent windows, serializes each window to natural-language
 text, and writes the resulting chunks as newline-delimited JSON (JSONL)
 to S3 — ready for embedding and OpenSearch ingestion in Stage 4.
@@ -33,7 +33,6 @@ from typing import Optional
 
 import boto3
 import pandas as pd
-import pyarrow.parquet as pq
 
 from csv_pipeline.config.canonical_schema import CANONICAL_SCHEMA
 from csv_pipeline.config.settings import settings
@@ -84,18 +83,18 @@ def chunk_and_serialize(
     local_mode: bool = False,
 ) -> ChunkResult:
     """
-    Chunk the canonical parquet and serialise each chunk to NL text.
+    Chunk the canonical NDJSON and serialise each chunk to NL text.
 
     Parameters
     ----------
     file_path         : Original CSV S3 key (e.g. "C1/fuel_management_events.csv").
-                        Used to locate the canonical parquet and name output artifacts.
+                        Used to locate the canonical NDJSON and name output artifacts.
     schema_descriptor : dict from schema_advisor.inspect_schema_sampled().
     strategy          : "time_window" or "row_count".
     window_days       : Calendar days per time window (time_window only).
     max_rows_per_chunk: Hard cap on rows per chunk after windowing.
     overlap_rows      : Rows from the end of chunk N prepended to chunk N+1.
-    local_mode        : Read parquet from sample_data/ and write JSONL locally.
+    local_mode        : Read canonical NDJSON from sample_data/ and write JSONL locally.
 
     Returns
     -------
@@ -109,14 +108,14 @@ def chunk_and_serialize(
 
     errors: list[str] = []
 
-    # ── Step 1: Read canonical parquet ───────────────────────────────────
+    # ── Step 1: Read canonical NDJSON ─────────────────────────────────────
     try:
-        df = _read_parquet(file_path, local_mode)
+        df = _read_canonical(file_path, local_mode)
     except Exception as exc:
-        return ChunkResult(output_s3_key=None, errors=[f"parquet read failed: {exc}"])
+        return ChunkResult(output_s3_key=None, errors=[f"canonical read failed: {exc}"])
 
     if df.empty:
-        return ChunkResult(output_s3_key=None, errors=["canonical parquet is empty"])
+        return ChunkResult(output_s3_key=None, errors=["canonical artifact is empty"])
 
     # ── Step 2: Resolve column roles from schema descriptor ──────────────
     col_roles = _column_roles(df.columns.tolist(), schema_descriptor)
@@ -589,24 +588,26 @@ def _iqr_outliers(series: pd.Series) -> pd.Series:
     return series[(series > bound_upper) | (series < bound_lower)]
 
 
-def _read_parquet(file_path: str, local_mode: bool) -> pd.DataFrame:
-    """Read the canonical parquet produced by Stage 2."""
+def _read_canonical(file_path: str, local_mode: bool) -> pd.DataFrame:
+    """Read the canonical NDJSON (JSON Lines) produced by Stage 2.
+
+    Value types (int/float/bool/null) round-trip natively; datetime columns are
+    stored ISO-8601 and re-parsed by the caller from the schema descriptor.
+    """
     p      = PurePosixPath(file_path)
     folder = str(p.parent)
     if folder in (".", ""):
         folder = "root"
-    parquet_key = f"{settings.s3.prefix}vectorization/{folder}/canonical/{p.stem}.parquet"
+    canonical_key = f"{settings.s3.prefix}vectorization/{folder}/canonical/{p.stem}.canonical.ndjson"
 
     if local_mode:
         local_path = Path(settings.local_data_path) / \
-                     f"vectorization/{folder}/canonical/{p.stem}.parquet"
-        table = pq.read_table(str(local_path))
-    else:
-        s3  = boto3.client("s3", region_name=settings.s3.region)
-        obj = s3.get_object(Bucket=settings.s3.bucket_name, Key=parquet_key)
-        table = pq.read_table(io.BytesIO(obj["Body"].read()))
+                     f"vectorization/{folder}/canonical/{p.stem}.canonical.ndjson"
+        return pd.read_json(local_path, lines=True)
 
-    return table.to_pandas()
+    s3  = boto3.client("s3", region_name=settings.s3.region)
+    obj = s3.get_object(Bucket=settings.s3.bucket_name, Key=canonical_key)
+    return pd.read_json(io.BytesIO(obj["Body"].read()), lines=True)
 
 
 def _s3_chunks_key(file_path: str) -> str:

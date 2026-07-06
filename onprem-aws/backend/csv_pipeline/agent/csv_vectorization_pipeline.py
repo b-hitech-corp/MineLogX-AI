@@ -3,7 +3,7 @@ csv_vectorization_pipeline — Orchestrator for the CSV Vectorization Pipeline.
 
 Runs Stages 1–4 in sequence for a single CSV file:
     1. Schema Inspection    csv_sampler + column_mapper → schema_descriptor.json (S3)
-    2. Format Normalization format_normalizer            → canonical.parquet      (S3)
+    2. Format Normalization format_normalizer            → canonical.ndjson       (S3)
     3. Chunk & Serialize    chunker_serializer           → chunks.jsonl           (S3)
     4. OpenSearch Ingest    opensearch_ingestor          → AOSS vector index
 
@@ -22,7 +22,7 @@ Per-stage error isolation
 -------------------------
 A stage failure does not block downstream stages when the required input
 artifact is already available in S3.  For example, if Stage 2 fails but a
-parquet file from a previous run is present, Stage 3 proceeds normally.
+canonical NDJSON from a previous run is present, Stage 3 proceeds normally.
 
 Stage selection
 ---------------
@@ -182,7 +182,7 @@ def run_pipeline(
     if 2 in active_stages:
         s2 = _run_stage_2(
             file_path, local_mode, schema_descriptor, force,
-            artifacts["parquet"],
+            artifacts["canonical"],
         )
         result.stage_results.append(s2)
 
@@ -252,16 +252,16 @@ def _run_stage_2(
     local_mode:        bool,
     schema_descriptor: Optional[dict],
     force:             bool,
-    parquet_key:       str,
+    canonical_key:     str,
 ) -> StageResult:
     r = StageResult(stage=2, name="Format Normalization")
 
     # Idempotency check
-    if not force and not local_mode and _s3_exists(parquet_key):
-        logger.info("[pipeline] Stage 2 SKIPPED — artefact exists: %s", parquet_key)
+    if not force and not local_mode and _s3_exists(canonical_key):
+        logger.info("[pipeline] Stage 2 SKIPPED — artefact exists: %s", canonical_key)
         r.skipped      = True
         r.success      = True
-        r.artifact_key = parquet_key
+        r.artifact_key = canonical_key
         return r
 
     if not isinstance(schema_descriptor, dict):
@@ -271,7 +271,7 @@ def _run_stage_2(
     t0 = time.perf_counter()
     try:
         norm           = normalize(file_path, schema_descriptor, local_mode=local_mode)
-        r.artifact_key = norm.output_s3_key or parquet_key
+        r.artifact_key = norm.output_s3_key or canonical_key
         r.errors       = norm.errors
         r.success      = len(norm.errors) == 0 or norm.row_count > 0
         logger.info("[pipeline] Stage 2 OK: %d rows, steps=%s",
@@ -397,7 +397,7 @@ def _artifact_paths(file_path: str) -> dict[str, str]:
     pfx    = settings.s3.prefix
     return {
         "schema":  f"{pfx}vectorization/{folder}/schema/{stem}.schema.json",
-        "parquet": f"{pfx}vectorization/{folder}/canonical/{stem}.parquet",
+        "canonical": f"{pfx}vectorization/{folder}/canonical/{stem}.canonical.ndjson",
         "chunks":  f"{pfx}vectorization/{folder}/chunks/{stem}.chunks.jsonl",
     }
 

@@ -6,7 +6,7 @@ A runnable, copy-pasteable example of calling the CSV Vectorization Pipeline
 
 The pipeline runs four stages for a single CSV file:
     1. Schema Inspection    → schema_descriptor.json (S3)
-    2. Format Normalization → canonical.parquet      (S3)
+    2. Format Normalization → canonical.ndjson       (S3)
     3. Chunk & Serialize    → chunks.jsonl           (S3)
     4. OpenSearch Ingest    → AOSS vector index (csv_telemetry_vecs)
 
