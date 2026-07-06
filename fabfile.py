@@ -61,9 +61,18 @@ STATE_BUCKET = os.environ.get("TF_STATE_BUCKET", "minelogx-poc-terraform-state")
 STATE_LOCK_TABLE = os.environ.get("TF_STATE_LOCK_TABLE", "minelogx-poc-terraform-locks")
 
 # SSO profile used to auto-refresh the token (override per dev with AWS_SSO_PROFILE).
+# NOTE: this is the SSO *hub* account (125396563242) — only an identity source.
 SSO_LOGIN_PROFILE = os.environ.get(
     "AWS_SSO_PROFILE", "125396563242_B_Hitech-586928288932"
 )
+
+# Profile used for ALL AWS operations. It assume-roles into the POC account
+# (586928288932); the SSO login above is only the identity source. We FORCE it
+# (rather than trust an ambient AWS_PROFILE, which often points at the SSO hub
+# and would silently hit the wrong account). Override per dev/CI with
+# MINELOGX_AWS_PROFILE (e.g. when PROD moves to its own account).
+WORK_PROFILE = os.environ.get("MINELOGX_AWS_PROFILE", "minelogx-admin")
+os.environ["AWS_PROFILE"] = WORK_PROFILE
 
 REPO_ROOT = Path(__file__).resolve().parent
 # Deployment target (framework layout). Override with MINELOGX_TARGET.
@@ -175,10 +184,21 @@ def _ensure_aws(c):
     SSO requires an interactive login, so this can't be fully silent — but it
     triggers `aws sso login` for you instead of failing with an expired token.
     """
-    if c.run("aws sts get-caller-identity", hide=True, warn=True).ok:
-        return
-    print("==> AWS SSO token missing/expired — refreshing (a browser may open)...")
-    c.run(f"aws sso login --profile {SSO_LOGIN_PROFILE}")
+    ident = c.run(
+        "aws sts get-caller-identity --query Account --output text",
+        hide=True,
+        warn=True,
+    )
+    if not ident.ok:
+        print("==> AWS SSO token missing/expired — refreshing (a browser may open)...")
+        c.run(f"aws sso login --profile {SSO_LOGIN_PROFILE}")
+        ident = c.run(
+            "aws sts get-caller-identity --query Account --output text",
+            hide=True,
+            warn=True,
+        )
+    account = ident.stdout.strip() if ident.ok else "unknown"
+    print(f"==> AWS profile={WORK_PROFILE} account={account} region={REGION}")
 
 
 def _cfn(c, env, execute):
