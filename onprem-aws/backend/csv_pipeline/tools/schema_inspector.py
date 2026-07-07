@@ -2,8 +2,13 @@
 schema_inspector.py — CSV Vectorization Pipeline, Stage 1
 ==========================================================
 Streams the full CSV file, builds a compact LLM profile, and calls Claude
-(tool_choice) to produce a transformation recipe and column classifications.
-The resulting schema_descriptor.json is persisted to S3.
+(native boto3 invoke_model, forced tool_choice) to produce a transformation
+recipe and column classifications. The resulting schema_descriptor.json is
+persisted to S3.
+
+Native boto3 rather than the anthropic SDK: this module is Claude-only and
+already speaks Anthropic's Messages/tool format, so invoke_model accepts the
+same payload the SDK was sending — only the transport changed.
 
 This module contains only the functionality needed by the CSV Vectorization
 Pipeline. The broader schema discovery tool for the Data Analysis Agent lives
@@ -23,21 +28,15 @@ from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Any
 
-import anthropic
 import boto3
 import requests
 
 from csv_pipeline.config.settings import settings
-from csv_pipeline.tools.csv_sampler import (
-    StreamProfile,
-    build_llm_input,
-    stream_and_profile,
-)
+from csv_pipeline.tools.bedrock_client import invoke_claude
+from csv_pipeline.tools.csv_sampler import StreamProfile, build_llm_input, stream_and_profile
 from csv_pipeline.tools.schema_reconciler import reconcile
 
 logger = logging.getLogger(__name__)
-
-_bedrock_client = anthropic.AnthropicBedrock(aws_region=settings.bedrock.region)
 
 
 # ---------------------------------------------------------------------------
@@ -160,12 +159,12 @@ If the file is already a clean flat table, output an empty transformation_steps 
 def _llm_complete(prompt: str, backend: str, max_tokens: int = 1024) -> str | None:
     if backend == "bedrock":
         try:
-            resp = _bedrock_client.messages.create(
-                model=settings.bedrock.model_id,
+            body = invoke_claude(
+                [{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
+                model_id=settings.bedrock.model_id,
             )
-            return resp.content[0].text.strip()
+            return body["content"][0]["text"].strip()
         except Exception as exc:
             logger.warning("schema_inspector (bedrock): LLM call failed (%s)", exc)
             return None
@@ -239,26 +238,27 @@ def inspect_schema_with_tool_use(llm_input: str, backend: str = "bedrock") -> di
 
     if backend == "bedrock":
         try:
-            resp = _bedrock_client.messages.create(
-                model=settings.bedrock.model_id,
-                max_tokens=4096,
+            body = invoke_claude(
+                [{"role": "user", "content": user_message}],
                 system=_INSPECT_SYSTEM_PROMPT,
                 tools=[_INSPECT_TOOL],
                 tool_choice={"type": "tool", "name": "describe_csv_structure"},
-                messages=[{"role": "user", "content": user_message}],
+                max_tokens=4096,
+                model_id=settings.bedrock.model_id,
             )
-            tool_block = next((b for b in resp.content if b.type == "tool_use"), None)
+            content = body.get("content", [])
+            tool_block = next((b for b in content if b.get("type") == "tool_use"), None)
             if tool_block is None:
                 raise RuntimeError(
-                    f"No tool_use block in response (stop_reason={resp.stop_reason}). "
-                    f"Content types: {[b.type for b in resp.content]}"
+                    f"No tool_use block in response (stop_reason={body.get('stop_reason')}). "
+                    f"Content types: {[b.get('type') for b in content]}"
                 )
             logger.info(
                 "inspect_schema_with_tool_use: %d classifications, %d steps",
-                len(tool_block.input.get("column_classifications", [])),
-                len(tool_block.input.get("transformation_steps", [])),
+                len(tool_block["input"].get("column_classifications", [])),
+                len(tool_block["input"].get("transformation_steps", [])),
             )
-            return tool_block.input
+            return tool_block["input"]
         except Exception as exc:
             logger.error("inspect_schema_with_tool_use (bedrock) failed: %s", exc)
             return _empty_inspect_result(str(exc))
