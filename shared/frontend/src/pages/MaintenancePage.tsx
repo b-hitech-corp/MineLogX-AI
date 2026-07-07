@@ -15,8 +15,8 @@ export function MaintenancePage() {
   const { data } = useCompanyData()
 
   useEffect(() => {
-    getMaintenanceItems().then(setItems)
-    getWorkOrders().then(setOrders)
+    getMaintenanceItems().then(setItems).catch((err) => console.error('Failed to load maintenance items:', err))
+    getWorkOrders().then(setOrders).catch((err) => console.error('Failed to load work orders:', err))
   }, [])
 
   const filtered =

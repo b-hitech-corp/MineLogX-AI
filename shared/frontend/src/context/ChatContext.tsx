@@ -14,14 +14,13 @@ export interface ChatModel {
   id: string
   name: string
   description: string
-  badge: 'DEFAULT' | 'PRO' | 'FAST' | 'NEW'
+  badge?: 'DEFAULT'
 }
 
 export const CHAT_MODELS: ChatModel[] = [
-  { id: 'claude-sonnet-4-6',         name: 'Sonnet 4.6', description: 'Balanced · Recommended',  badge: 'DEFAULT' },
-  { id: 'claude-opus-4-8',           name: 'Opus 4.8',   description: 'Most capable · Slower',   badge: 'PRO'     },
-  { id: 'claude-haiku-4-5-20251001', name: 'Haiku 4.5',  description: 'Fastest · Lightweight',   badge: 'FAST'    },
-  { id: 'claude-fable-5',            name: 'Fable 5',    description: 'Latest · Advanced reason', badge: 'NEW'     },
+  { id: 'claude-sonnet-4.6', name: 'Sonnet 4.6', description: 'Anthropic Claude Sonnet 4.6', badge: 'DEFAULT' },
+  { id: 'nova-pro',       name: 'Nova Pro',          description: 'Amazon Nova Pro v1' },
+  { id: 'deepseek-v3.2',     name: 'DeepSeek',               description: 'DeepSeek V3.2' },
 ]
 
 interface ChatContextType {
