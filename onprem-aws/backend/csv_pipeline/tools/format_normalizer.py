@@ -2,8 +2,14 @@
 format_normalizer — Stage 2 of the CSV Vectorization Pipeline.
 
 Reads the schema_descriptor.json produced by Stage 1, executes the LLM-generated
-transformation recipe against the raw CSV, and writes a clean canonical parquet
-file to S3.
+transformation recipe against the raw CSV, and writes a clean canonical
+NDJSON (JSON Lines) file to S3.
+
+Why NDJSON (not parquet): the canonical table is a transient hand-off artifact
+between Stage 2 and Stage 3 only. NDJSON drops the heavy pyarrow dependency
+(which blew the Lambda size budget), still streams row-by-row for bounded memory,
+and preserves int/float/bool/null value types natively. Datetime columns are
+written ISO-8601 and re-parsed by Stage 3 from the schema descriptor.
 
 The normalizer is a recipe executor: it applies an ordered list of named operations
 to the DataFrame. Adding support for a new CSV format requires only registering a
@@ -31,8 +37,6 @@ from typing import Callable, Optional
 
 import boto3
 import pandas as pd
-import pyarrow as pa
-import pyarrow.parquet as pq
 
 from csv_pipeline.config.settings import settings
 
@@ -244,7 +248,7 @@ def normalize(
 ) -> NormalizeResult:
     """
     Execute the transformation recipe from schema_descriptor and write a
-    canonical parquet file to S3.
+    canonical NDJSON (JSON Lines) file to S3.
 
     Parameters
     ----------
@@ -273,7 +277,7 @@ def normalize(
     # Decide execution mode
     needs_full_load = any(s.get("operation") in _FULL_LOAD_OPS for s in steps)
 
-    with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=".ndjson", delete=False) as tmp:
         tmp_path = tmp.name
 
     parse_dates  = _datetime_cols_from_descriptor(schema_descriptor)
@@ -380,11 +384,17 @@ def _stream_normalize(
 ) -> tuple[int, int]:
     """
     Apply streamable transformation steps chunk-by-chunk.
-    Writes an incrementally-built parquet file to output_path.
+    Writes an incrementally-built canonical NDJSON file to output_path — one JSON
+    object per row, appended per chunk so memory stays bounded for large files.
     Returns (row_count, column_count).
+
+    No cross-chunk schema enforcement is needed (parquet used to require it):
+    NDJSON lines are independent, and Stage 3 re-types columns from the schema
+    descriptor. If a transformation changes the column set between chunks, the
+    lines still read back cleanly (pd.read_json unions columns, filling NaN).
     """
     fh = _open_stream(file_path, local_mode)
-    writer:     Optional[pq.ParquetWriter] = None
+    out_fh = open(output_path, "w", encoding="utf-8")
     row_count   = 0
     col_count   = 0
     first_chunk = True
@@ -419,34 +429,21 @@ def _stream_normalize(
                     errors.append(f"{op}: {exc}")
                     logger.warning("[format_normalizer] op '%s' failed on chunk: %s", op, exc)
 
-            # Canonicalize column names so the parquet speaks canonical vocabulary.
+            # Canonicalize column names so the NDJSON speaks canonical vocabulary.
             _apply_canonical_rename(chunk, canonical_map)
 
-            table = pa.Table.from_pandas(chunk, preserve_index=False)
-
-            if writer is None:
-                writer = pq.ParquetWriter(output_path, table.schema)
-            else:
-                # Cast to first-chunk schema to avoid type drift between chunks.
-                # On failure, log and write the table as-is; ParquetWriter will
-                # raise on schema mismatch, which is caught by the outer handler.
-                try:
-                    table = table.cast(writer.schema_arrow)
-                except Exception as cast_exc:
-                    logger.warning(
-                        "[format_normalizer] Schema cast failed for chunk of '%s': %s",
-                        file_path, cast_exc,
-                    )
-                    errors.append(f"schema_cast: {cast_exc}")
-
-            writer.write_table(table)
+            # Append this chunk as JSON Lines. to_json(lines=True) emits no trailing
+            # newline, so we add one to keep chunk boundaries valid. Skip empty
+            # chunks to avoid blank lines that pd.read_json would choke on.
+            if len(chunk):
+                out_fh.write(chunk.to_json(orient="records", lines=True, date_format="iso"))
+                out_fh.write("\n")
             row_count += len(chunk)
             col_count  = len(chunk.columns)
             first_chunk = False
 
     finally:
-        if writer:
-            writer.close()
+        out_fh.close()
         if hasattr(fh, "close"):
             fh.close()
 
@@ -465,7 +462,7 @@ def _full_load_normalize(
     canonical_map: dict | None = None,
 ) -> tuple[int, int]:
     """
-    Load the entire CSV into memory, apply all transformation steps, write parquet.
+    Load the entire CSV into memory, apply all transformation steps, write NDJSON.
     Used when the recipe includes full-load-only operations (transpose, pivot, etc.).
     Returns (row_count, column_count).
     """
@@ -495,11 +492,10 @@ def _full_load_normalize(
             errors.append(f"{op}: {exc}")
             logger.warning("[format_normalizer] op '%s' failed: %s", op, exc)
 
-    # Canonicalize column names so the parquet speaks canonical vocabulary.
+    # Canonicalize column names so the NDJSON speaks canonical vocabulary.
     _apply_canonical_rename(df, canonical_map)
 
-    table = pa.Table.from_pandas(df, preserve_index=False)
-    pq.write_table(table, output_path)
+    df.to_json(output_path, orient="records", lines=True, date_format="iso")
     return len(df), len(df.columns)
 
 
@@ -529,7 +525,7 @@ def _s3_output_key(file_path: str) -> str:
     folder = str(p.parent)
     if folder in (".", ""):
         folder = "root"
-    return f"{settings.s3.prefix}vectorization/{folder}/canonical/{p.stem}.parquet"
+    return f"{settings.s3.prefix}vectorization/{folder}/canonical/{p.stem}.canonical.ndjson"
 
 
 def _local_output_path(file_path: str) -> str:
@@ -537,4 +533,4 @@ def _local_output_path(file_path: str) -> str:
     folder = str(p.parent)
     if folder in (".", ""):
         folder = "root"
-    return f"vectorization/{folder}/canonical/{p.stem}.parquet"
+    return f"vectorization/{folder}/canonical/{p.stem}.canonical.ndjson"
