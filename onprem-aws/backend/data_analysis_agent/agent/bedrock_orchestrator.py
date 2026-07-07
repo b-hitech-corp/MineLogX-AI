@@ -1,10 +1,15 @@
 """
-bedrock_orchestrator.py — Fleet Management Agent (Anthropic SDK / Amazon Bedrock)
+bedrock_orchestrator.py — Fleet Management Agent (native boto3 / Amazon Bedrock)
 
-Uses Claude Sonnet 4.6 via Bedrock instead of the Ollama-based orchestrator.
+Uses Claude Sonnet 4.6 via Bedrock (invoke_model, called through the shared
+bedrock_client.invoke_claude helper) instead of the Ollama-based orchestrator.
 The tool-use loop is implemented directly: each turn sends the current message
 history to Claude, executes any requested tool calls, appends the results,
 and repeats until the model reaches end_turn or max_turns is hit.
+
+Native boto3 rather than the anthropic SDK: this agent is Claude-only and already
+speaks Anthropic's Messages/tool format, so invoke_model accepts the same payload
+the SDK was sending — only the transport changed, not the schemas or control flow.
 
 Usage
 -----
@@ -23,8 +28,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-import anthropic
-
 from data_analysis_agent.agent.prompts import SYSTEM_PROMPT, build_task_prompt
 from data_analysis_agent.config.settings import settings
 from data_analysis_agent.tools import (
@@ -35,6 +38,7 @@ from data_analysis_agent.tools import (
     schema_advisor,
     stats_analyzer,
 )
+from data_analysis_agent.tools.bedrock_client import invoke_claude
 
 logger = logging.getLogger(__name__)
 
@@ -410,9 +414,6 @@ class FleetAgent:
     """
 
     def __init__(self) -> None:
-        self.client = anthropic.AnthropicBedrock(
-            aws_region=settings.bedrock.region,
-        )
         self.max_turns = settings.bedrock.max_agent_turns
 
     def run(self, question: str, *, verbose: bool = False) -> AgentResult:
@@ -446,43 +447,44 @@ class FleetAgent:
         turns = 0
 
         while turns < self.max_turns:
-            response = self.client.messages.create(
-                model=settings.bedrock.model_id,
-                max_tokens=settings.bedrock.max_tokens,
+            body = invoke_claude(
+                messages,
                 system=SYSTEM_PROMPT,
                 tools=_TOOL_SCHEMAS,
-                messages=messages,
+                max_tokens=settings.bedrock.max_tokens,
+                model_id=settings.bedrock.model_id,
             )
             turns += 1
+            stop_reason = body.get("stop_reason")
+            content = body.get("content", [])
 
             if verbose:
-                logger.info("Turn %d — stop_reason=%s", turns, response.stop_reason)
+                logger.info("Turn %d — stop_reason=%s", turns, stop_reason)
 
-            if response.stop_reason == "end_turn":
-                summary = next(
-                    (b.text for b in response.content if hasattr(b, "text")), ""
-                )
+            if stop_reason == "end_turn":
+                summary = next((b["text"] for b in content if "text" in b), "")
                 break
 
-            if response.stop_reason == "tool_use":
-                messages.append({"role": "assistant", "content": response.content})
+            if stop_reason == "tool_use":
+                messages.append({"role": "assistant", "content": content})
 
                 tool_results = []
-                for block in response.content:
-                    if block.type != "tool_use":
+                for block in content:
+                    if block.get("type") != "tool_use":
                         continue
+                    name, inputs, block_id = block["name"], block["input"], block["id"]
                     if verbose:
-                        logger.info("  → %s(%s)", block.name, list(block.input.keys()))
+                        logger.info("  → %s(%s)", name, list(inputs.keys()))
                     try:
-                        result = _dispatch(block.name, block.input)
+                        result = _dispatch(name, inputs)
                     except Exception as exc:
                         result = {"error": str(exc)}
-                        logger.warning("Tool %s raised: %s", block.name, exc)
-                    tool_calls_log.append({"tool": block.name, "input": block.input})
+                        logger.warning("Tool %s raised: %s", name, exc)
+                    tool_calls_log.append({"tool": name, "input": inputs})
                     tool_results.append(
                         {
                             "type": "tool_result",
-                            "tool_use_id": block.id,
+                            "tool_use_id": block_id,
                             "content": json.dumps(result, default=str),
                         }
                     )
@@ -491,11 +493,9 @@ class FleetAgent:
 
             else:
                 # Unexpected stop reason (e.g. max_tokens) — capture any text and stop.
-                summary = next(
-                    (b.text for b in response.content if hasattr(b, "text")), ""
-                )
+                summary = next((b["text"] for b in content if "text" in b), "")
                 logger.warning(
-                    "Unexpected stop_reason=%s at turn %d", response.stop_reason, turns
+                    "Unexpected stop_reason=%s at turn %d", stop_reason, turns
                 )
                 break
 

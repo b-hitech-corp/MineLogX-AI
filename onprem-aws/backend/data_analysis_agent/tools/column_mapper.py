@@ -12,7 +12,7 @@ Two mapping modes:
        to the 'fuel_efficiency' KPI — no calculation required.
 
 Both functions accept a backend parameter:
-  "bedrock" (default) — uses the Anthropic SDK with Claude on Amazon Bedrock.
+  "bedrock" (default) — uses native boto3 (invoke_model) with Claude on Amazon Bedrock.
   "ollama"            — uses the Ollama HTTP API (qwen3:8b on EC2).
 """
 
@@ -23,7 +23,6 @@ import logging
 import re
 from typing import Any
 
-import anthropic
 import requests
 
 from data_analysis_agent.config.kpi_formulas import (
@@ -31,6 +30,7 @@ from data_analysis_agent.config.kpi_formulas import (
     get_all_required_variables,
 )
 from data_analysis_agent.config.settings import settings
+from data_analysis_agent.tools.bedrock_client import invoke_claude
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,6 @@ logger = logging.getLogger(__name__)
 # Claude Sonnet 4.6 has a 200K-token context window and handles all variables comfortably.
 _MAX_VARS_OLLAMA = 20
 _MAX_VARS_BEDROCK = 999  # effectively no cap
-
-_bedrock_client = anthropic.AnthropicBedrock(aws_region=settings.bedrock.region)
 
 
 # ---------------------------------------------------------------------------
@@ -55,12 +53,12 @@ def _llm_complete(prompt: str, backend: str, max_tokens: int = 1024) -> str | No
     """
     if backend == "bedrock":
         try:
-            resp = _bedrock_client.messages.create(
-                model=settings.bedrock.model_id,
+            body = invoke_claude(
+                [{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
+                model_id=settings.bedrock.model_id,
             )
-            return resp.content[0].text.strip()
+            return body["content"][0]["text"].strip()
         except Exception as exc:
             logger.warning("column_mapper (bedrock): LLM call failed (%s)", exc)
             return None
@@ -507,28 +505,29 @@ def inspect_schema_with_tool_use(llm_input: str, backend: str = "bedrock") -> di
 
     if backend == "bedrock":
         try:
-            resp = _bedrock_client.messages.create(
-                model=settings.bedrock.model_id,
-                max_tokens=4096,
+            body = invoke_claude(
+                [{"role": "user", "content": user_message}],
                 system=_INSPECT_SYSTEM_PROMPT,
                 tools=[_INSPECT_TOOL],
                 tool_choice={"type": "tool", "name": "describe_csv_structure"},
-                messages=[{"role": "user", "content": user_message}],
+                max_tokens=4096,
+                model_id=settings.bedrock.model_id,
             )
+            content = body.get("content", [])
             # tool_choice should guarantee a tool_use block, but guard defensively
             # in case Bedrock prepends a text block under throttling or refusal.
-            tool_block = next((b for b in resp.content if b.type == "tool_use"), None)
+            tool_block = next((b for b in content if b.get("type") == "tool_use"), None)
             if tool_block is None:
                 raise RuntimeError(
-                    f"No tool_use block in response (stop_reason={resp.stop_reason}). "
-                    f"Content types: {[b.type for b in resp.content]}"
+                    f"No tool_use block in response (stop_reason={body.get('stop_reason')}). "
+                    f"Content types: {[b.get('type') for b in content]}"
                 )
             logger.info(
                 "inspect_schema_with_tool_use: %d classifications, %d steps",
-                len(tool_block.input.get("column_classifications", [])),
-                len(tool_block.input.get("transformation_steps", [])),
+                len(tool_block["input"].get("column_classifications", [])),
+                len(tool_block["input"].get("transformation_steps", [])),
             )
-            return tool_block.input
+            return tool_block["input"]
         except Exception as exc:
             logger.error("inspect_schema_with_tool_use (bedrock) failed: %s", exc)
             return _empty_inspect_result(str(exc))
