@@ -23,6 +23,25 @@ Parameters:
     Type: String
     AllowedValues: ['true', 'false']
     Default: 'false'
+
+  # Bring-your-own-VPC — pass when account is at the 5-VPC limit.
+  # Leave empty to create a fresh VPC (default for new accounts).
+  ExistingVpcId:
+    Type: String
+    Default: ''
+  ExistingPublicSubnet1Id:
+    Type: String
+    Default: ''
+  ExistingPublicSubnet2Id:
+    Type: String
+    Default: ''
+  ExistingPrivateSubnet1Id:
+    Type: String
+    Default: ''
+  ExistingPrivateSubnet2Id:
+    Type: String
+    Default: ''
+
   BuildCsvLayer:
     Type: String
     AllowedValues: ['true', 'false']
@@ -47,6 +66,11 @@ Resources:
         NamePrefix: !Ref NamePrefix
         Environment: !Ref Environment
         ProjectApnId: !Ref ProjectApnId
+        ExistingVpcId: !Ref ExistingVpcId
+        ExistingPublicSubnet1Id: !Ref ExistingPublicSubnet1Id
+        ExistingPublicSubnet2Id: !Ref ExistingPublicSubnet2Id
+        ExistingPrivateSubnet1Id: !Ref ExistingPrivateSubnet1Id
+        ExistingPrivateSubnet2Id: !Ref ExistingPrivateSubnet2Id
 
   SecurityGroups:
     Type: AWS::CloudFormation::Stack

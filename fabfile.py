@@ -215,6 +215,22 @@ def _ensure_aws(c):
     print(f"==> AWS profile={WORK_PROFILE} account={account} region={REGION}")
 
 
+def _cfn_extra_params(env):
+    """Load env-specific parameter overrides from params/<env>.json if it exists.
+
+    Returns a string of 'Key=Value' pairs ready to append to --parameter-overrides,
+    or an empty string when no file is found. Used to pass e.g. existing VPC IDs
+    when the account is at the VPC limit.
+    """
+    import json as _json
+
+    params_file = CFN_ROOT / "params" / f"{env}.json"
+    if not params_file.exists():
+        return ""
+    data = _json.loads(params_file.read_text(encoding="utf-8"))
+    return " ".join(f"{k}={v}" for k, v in data.items())
+
+
 def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
     """Package + deploy the single parent stack (nested children) as minelogx-<env>.
 
@@ -225,18 +241,24 @@ def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
     fallback = "true" if env == "prod" else "false"
     pdf_layer = "true" if build_pdf_layer else "false"
     csv_layer = "true" if build_csv_layer else "false"
+    extra = _cfn_extra_params(env)
     with c.cd(str(CFN_ROOT)):
         c.run(
             "aws cloudformation package --template-file parent.yaml "
             f"--s3-bucket {STATE_BUCKET} --s3-prefix cfn/{env} "
             f"--output-template-file packaged-parent.yaml --region {REGION}"
         )
+        overrides = (
+            f"NamePrefix={NAME_PREFIX}-{env} Environment={env} "
+            f"ProjectApnId={apn} EnableLlmFallback={fallback} "
+            f"BuildPdfLayer={pdf_layer} BuildCsvLayer={csv_layer}"
+        )
+        if extra:
+            overrides += f" {extra}"
         cmd = (
             "aws cloudformation deploy --template-file packaged-parent.yaml "
             f"--stack-name {NAME_PREFIX}-{env} "
-            f"--parameter-overrides NamePrefix={NAME_PREFIX}-{env} Environment={env} "
-            f"ProjectApnId={apn} EnableLlmFallback={fallback} "
-            f"BuildPdfLayer={pdf_layer} BuildCsvLayer={csv_layer} "
+            f"--parameter-overrides {overrides} "
             f"--tags aws-apn-id={apn} Environment={env} ManagedBy=cloudformation "
             f"--capabilities CAPABILITY_NAMED_IAM --region {REGION}"
         )
