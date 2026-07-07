@@ -183,6 +183,8 @@ Outputs:
     Value: !GetAtt Network.Outputs.VpcId
   ApiId:
     Value: !GetAtt Apigw.Outputs.RestApiId
+  AmplifyAppId:
+    Value: !GetAtt Amplify.Outputs.AppId
   AmplifyDomain:
     Value: !GetAtt Amplify.Outputs.DefaultDomain
   OpenSearchEndpoint:
