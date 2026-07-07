@@ -34,7 +34,8 @@ Full DEV flow (first time):
   uv run fab env.bootstrap                         # create S3 bucket (for nested template uploads)
   uv run fab lambda.build-layer csv
   uv run fab lambda.build-layer pdf
-  uv run fab env.up dev                            # cloudformation deploy with layers
+  uv run fab env.up dev --seed                     # cloudformation deploy + seed from demo buckets
+  uv run fab env.up dev                            # cloudformation deploy (clean buckets, no seed)
   uv run fab frontend.deploy dev                   # build React + push to Amplify
 
 Note: use the long flag `--engine` — Fabric reserves the short `-e` for --echo.
@@ -115,6 +116,15 @@ CFN_LAYERS = [
 
 # Fixed environments have their own Terraform root module under environments/.
 FIXED_ENVS = {"dev", "qa", "prod"}
+
+# Demo buckets used as seed data source for DEV environments.
+# Mapping: bucket name suffix -> existing demo bucket name.
+DEMO_SEED_BUCKETS = {
+    "telemetry-data": "bhitech-minelogx-poc-telemetry-data",
+    "legislation-documents": "bhitech-minelogx-poc-legislation-documents",
+}
+# Only these environments may receive seed data; all others are always clean.
+SEED_ALLOWED_ENVS = {"dev"}
 
 # demo Ollama EC2 instances (see CLAUDE.md — demo only, to be replaced by Bedrock).
 INSTANCES = {
@@ -215,6 +225,14 @@ def _ensure_aws(c):
     print(f"==> AWS profile={WORK_PROFILE} account={account} region={REGION}")
 
 
+def _s3_seed(c, env):
+    """Sync data from demo seed buckets into the minelogx-{env}-* buckets."""
+    for suffix, src in DEMO_SEED_BUCKETS.items():
+        dst = f"{NAME_PREFIX}-{env}-{suffix}"
+        print(f"==> seeding s3://{src}/ -> s3://{dst}/")
+        c.run(f"aws s3 sync s3://{src}/ s3://{dst}/ --region {REGION}")
+
+
 def _cfn_extra_params(env):
     """Load env-specific parameter overrides from params/<env>.json if it exists.
 
@@ -276,9 +294,17 @@ def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
         "engine": "terraform | cloudformation",
         "build_pdf_layer": "Attach the PDF deps layer (must run `fab lambda.build-layer pdf` first).",
         "build_csv_layer": "Attach the CSV deps layer (must run `fab lambda.build-layer csv` first).",
+        "seed": "After deploy, sync data from demo buckets into the new buckets (dev only).",
     },
 )
-def up(c, env, engine="cloudformation", build_pdf_layer=False, build_csv_layer=False):
+def up(
+    c,
+    env,
+    engine="cloudformation",
+    build_pdf_layer=False,
+    build_csv_layer=False,
+    seed=False,
+):
     """Create/update an environment (fixed or ephemeral)."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
@@ -297,15 +323,22 @@ def up(c, env, engine="cloudformation", build_pdf_layer=False, build_csv_layer=F
             f'-var="build_pdf_layer={"true" if build_pdf_layer else "false"}"',
             f'-var="build_csv_layer={"true" if build_csv_layer else "false"}"',
         )
-        return
+    else:
+        _cfn(
+            c,
+            env,
+            execute=True,
+            build_pdf_layer=build_pdf_layer,
+            build_csv_layer=build_csv_layer,
+        )
 
-    _cfn(
-        c,
-        env,
-        execute=True,
-        build_pdf_layer=build_pdf_layer,
-        build_csv_layer=build_csv_layer,
-    )
+    if seed:
+        if env not in SEED_ALLOWED_ENVS:
+            print(
+                f"[warn] --seed ignored for '{env}': seeding is only allowed in {SEED_ALLOWED_ENVS}."
+            )
+        else:
+            _s3_seed(c, env)
 
 
 @task(

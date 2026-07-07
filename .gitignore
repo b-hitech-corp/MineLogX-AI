@@ -2,6 +2,9 @@
 
 build/
 
+# === Local session plan (never commit) ===
+PLAN-ARCHITECTURE-GOAL.md
+
 # === Secrets / credentials (never commit) ===
 .env
 .env.*
