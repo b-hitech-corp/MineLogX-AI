@@ -22,8 +22,8 @@ export function OverviewPage() {
   const { data } = useCompanyData()
 
   useEffect(() => {
-    getFleetAssets().then(setAssets)
-    getKPIs().then(setKPIs)
+    getFleetAssets().then(setAssets).catch((err) => console.error('Failed to load fleet assets:', err))
+    getKPIs().then(setKPIs).catch((err) => console.error('Failed to load KPIs:', err))
   }, [])
 
   const summaryKPIs = kpis.filter((k) => SUMMARY_KPIS.includes(k.id))

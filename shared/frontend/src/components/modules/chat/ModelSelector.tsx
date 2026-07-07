@@ -4,18 +4,22 @@ import { useChat, CHAT_MODELS } from '../../../context/ChatContext'
 import type { ChatModel } from '../../../context/ChatContext'
 import { useClickOutside } from '../../../hooks/useClickOutside'
 
-const badgeStyle: Record<ChatModel['badge'], string> = {
+type DisplayBadge = 'DEFAULT' | 'CURRENT'
+
+const badgeStyle: Record<DisplayBadge, string> = {
   DEFAULT: 'bg-brand-blue/15 text-brand-blue border-brand-blue/30',
-  PRO:     'bg-amber-900/30 text-amber-400 border-amber-700/40 light:bg-amber-50 light:text-amber-700 light:border-amber-200',
-  FAST:    'bg-green-900/30 text-green-400 border-green-700/40 light:bg-emerald-50 light:text-emerald-700 light:border-emerald-200',
-  NEW:     'bg-purple-900/30 text-purple-400 border-purple-700/40 light:bg-purple-50 light:text-purple-700 light:border-purple-200',
+  CURRENT: 'bg-green-900/30 text-green-400 border-green-700/40 light:bg-emerald-50 light:text-emerald-700 light:border-emerald-200',
 }
 
-const dotStyle: Record<ChatModel['badge'], string> = {
+const dotStyle: Record<DisplayBadge, string> = {
   DEFAULT: 'bg-brand-blue',
-  PRO:     'bg-amber-400 light:bg-amber-500',
-  FAST:    'bg-green-400 light:bg-emerald-500',
-  NEW:     'bg-purple-400 light:bg-purple-500',
+  CURRENT: 'bg-green-400 light:bg-emerald-500',
+}
+
+function getDisplayBadge(model: ChatModel, isSelected: boolean): DisplayBadge | undefined {
+  if (model.badge === 'DEFAULT') return 'DEFAULT'
+  if (isSelected) return 'CURRENT'
+  return undefined
 }
 
 const CLOSE_DUR = 150 // matches --dropdown-close-dur
@@ -25,6 +29,7 @@ export function ModelSelector() {
   const [open, setOpen] = useState(false)
   const [isClosing, setIsClosing] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const currentBadge = getDisplayBadge(selectedModel, true) ?? 'CURRENT'
 
   function openDropdown() { setOpen(true) }
   function closeDropdown() {
@@ -56,6 +61,7 @@ export function ModelSelector() {
           <div className="py-1">
             {CHAT_MODELS.map((model) => {
               const isSelected = selectedModel.id === model.id
+              const displayBadge = getDisplayBadge(model, isSelected)
               return (
                 <button
                   key={model.id}
@@ -67,7 +73,7 @@ export function ModelSelector() {
                   }`}
                 >
                   {/* Dot */}
-                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${isSelected ? dotStyle[model.badge] : 'bg-surface-muted'}`} />
+                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${displayBadge ? dotStyle[displayBadge] : 'bg-surface-muted'}`} />
 
                   {/* Info */}
                   <div className="flex-1 min-w-0">
@@ -77,12 +83,14 @@ export function ModelSelector() {
                       >
                         {model.name}
                       </span>
-                      <span
-                        className={`rounded border px-1.5 py-0.5 text-[8px] font-bold tracking-[0.1em] ${badgeStyle[model.badge]}`}
-                        style={{ fontFamily: 'var(--font-mono)' }}
-                      >
-                        {model.badge}
-                      </span>
+                      {displayBadge && (
+                        <span
+                          className={`rounded border px-1.5 py-0.5 text-[8px] font-bold tracking-[0.1em] ${badgeStyle[displayBadge]}`}
+                          style={{ fontFamily: 'var(--font-mono)' }}
+                        >
+                          {displayBadge}
+                        </span>
+                      )}
                     </div>
                     <p
                       className="mt-0.5 text-[10px] text-content-tertiary truncate"
@@ -122,10 +130,10 @@ export function ModelSelector() {
         <span className="font-semibold text-content-primary flex-1 text-left">{selectedModel.name}</span>
 
         <span
-          className={`rounded border px-1.5 py-0.5 text-[8px] font-bold tracking-[0.08em] ${badgeStyle[selectedModel.badge]}`}
+          className={`rounded border px-1.5 py-0.5 text-[8px] font-bold tracking-[0.08em] ${badgeStyle[currentBadge]}`}
           style={{ fontFamily: 'var(--font-mono)' }}
         >
-          {selectedModel.badge}
+          {currentBadge}
         </span>
 
         <ChevronDown

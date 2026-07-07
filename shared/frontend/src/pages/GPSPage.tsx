@@ -16,8 +16,8 @@ export function GPSPage() {
   const { data } = useCompanyData()
 
   useEffect(() => {
-    getGPSAssets().then(setAssets)
-    getPitZones().then(setZones)
+    getGPSAssets().then(setAssets).catch((err) => console.error('Failed to load GPS assets:', err))
+    getPitZones().then(setZones).catch((err) => console.error('Failed to load pit zones:', err))
   }, [])
 
   return (

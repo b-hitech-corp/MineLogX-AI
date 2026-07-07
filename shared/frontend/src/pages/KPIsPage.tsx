@@ -15,7 +15,7 @@ export function KPIsPage() {
   const { data } = useCompanyData()
 
   useEffect(() => {
-    getKPIs().then(setKPIs)
+    getKPIs().then(setKPIs).catch((err) => console.error('Failed to load KPIs:', err))
   }, [])
 
   const byCategory = (cat: KPIMetric['category']) => kpis.filter((k) => k.category === cat)
