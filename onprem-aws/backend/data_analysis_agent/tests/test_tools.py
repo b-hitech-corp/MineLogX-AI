@@ -5,19 +5,31 @@ Run with: pytest tests/test_tools.py -v
 Column names are discovered from the loaded CSV schema at runtime so these
 tests work regardless of which CSV file is placed in sample_data/.
 """
+
 import pytest
 import sys
 import os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from data_analysis_agent.tools.csv_loader import load_csv, get_dataframe
 from data_analysis_agent.tools.kpi_engine import calculate_kpi, available_kpis
-from data_analysis_agent.tools.stats_analyzer import describe_columns, rank_entities, time_series_aggregation
+from data_analysis_agent.tools.stats_analyzer import (
+    describe_columns,
+    rank_entities,
+    time_series_aggregation,
+)
 from data_analysis_agent.tools.insight_extractor import (
-    detect_outliers, detect_trend, check_thresholds, fleet_performance_summary
+    detect_outliers,
+    detect_trend,
+    check_thresholds,
+    fleet_performance_summary,
 )
 from data_analysis_agent.tools.chart_spec_builder import (
-    build_line_chart, build_bar_chart, build_kpi_cards, build_pie_chart
+    build_line_chart,
+    build_bar_chart,
+    build_kpi_cards,
+    build_pie_chart,
 )
 
 FILE = "fleet_may_2024.csv"
@@ -26,6 +38,7 @@ FILE = "fleet_may_2024.csv"
 # ---------------------------------------------------------------------------
 # Schema discovery helpers
 # ---------------------------------------------------------------------------
+
 
 def _col_names(schema: dict) -> list[str]:
     return [c["name"] for c in schema["columns"]]
@@ -61,6 +74,7 @@ def _first_entity(schema: dict) -> str | None:
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def schema() -> dict:
     """Load the CSV once per session; all tests share this schema description."""
@@ -77,9 +91,16 @@ def load_sample():
 # csv_loader
 # ---------------------------------------------------------------------------
 
+
 class TestCsvLoader:
     def test_schema_keys_present(self, schema):
-        for key in ("file_path", "row_count", "column_count", "columns", "preview_rows"):
+        for key in (
+            "file_path",
+            "row_count",
+            "column_count",
+            "columns",
+            "preview_rows",
+        ):
             assert key in schema, f"Missing key '{key}' in schema"
 
     def test_row_count_positive(self, schema):
@@ -126,13 +147,16 @@ class TestCsvLoader:
 
     def test_nonexistent_date_column_ignored(self, schema):
         """Passing a column name that does not exist must not raise."""
-        result = load_csv(FILE, date_columns=["__nonexistent__"], use_local_fallback=True)
+        result = load_csv(
+            FILE, date_columns=["__nonexistent__"], use_local_fallback=True
+        )
         assert result["row_count"] > 0
 
 
 # ---------------------------------------------------------------------------
 # kpi_engine
 # ---------------------------------------------------------------------------
+
 
 class TestKpiEngine:
     def test_available_kpis_returns_list(self):
@@ -154,7 +178,9 @@ class TestKpiEngine:
         # Either computed successfully or returned a graceful column-missing error
         in_kpis = kpi_name in result["kpis"]
         in_errors = result["errors"] and kpi_name in result["errors"]
-        assert in_kpis or in_errors, f"KPI '{kpi_name}' missing from both kpis and errors"
+        assert in_kpis or in_errors, (
+            f"KPI '{kpi_name}' missing from both kpis and errors"
+        )
 
     def test_calculate_all_kpis_no_crash(self):
         result = calculate_kpi(FILE, ["*"])
@@ -195,6 +221,7 @@ class TestKpiEngine:
 # stats_analyzer
 # ---------------------------------------------------------------------------
 
+
 class TestStatsAnalyzer:
     def test_describe_columns(self, schema):
         numeric_cols = _cols_of_type(schema, "float", "integer")
@@ -229,7 +256,9 @@ class TestStatsAnalyzer:
         entity_col = _first_entity(schema)
         if not numeric_cols or not entity_col:
             pytest.skip("Need at least one numeric and one entity column")
-        result = rank_entities(FILE, numeric_cols[0], entity_col, top_n=5, ascending=True)
+        result = rank_entities(
+            FILE, numeric_cols[0], entity_col, top_n=5, ascending=True
+        )
         assert "ranking" in result
 
     def test_time_series(self, schema):
@@ -246,6 +275,7 @@ class TestStatsAnalyzer:
 # insight_extractor
 # ---------------------------------------------------------------------------
 
+
 class TestInsightExtractor:
     def test_detect_outliers(self, schema):
         numeric_col = _first_numeric(schema)
@@ -260,7 +290,9 @@ class TestInsightExtractor:
         dt_col = _first_datetime(schema)
         numeric_col = _first_numeric(schema)
         if not dt_col or not numeric_col:
-            pytest.skip("Need a datetime column and a numeric column for trend detection")
+            pytest.skip(
+                "Need a datetime column and a numeric column for trend detection"
+            )
         result = detect_trend(FILE, dt_col, numeric_col, freq="W")
         assert result["direction"] in ("increasing", "decreasing", "stable")
         assert "r_squared" in result
@@ -271,9 +303,17 @@ class TestInsightExtractor:
             pytest.skip("No numeric columns in CSV")
         col_info = next(c for c in schema["columns"] if c["name"] == numeric_col)
         threshold = col_info.get("mean") or col_info.get("min") or 0
-        result = check_thresholds(FILE, [
-            {"column": numeric_col, "operator": ">", "value": threshold, "label": "threshold_test"},
-        ])
+        result = check_thresholds(
+            FILE,
+            [
+                {
+                    "column": numeric_col,
+                    "operator": ">",
+                    "value": threshold,
+                    "label": "threshold_test",
+                },
+            ],
+        )
         assert result["rules_checked"] == 1
         assert result["threshold_findings"][0]["breach_count"] >= 0
 
@@ -290,6 +330,7 @@ class TestInsightExtractor:
 # ---------------------------------------------------------------------------
 # chart_spec_builder
 # ---------------------------------------------------------------------------
+
 
 class TestChartSpecBuilder:
     def test_line_chart(self):
@@ -326,7 +367,9 @@ class TestChartSpecBuilder:
     def test_kpi_cards(self):
         spec = build_kpi_cards(
             title="Fleet KPIs",
-            kpis=[{"label": "Cycle Time", "value": 42.1, "unit": "min", "trend": "down"}],
+            kpis=[
+                {"label": "Cycle Time", "value": 42.1, "unit": "min", "trend": "down"}
+            ],
         )
         assert spec["chart_type"] == "KPICards"
         assert len(spec["cards"]) == 1

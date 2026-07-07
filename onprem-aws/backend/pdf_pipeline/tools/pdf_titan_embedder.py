@@ -20,6 +20,7 @@ Public API
     embed_sections_batch(sections, config, bedrock_runtime_client)
         -> list[tuple[SectionRecord, list[float]]]
 """
+
 from __future__ import annotations
 
 import json
@@ -40,6 +41,7 @@ logger = logging.getLogger(__name__)
 # Core embedding call
 # ---------------------------------------------------------------------------
 
+
 def embed_section(
     text: str,
     config: PdfPipelineConfig,
@@ -59,11 +61,13 @@ def embed_section(
         RuntimeError: If all retry attempts fail.
         ValueError: If the returned vector dimension does not match config.titan_dimensions.
     """
-    body = json.dumps({
-        "inputText": text,
-        "dimensions": config.titan_dimensions,
-        "normalize": config.titan_normalize,
-    })
+    body = json.dumps(
+        {
+            "inputText": text,
+            "dimensions": config.titan_dimensions,
+            "normalize": config.titan_normalize,
+        }
+    )
 
     last_exc: Exception | None = None
     for attempt in range(config.embed_max_retries):
@@ -90,10 +94,12 @@ def embed_section(
         except ClientError as exc:
             error_code = exc.response.get("Error", {}).get("Code", "")
             if error_code == "ThrottlingException":
-                wait = config.embed_retry_base_s * (2 ** attempt)
+                wait = config.embed_retry_base_s * (2**attempt)
                 logger.warning(
                     "Titan ThrottlingException (attempt %d/%d), retrying in %.1fs",
-                    attempt + 1, config.embed_max_retries, wait,
+                    attempt + 1,
+                    config.embed_max_retries,
+                    wait,
                 )
                 time.sleep(wait)
                 last_exc = exc
@@ -117,6 +123,7 @@ def embed_section(
 # ---------------------------------------------------------------------------
 # Batch embedding
 # ---------------------------------------------------------------------------
+
 
 def embed_sections_batch(
     sections: list[SectionRecord],
@@ -150,7 +157,9 @@ def embed_sections_batch(
             if len(text) > config.titan_max_input_chars:
                 logger.warning(
                     "Section %s body (%d chars) exceeds titan_max_input_chars=%d — truncating",
-                    section.section_id, len(text), config.titan_max_input_chars,
+                    section.section_id,
+                    len(text),
+                    config.titan_max_input_chars,
                 )
                 text = text[: config.titan_max_input_chars]
 
@@ -168,6 +177,8 @@ def embed_sections_batch(
 
     logger.info(
         "Embedding complete: %d succeeded, %d failed (total=%d)",
-        len(results), failed, len(sections),
+        len(results),
+        failed,
+        len(sections),
     )
     return results

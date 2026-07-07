@@ -7,6 +7,7 @@ Requires pandas (skipped cleanly if absent, so it runs in SageMaker/CI):
     # or:
     python -m csv_pipeline.tests.test_chunker_canonical
 """
+
 from __future__ import annotations
 
 import os
@@ -24,6 +25,7 @@ try:
         _build_text,
         _safe_round,
     )
+
     _HAS_DEPS = True
 except Exception as _exc:  # noqa: BLE001
     _HAS_DEPS = False
@@ -34,14 +36,18 @@ except Exception as _exc:  # noqa: BLE001
 # _safe_round - never crashes on odd scalars (the numpy.bool_ bug)
 # ---------------------------------------------------------------------------
 
+
 def test_safe_round_handles_bool_and_numbers():
     if not _HAS_DEPS:
-        print(f"SKIP (deps absent: {_IMPORT_ERR}): test_safe_round_handles_bool_and_numbers")
+        print(
+            f"SKIP (deps absent: {_IMPORT_ERR}): test_safe_round_handles_bool_and_numbers"
+        )
         return
     assert _safe_round(3.14159) == 3.142
-    assert _safe_round(True) == 1.0          # bool -> float, no crash
+    assert _safe_round(True) == 1.0  # bool -> float, no crash
     assert _safe_round("not a number") == "not a number"  # degrades gracefully
     import numpy as np
+
     # The exact scalar that crashed Stage 3 originally.
     assert _safe_round(np.bool_(True)) == 1.0
 
@@ -50,14 +56,20 @@ def test_safe_round_handles_bool_and_numbers():
 # _build_canonical_markers - domain-scoped absence + unmapped
 # ---------------------------------------------------------------------------
 
+
 def test_markers_are_domain_scoped():
     if not _HAS_DEPS:
-        print(f"SKIP (deps absent): test_markers_are_domain_scoped")
+        print("SKIP (deps absent): test_markers_are_domain_scoped")
         return
     descriptor = {
         "canonical": {
             "active_domains": ["tire", "shared"],
-            "absent_fields": ["wear_pct", "burst_risk_score", "payload_tonnes", "gas_co"],
+            "absent_fields": [
+                "wear_pct",
+                "burst_risk_score",
+                "payload_tonnes",
+                "gas_co",
+            ],
             "unknown_columns": ["vendor_blob"],
         }
     }
@@ -66,7 +78,7 @@ def test_markers_are_domain_scoped():
     assert "wear_pct" in m["missing_canonical_fields"]
     assert "burst_risk_score" in m["missing_canonical_fields"]
     # ...but absences from domains the file never activated are NOT noise.
-    assert "gas_co" not in m["missing_canonical_fields"]        # environmental_sensor
+    assert "gas_co" not in m["missing_canonical_fields"]  # environmental_sensor
     assert "payload_tonnes" not in m["missing_canonical_fields"]  # load
     assert m["unmapped_columns"] == ["vendor_blob"]
 
@@ -84,27 +96,33 @@ def test_markers_empty_when_no_canonical_block():
 # _build_text - bool column does NOT crash, markers appear
 # ---------------------------------------------------------------------------
 
+
 def test_build_text_with_bool_column_does_not_crash():
     if not _HAS_DEPS:
         print("SKIP (deps absent): test_build_text_with_bool_column_does_not_crash")
         return
 
-    chunk = pd.DataFrame({
-        "equipment_id":   ["T1", "T1", "T2", "T2"],
-        "anomaly_detected": [True, False, True, True],   # bool -> categorical
-        "fuel_litres":    [10.0, 12.5, 9.0, 11.0],       # numeric metric
-    })
+    chunk = pd.DataFrame(
+        {
+            "equipment_id": ["T1", "T1", "T2", "T2"],
+            "anomaly_detected": [True, False, True, True],  # bool -> categorical
+            "fuel_litres": [10.0, 12.5, 9.0, 11.0],  # numeric metric
+        }
+    )
     markers = {
         "missing_canonical_fields": ["payload_tonnes", "cycle_time_min"],
         "unmapped_columns": ["vendor_blob"],
         "active_domains": ["fleet", "shared"],
     }
     text = _build_text(
-        chunk, 0, "C9/x.csv", "C9",
+        chunk,
+        0,
+        "C9/x.csv",
+        "C9",
         entity_cols=["equipment_id"],
-        metric_cols=["fuel_litres"],            # bool is NOT a metric here
+        metric_cols=["fuel_litres"],  # bool is NOT a metric here
         datetime_cols=[],
-        cat_cols=["anomaly_detected"],          # bool routed as categorical
+        cat_cols=["anomaly_detected"],  # bool routed as categorical
         date_range=None,
         markers=markers,
     )
@@ -122,7 +140,9 @@ def test_build_text_with_bool_column_does_not_crash():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    fns = [
+        v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)
+    ]
     failed = 0
     for fn in fns:
         try:

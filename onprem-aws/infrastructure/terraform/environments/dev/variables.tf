@@ -33,3 +33,15 @@ variable "ec2_key_name" {
   type    = string
   default = null
 }
+
+variable "build_pdf_layer" {
+  description = "Publish the PDF deps Lambda layer (run `fab lambda.build-layer pdf` first)."
+  type        = bool
+  default     = false
+}
+
+variable "build_csv_layer" {
+  description = "Publish the CSV deps Lambda layer (run `fab lambda.build-layer csv` first)."
+  type        = bool
+  default     = false
+}

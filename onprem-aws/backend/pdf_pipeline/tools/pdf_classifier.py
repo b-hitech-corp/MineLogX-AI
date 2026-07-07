@@ -20,9 +20,9 @@ Public API
 ----------
     classify(bucket, key, config, s3_client, bedrock_client) -> ClassificationResult
 """
+
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass
@@ -40,11 +40,12 @@ logger = logging.getLogger(__name__)
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ClassificationResult:
-    doc_class: str           # "complex_legal" | "simple"
-    confidence: float        # 0.0–1.0
-    signal_used: str         # "heuristic" | "s3_tag" | "haiku"
+    doc_class: str  # "complex_legal" | "simple"
+    confidence: float  # 0.0–1.0
+    signal_used: str  # "heuristic" | "s3_tag" | "haiku"
     page_count: int
     file_size_bytes: int
     avg_chars_per_page: float
@@ -66,28 +67,28 @@ _CLASSIFY_TOOL = {
     "inputSchema": {
         # Converse requires the schema wrapped under a "json" key (ToolInputSchema union).
         "json": {
-        "type": "object",
-        "properties": {
-            "complexity": {
-                "type": "string",
-                "enum": ["high", "medium", "low"],
-                "description": (
-                    "high → dense regulatory/legal structure (mining acts, safety codes, "
-                    "environmental regulations with numbered clauses); "
-                    "medium → moderately structured document; "
-                    "low → simple form, template, or administrative document"
-                ),
+            "type": "object",
+            "properties": {
+                "complexity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"],
+                    "description": (
+                        "high → dense regulatory/legal structure (mining acts, safety codes, "
+                        "environmental regulations with numbered clauses); "
+                        "medium → moderately structured document; "
+                        "low → simple form, template, or administrative document"
+                    ),
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "Confidence in this classification, 0.0–1.0",
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "One sentence explaining the classification decision",
+                },
             },
-            "confidence": {
-                "type": "number",
-                "description": "Confidence in this classification, 0.0–1.0",
-            },
-            "reasoning": {
-                "type": "string",
-                "description": "One sentence explaining the classification decision",
-            },
-        },
-        "required": ["complexity", "confidence", "reasoning"],
+            "required": ["complexity", "confidence", "reasoning"],
         },
     },
 }
@@ -106,6 +107,7 @@ _CLASSIFY_PROMPT = (
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _estimate_page_count(
     bucket: str,
@@ -141,7 +143,9 @@ def _estimate_page_count(
             return page_refs
 
     except Exception:
-        logger.debug("Page count estimation failed for %s/%s", bucket, key, exc_info=True)
+        logger.debug(
+            "Page count estimation failed for %s/%s", bucket, key, exc_info=True
+        )
 
     return 0
 
@@ -172,7 +176,9 @@ def _fetch_first_page_text(
         doc.close()
         return text
     except Exception:
-        logger.debug("First-page text extraction failed for %s/%s", bucket, key, exc_info=True)
+        logger.debug(
+            "First-page text extraction failed for %s/%s", bucket, key, exc_info=True
+        )
         return ""
 
 
@@ -186,7 +192,9 @@ def _classify_with_haiku(
 ) -> ClassificationResult:
     """Call Claude Haiku with tool_choice for guaranteed structured classification."""
     if not first_page_text.strip():
-        logger.warning("Haiku classification: empty first-page text → safe-default complex_legal")
+        logger.warning(
+            "Haiku classification: empty first-page text → safe-default complex_legal"
+        )
         return ClassificationResult(
             doc_class="complex_legal",
             confidence=0.0,
@@ -236,7 +244,8 @@ def _classify_with_haiku(
     if confidence < config.haiku_confidence_threshold:
         logger.info(
             "Haiku confidence %.2f < threshold %.2f → safe-default complex_legal",
-            confidence, config.haiku_confidence_threshold,
+            confidence,
+            config.haiku_confidence_threshold,
         )
         doc_class = "complex_legal"
     else:
@@ -256,6 +265,7 @@ def _classify_with_haiku(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def classify(
     bucket: str,
@@ -300,7 +310,11 @@ def classify(
 
     logger.info(
         "Classifying %s/%s | size=%.2f MB | pages≈%d | avg_chars/page≈%.0f",
-        bucket, key, file_size_bytes / (1024 * 1024), page_count, avg_chars,
+        bucket,
+        key,
+        file_size_bytes / (1024 * 1024),
+        page_count,
+        avg_chars,
     )
 
     # -----------------------------------------------------------------------
@@ -310,7 +324,11 @@ def classify(
     page_threshold_exceeded = page_count > config.scanned_page_threshold
 
     if is_scanned:
-        logger.info("Signal 1: avg_chars=%.0f < %d → SIMPLE (scanned)", avg_chars, config.avg_chars_threshold)
+        logger.info(
+            "Signal 1: avg_chars=%.0f < %d → SIMPLE (scanned)",
+            avg_chars,
+            config.avg_chars_threshold,
+        )
         return ClassificationResult(
             doc_class="simple",
             confidence=0.95,
@@ -322,7 +340,11 @@ def classify(
         )
 
     if page_threshold_exceeded and avg_chars < config.avg_chars_threshold * 3:
-        logger.info("Signal 1: page_count=%d > %d with low char density → SIMPLE", page_count, config.scanned_page_threshold)
+        logger.info(
+            "Signal 1: page_count=%d > %d with low char density → SIMPLE",
+            page_count,
+            config.scanned_page_threshold,
+        )
         return ClassificationResult(
             doc_class="simple",
             confidence=0.85,
@@ -342,7 +364,11 @@ def classify(
         doc_type_tag = tag_map.get(config.s3_tag_key, "").lower()
 
         if doc_type_tag in [v.lower() for v in config.complex_legal_tag_values]:
-            logger.info("Signal 2: tag '%s'='%s' → COMPLEX_LEGAL", config.s3_tag_key, doc_type_tag)
+            logger.info(
+                "Signal 2: tag '%s'='%s' → COMPLEX_LEGAL",
+                config.s3_tag_key,
+                doc_type_tag,
+            )
             return ClassificationResult(
                 doc_class="complex_legal",
                 confidence=0.99,
@@ -354,7 +380,9 @@ def classify(
             )
 
         if doc_type_tag in [v.lower() for v in config.simple_tag_values]:
-            logger.info("Signal 2: tag '%s'='%s' → SIMPLE", config.s3_tag_key, doc_type_tag)
+            logger.info(
+                "Signal 2: tag '%s'='%s' → SIMPLE", config.s3_tag_key, doc_type_tag
+            )
             return ClassificationResult(
                 doc_class="simple",
                 confidence=0.99,

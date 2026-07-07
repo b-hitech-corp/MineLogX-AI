@@ -62,28 +62,28 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_REGION              = "us-east-2"
+DEFAULT_REGION = "us-east-2"
 
 # Ollama endpoints
-DEFAULT_LLM_ENDPOINT        = "http://ec2-98-81-228-187.compute-1.amazonaws.com:11434"
-DEFAULT_LLM_MODEL           = "qwen3:8b"
+DEFAULT_LLM_ENDPOINT = "http://ec2-98-81-228-187.compute-1.amazonaws.com:11434"
+DEFAULT_LLM_MODEL = "qwen3:8b"
 DEFAULT_EMBEDDINGS_ENDPOINT = "http://ec2-3-208-23-94.compute-1.amazonaws.com:11434"
-DEFAULT_EMBEDDINGS_MODEL    = "mxbai-embed-large"
+DEFAULT_EMBEDDINGS_MODEL = "mxbai-embed-large"
 
 # Request timeouts (seconds)
-DEFAULT_LLM_TIMEOUT         = 120
-DEFAULT_EMBEDDINGS_TIMEOUT  = 30
+DEFAULT_LLM_TIMEOUT = 120
+DEFAULT_EMBEDDINGS_TIMEOUT = 30
 
 # Retrieval
-DEFAULT_TOP_K               = 5     # candidates retrieved from S3 Vectors
-DEFAULT_TOP_N               = 3     # documents kept after reranking
+DEFAULT_TOP_K = 5  # candidates retrieved from S3 Vectors
+DEFAULT_TOP_N = 3  # documents kept after reranking
 
 # Conversation memory
-DEFAULT_MAX_HISTORY         = 10    # max turns kept in memory (each turn = user + assistant)
+DEFAULT_MAX_HISTORY = 10  # max turns kept in memory (each turn = user + assistant)
 
 # Generation
-DEFAULT_TEMPERATURE         = 0.3
-DEFAULT_MAX_TOKENS          = 1024  # approximate; passed as num_predict to Ollama
+DEFAULT_TEMPERATURE = 0.3
+DEFAULT_MAX_TOKENS = 1024  # approximate; passed as num_predict to Ollama
 
 
 # ---------------------------------------------------------------------------
@@ -170,22 +170,24 @@ class RAGAgent:
         max_tokens: int = DEFAULT_MAX_TOKENS,
         s3vectors_client: Any | None = None,
     ) -> None:
-        self.vector_bucket_name  = vector_bucket_name
-        self.index_name          = index_name
-        self.region              = region
-        self.llm_endpoint        = llm_endpoint
-        self.llm_model           = llm_model
+        self.vector_bucket_name = vector_bucket_name
+        self.index_name = index_name
+        self.region = region
+        self.llm_endpoint = llm_endpoint
+        self.llm_model = llm_model
         self.embeddings_endpoint = embeddings_endpoint
-        self.embeddings_model    = embeddings_model
-        self.llm_timeout         = llm_timeout
-        self.embeddings_timeout  = embeddings_timeout
-        self.top_k               = top_k
-        self.top_n               = top_n
-        self.max_history_turns   = max_history_turns
-        self.temperature         = temperature
-        self.max_tokens          = max_tokens
+        self.embeddings_model = embeddings_model
+        self.llm_timeout = llm_timeout
+        self.embeddings_timeout = embeddings_timeout
+        self.top_k = top_k
+        self.top_n = top_n
+        self.max_history_turns = max_history_turns
+        self.temperature = temperature
+        self.max_tokens = max_tokens
 
-        self._s3vectors = s3vectors_client or boto3.client("s3vectors", region_name=region)
+        self._s3vectors = s3vectors_client or boto3.client(
+            "s3vectors", region_name=region
+        )
 
         # Conversation history stored as a list of {"role": ..., "content": ...} dicts
         self._history: list[dict[str, str]] = []
@@ -285,50 +287,54 @@ class RAGAgent:
             serialized_docs = []
             for rank, doc in enumerate(documents, start=1):
                 meta = doc.get("metadata", {})
-                serialized_docs.append({
-                    "rank":             rank,
-                    "id":               doc.get("id", ""),
-                    "similarity_score": round(doc.get("score", 0.0), 6),
-                    "source_key":       meta.get("source_key", ""),
-                    "start_page":       meta.get("start_page"),
-                    "end_page":         meta.get("end_page"),
-                    "chunk_index":      meta.get("chunk_index"),
-                    "sub_chunk_index":  meta.get("sub_chunk_index"),
-                    "chunk_strategy":   meta.get("chunk_strategy", ""),
-                    "text_extractor":   meta.get("text_extractor", ""),
-                    "text_preview":     doc.get("text", "")[:300],
-                })
+                serialized_docs.append(
+                    {
+                        "rank": rank,
+                        "id": doc.get("id", ""),
+                        "similarity_score": round(doc.get("score", 0.0), 6),
+                        "source_key": meta.get("source_key", ""),
+                        "start_page": meta.get("start_page"),
+                        "end_page": meta.get("end_page"),
+                        "chunk_index": meta.get("chunk_index"),
+                        "sub_chunk_index": meta.get("sub_chunk_index"),
+                        "chunk_strategy": meta.get("chunk_strategy", ""),
+                        "text_extractor": meta.get("text_extractor", ""),
+                        "text_preview": doc.get("text", "")[:300],
+                    }
+                )
 
             response_dict = {
                 "success": True,
                 "query": {
-                    "original":  user_message,
+                    "original": user_message,
                     "optimized": search_query,
                 },
                 "answer": answer,
                 "retrieval": {
-                    "vector_bucket":  self.vector_bucket_name,
-                    "index":          self.index_name,
-                    "top_k":          self.top_k,
-                    "top_n":          self.top_n,
+                    "vector_bucket": self.vector_bucket_name,
+                    "index": self.index_name,
+                    "top_k": self.top_k,
+                    "top_n": self.top_n,
                     "document_count": len(serialized_docs),
-                    "documents":      serialized_docs,
+                    "documents": serialized_docs,
                 },
                 "model": {
-                    "generation_model":    self.llm_model,
+                    "generation_model": self.llm_model,
                     "generation_endpoint": self.llm_endpoint,
-                    "embedding_model":     self.embeddings_model,
-                    "embedding_endpoint":  self.embeddings_endpoint,
-                    "temperature":         self.temperature,
-                    "max_tokens":          self.max_tokens,
+                    "embedding_model": self.embeddings_model,
+                    "embedding_endpoint": self.embeddings_endpoint,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
                 },
                 "performance": {
-                    "llm_elapsed_s":       round(llm_elapsed, 3),
+                    "llm_elapsed_s": round(llm_elapsed, 3),
                     "embedding_elapsed_s": round(embedding_elapsed, 3),
                 },
                 "conversation": {
-                    "turn":          len(self._history) // 2,
-                    "history_turns": min(len(self._history) // 2, self.max_history_turns),
+                    "turn": len(self._history) // 2,
+                    "history_turns": min(
+                        len(self._history) // 2, self.max_history_turns
+                    ),
                 },
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
@@ -339,33 +345,35 @@ class RAGAgent:
             response_dict = {
                 "success": False,
                 "query": {
-                    "original":  user_message,
+                    "original": user_message,
                     "optimized": "",
                 },
                 "answer": "An internal error occurred while processing your request.",
                 "retrieval": {
-                    "vector_bucket":  self.vector_bucket_name,
-                    "index":          self.index_name,
-                    "top_k":          self.top_k,
-                    "top_n":          self.top_n,
+                    "vector_bucket": self.vector_bucket_name,
+                    "index": self.index_name,
+                    "top_k": self.top_k,
+                    "top_n": self.top_n,
                     "document_count": 0,
-                    "documents":      [],
+                    "documents": [],
                 },
                 "model": {
-                    "generation_model":    self.llm_model,
+                    "generation_model": self.llm_model,
                     "generation_endpoint": self.llm_endpoint,
-                    "embedding_model":     self.embeddings_model,
-                    "embedding_endpoint":  self.embeddings_endpoint,
-                    "temperature":         self.temperature,
-                    "max_tokens":          self.max_tokens,
+                    "embedding_model": self.embeddings_model,
+                    "embedding_endpoint": self.embeddings_endpoint,
+                    "temperature": self.temperature,
+                    "max_tokens": self.max_tokens,
                 },
                 "performance": {
-                    "llm_elapsed_s":       0.0,
+                    "llm_elapsed_s": 0.0,
                     "embedding_elapsed_s": 0.0,
                 },
                 "conversation": {
-                    "turn":          len(self._history) // 2,
-                    "history_turns": min(len(self._history) // 2, self.max_history_turns),
+                    "turn": len(self._history) // 2,
+                    "history_turns": min(
+                        len(self._history) // 2, self.max_history_turns
+                    ),
                 },
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
@@ -415,7 +423,7 @@ class RAGAgent:
         response = requests.post(
             f"{self.llm_endpoint}/api/generate",
             json={
-                "model":  self.llm_model,
+                "model": self.llm_model,
                 "prompt": prompt,
                 "stream": False,
                 "options": {
@@ -450,7 +458,7 @@ class RAGAgent:
         response = requests.post(
             f"{self.embeddings_endpoint}/api/embeddings",
             json={
-                "model":  self.embeddings_model,
+                "model": self.embeddings_model,
                 "prompt": query,
             },
             timeout=self.embeddings_timeout,
@@ -463,7 +471,9 @@ class RAGAgent:
         if not embedding:
             raise RuntimeError("Ollama returned an empty embedding vector.")
 
-        logger.debug("[RAGAgent] Embedded query in %.2fs (%d dims)", elapsed, len(embedding))
+        logger.debug(
+            "[RAGAgent] Embedded query in %.2fs (%d dims)", elapsed, len(embedding)
+        )
         return embedding, elapsed
 
     # ------------------------------------------------------------------
@@ -488,13 +498,18 @@ class RAGAgent:
         documents = []
         for match in response.get("vectors", []):
             metadata = match.get("metadata", {})
-            documents.append({
-                "id":       match.get("key", ""),
-                "score":    1 - match.get("distance", 1.0),  # convert distance -> similarity
-                "distance": match.get("distance", 1.0),
-                "text":     metadata.get("text", ""),         # actual chunk text stored by pdf_vectorizer
-                "metadata": metadata,
-            })
+            documents.append(
+                {
+                    "id": match.get("key", ""),
+                    "score": 1
+                    - match.get("distance", 1.0),  # convert distance -> similarity
+                    "distance": match.get("distance", 1.0),
+                    "text": metadata.get(
+                        "text", ""
+                    ),  # actual chunk text stored by pdf_vectorizer
+                    "metadata": metadata,
+                }
+            )
 
         return documents
 
@@ -555,7 +570,7 @@ class RAGAgent:
             for idx, doc in enumerate(documents, start=1):
                 source = doc["metadata"].get("source_key", "unknown source")
                 start_page = doc["metadata"].get("start_page")
-                end_page   = doc["metadata"].get("end_page")
+                end_page = doc["metadata"].get("end_page")
                 pages = (
                     f"pages {start_page + 1}–{end_page}"
                     if start_page is not None and end_page is not None
@@ -587,7 +602,7 @@ class RAGAgent:
         response = requests.post(
             f"{self.llm_endpoint}/api/generate",
             json={
-                "model":  self.llm_model,
+                "model": self.llm_model,
                 "prompt": prompt,
                 "stream": False,
                 "options": {
@@ -600,7 +615,7 @@ class RAGAgent:
         response.raise_for_status()
 
         elapsed = time.time() - start
-        answer  = response.json().get("response", "").strip()
+        answer = response.json().get("response", "").strip()
 
         logger.debug("[RAGAgent] Answer generated in %.2fs", elapsed)
         return answer, elapsed
@@ -615,8 +630,8 @@ class RAGAgent:
         Trims the history to stay within max_history_turns. Each turn consists
         of one user message and one assistant message (2 entries).
         """
-        self._history.append({"role": "user",      "content": user_message})
-        self._history.append({"role": "assistant",  "content": assistant_answer})
+        self._history.append({"role": "user", "content": user_message})
+        self._history.append({"role": "assistant", "content": assistant_answer})
 
         # Keep only the most recent N turns (N turns = N*2 messages)
         max_messages = self.max_history_turns * 2
@@ -632,7 +647,6 @@ class RAGAgent:
         if not self._history:
             return ""
         lines = [
-            f"{msg['role'].upper()}: {msg['content']}"
-            for msg in self._history[-6:]
+            f"{msg['role'].upper()}: {msg['content']}" for msg in self._history[-6:]
         ]
         return "\n".join(lines)

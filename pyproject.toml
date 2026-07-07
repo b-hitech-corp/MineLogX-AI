@@ -23,5 +23,5 @@ package = false
 # onprem-aws/demo/ is the client's deployed demo code, pulled verbatim as a
 # reference base — keep it faithful, don't lint/reformat it. force-exclude makes
 # ruff honor this even when the path is passed explicitly (e.g. by pre-commit).
-extend-exclude = ["onprem-aws/demo"]
+extend-exclude = ["onprem-aws/demo", "**/*.ipynb"]
 force-exclude = true

@@ -12,6 +12,7 @@ Note: the CSV Vectorization Pipeline's Stage-1 schema inspection
 (inspect_schema_sampled) lives in csv_pipeline/tools/schema_inspector.py — it is
 a separate deployment unit and is intentionally not imported here.
 """
+
 from __future__ import annotations
 
 import ast
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Public tool function (Data Analysis Layer)
 # ---------------------------------------------------------------------------
+
 
 def discover_schema(file_path: str, backend: str = "bedrock") -> dict:
     """
@@ -59,13 +61,13 @@ def discover_schema(file_path: str, backend: str = "bedrock") -> dict:
         recommended_analyses — concrete next-step suggestions
         summary            — one-paragraph human-readable capability description
     """
-    schema = load_csv(file_path)   # cheap: always a cache hit after load_csv was called
+    schema = load_csv(file_path)  # cheap: always a cache hit after load_csv was called
     columns: list[dict] = schema.get("columns", [])
     col_names = [c["name"] for c in columns]
 
-    entity_cols      = _classify(columns, "entity")
-    datetime_cols    = _classify(columns, "datetime")
-    metric_cols      = _classify(columns, "metric")
+    entity_cols = _classify(columns, "entity")
+    datetime_cols = _classify(columns, "datetime")
+    metric_cols = _classify(columns, "metric")
     categorical_cols = _classify(columns, "categorical")
 
     # Ask the LLM to map actual column names → KPI variable names (raw inputs).
@@ -78,26 +80,30 @@ def discover_schema(file_path: str, backend: str = "bedrock") -> dict:
     feasible_kpis, infeasible_kpis = _assess_kpi_feasibility(
         col_names, column_mapping, direct_kpi_mapping
     )
-    ts_pairs   = _find_timestamp_pairs(columns)
+    ts_pairs = _find_timestamp_pairs(columns)
     recommended = _build_recommendations(
-        entity_cols, datetime_cols, metric_cols,
-        feasible_kpis, ts_pairs, schema,
+        entity_cols,
+        datetime_cols,
+        metric_cols,
+        feasible_kpis,
+        ts_pairs,
+        schema,
     )
 
     return {
-        "file_path":            file_path,
-        "row_count":            schema.get("row_count"),
-        "entity_columns":       entity_cols,
-        "datetime_columns":     datetime_cols,
-        "metric_columns":       metric_cols,
-        "categorical_columns":  categorical_cols,
-        "column_mapping":       column_mapping,
-        "direct_kpi_mapping":   direct_kpi_mapping,
-        "feasible_kpis":        feasible_kpis,
-        "infeasible_kpis":      infeasible_kpis,
-        "timestamp_pairs":      ts_pairs,
+        "file_path": file_path,
+        "row_count": schema.get("row_count"),
+        "entity_columns": entity_cols,
+        "datetime_columns": datetime_cols,
+        "metric_columns": metric_cols,
+        "categorical_columns": categorical_cols,
+        "column_mapping": column_mapping,
+        "direct_kpi_mapping": direct_kpi_mapping,
+        "feasible_kpis": feasible_kpis,
+        "infeasible_kpis": infeasible_kpis,
+        "timestamp_pairs": ts_pairs,
         "recommended_analyses": recommended,
-        "summary":              _build_summary(
+        "summary": _build_summary(
             schema, entity_cols, datetime_cols, metric_cols, feasible_kpis
         ),
     }
@@ -107,24 +113,30 @@ def discover_schema(file_path: str, backend: str = "bedrock") -> dict:
 # Column classification
 # ---------------------------------------------------------------------------
 
+
 def _classify(columns: list[dict], kind: str) -> list[str]:
     if kind == "entity":
         return [
-            c["name"] for c in columns
-            if c["name"].endswith("_id") or c["name"].endswith("_code")
-            or c["name"].endswith("_num") or c["name"].endswith("_no")
+            c["name"]
+            for c in columns
+            if c["name"].endswith("_id")
+            or c["name"].endswith("_code")
+            or c["name"].endswith("_num")
+            or c["name"].endswith("_no")
         ]
     if kind == "datetime":
         return [c["name"] for c in columns if c["type"] == "datetime"]
     if kind == "metric":
         return [
-            c["name"] for c in columns
+            c["name"]
+            for c in columns
             if c["type"] in ("float", "integer")
             and not any(c["name"].endswith(s) for s in ("_id", "_code", "_num", "_no"))
         ]
     if kind == "categorical":
         return [
-            c["name"] for c in columns
+            c["name"]
+            for c in columns
             if c["type"] in ("categorical", "string")
             and not any(c["name"].endswith(s) for s in ("_id", "_code", "_num", "_no"))
         ]
@@ -134,6 +146,7 @@ def _classify(columns: list[dict], kind: str) -> list[str]:
 # ---------------------------------------------------------------------------
 # KPI feasibility — tries each KPI on a synthetic row; catches missing-column errors
 # ---------------------------------------------------------------------------
+
 
 def _assess_kpi_feasibility(
     col_names: list[str],
@@ -164,7 +177,7 @@ def _assess_kpi_feasibility(
 
     for name, kpi in KPI_REGISTRY.items():
         if name in directly_feasible:
-            continue   # already counted
+            continue  # already counted
         try:
             kpi.compute(test_df)
             feasible.append(name)
@@ -195,7 +208,7 @@ def _parse_missing_cols(error_msg: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 _START_WORDS = ("load", "start", "begin", "open", "enter", "arriv", "depart_from")
-_END_WORDS   = ("dump", "end", "finish", "close", "exit", "arriv_at", "depart")
+_END_WORDS = ("dump", "end", "finish", "close", "exit", "arriv_at", "depart")
 
 
 def _find_timestamp_pairs(columns: list[dict]) -> list[dict]:
@@ -213,6 +226,7 @@ def _find_timestamp_pairs(columns: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Recommendations and summary
 # ---------------------------------------------------------------------------
+
 
 def _build_recommendations(
     entity_cols: list[str],

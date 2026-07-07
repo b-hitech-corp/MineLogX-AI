@@ -23,6 +23,7 @@ Usage (env is positional; engine via --engine, defaults to terraform):
   uv run fab env.list
   uv run fab ollama.health-check
   uv run fab lambda.pull                       # download the demo Lambda code
+  uv run fab lambda.build-layer pdf            # build the PDF deps layer (no Docker)
 
 Note: use the long flag `--engine` — Fabric reserves the short `-e` for --echo.
 
@@ -32,6 +33,7 @@ venv activation. If terraform still isn't found, set TERRAFORM_BIN (see below).
 
 import os
 import shutil
+import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -201,7 +203,7 @@ def _ensure_aws(c):
     print(f"==> AWS profile={WORK_PROFILE} account={account} region={REGION}")
 
 
-def _cfn(c, env, execute):
+def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
     """Package + deploy the single parent stack (nested children) as minelogx-<env>.
 
     `package` uploads the child templates to S3 and rewrites TemplateURLs.
@@ -209,6 +211,8 @@ def _cfn(c, env, execute):
     """
     apn = _apn(env)
     fallback = "true" if env == "prod" else "false"
+    pdf_layer = "true" if build_pdf_layer else "false"
+    csv_layer = "true" if build_csv_layer else "false"
     with c.cd(str(CFN_ROOT)):
         c.run(
             "aws cloudformation package --template-file parent.yaml "
@@ -220,6 +224,7 @@ def _cfn(c, env, execute):
             f"--stack-name {NAME_PREFIX}-{env} "
             f"--parameter-overrides NamePrefix={NAME_PREFIX}-{env} Environment={env} "
             f"ProjectApnId={apn} EnableLlmFallback={fallback} "
+            f"BuildPdfLayer={pdf_layer} BuildCsvLayer={csv_layer} "
             f"--tags aws-apn-id={apn} Environment={env} ManagedBy=cloudformation "
             f"--capabilities CAPABILITY_NAMED_IAM --region {REGION}"
         )
@@ -235,9 +240,11 @@ def _cfn(c, env, execute):
     help={
         "env": "Environment name (dev|qa|prod|dev-<user>).",
         "engine": "terraform | cloudformation",
+        "build_pdf_layer": "Attach the PDF deps layer (must run `fab lambda.build-layer pdf` first).",
+        "build_csv_layer": "Attach the CSV deps layer (must run `fab lambda.build-layer csv` first).",
     },
 )
-def up(c, env, engine="terraform"):
+def up(c, env, engine="terraform", build_pdf_layer=False, build_csv_layer=False):
     """Create/update an environment (fixed or ephemeral)."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
@@ -253,16 +260,29 @@ def up(c, env, engine="terraform"):
             f'-var="aws_region={REGION}"',
             f'-var="name_prefix={NAME_PREFIX}-{env}"',
             f'-var="project_apn_id={_apn(env)}"',
+            f'-var="build_pdf_layer={"true" if build_pdf_layer else "false"}"',
+            f'-var="build_csv_layer={"true" if build_csv_layer else "false"}"',
         )
         return
 
-    _cfn(c, env, execute=True)
+    _cfn(
+        c,
+        env,
+        execute=True,
+        build_pdf_layer=build_pdf_layer,
+        build_csv_layer=build_csv_layer,
+    )
 
 
 @task(
-    help={"env": "Environment name.", "engine": "terraform | cloudformation"},
+    help={
+        "env": "Environment name.",
+        "engine": "terraform | cloudformation",
+        "build_pdf_layer": "Attach the PDF deps layer (must run `fab lambda.build-layer pdf` first).",
+        "build_csv_layer": "Attach the CSV deps layer (must run `fab lambda.build-layer csv` first).",
+    },
 )
-def plan(c, env, engine="terraform"):
+def plan(c, env, engine="terraform", build_pdf_layer=False, build_csv_layer=False):
     """Preview changes without applying (terraform plan / CFN change set)."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
@@ -277,10 +297,18 @@ def plan(c, env, engine="terraform"):
             f'-var="aws_region={REGION}"',
             f'-var="name_prefix={NAME_PREFIX}-{env}"',
             f'-var="project_apn_id={_apn(env)}"',
+            f'-var="build_pdf_layer={"true" if build_pdf_layer else "false"}"',
+            f'-var="build_csv_layer={"true" if build_csv_layer else "false"}"',
         )
         return
 
-    _cfn(c, env, execute=False)
+    _cfn(
+        c,
+        env,
+        execute=False,
+        build_pdf_layer=build_pdf_layer,
+        build_csv_layer=build_csv_layer,
+    )
 
 
 @task(
@@ -555,6 +583,69 @@ def pull(c, pattern="demo-poc"):
 
 
 # --------------------------------------------------------------------------- #
+# lambda.build-layer — build a runtime-deps Lambda Layer without Docker
+# --------------------------------------------------------------------------- #
+# Layer build output consumed by modules/lambda_layer (Terraform) and the
+# Lambda::LayerVersion resource (CloudFormation) — see requirements-<fn>.txt
+# for which function gets which deps and why they're split per-function.
+LAMBDA_LAYERS_DIR = TARGET_ROOT / "backend" / ".layers"
+
+# 250MB decompressed is the Lambda hard limit for code+layers combined; warn
+# well before it since the deployment package itself adds a few more MB.
+LAYER_SIZE_WARN_BYTES = 220 * 1024 * 1024
+
+
+def _dir_size(path):
+    return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+
+
+@task(
+    help={
+        "fn": "Function whose deps to build: pdf | csv (each has its own requirements-<fn>.txt).",
+    },
+)
+def build_layer(c, fn):
+    """Build a Lambda Layer's python/ tree via pip --platform (no Docker needed)."""
+    reqs = TARGET_ROOT / "backend" / f"requirements-{fn}.txt"
+    if not reqs.exists():
+        raise SystemExit(
+            f"No {reqs} — add it first (one requirements file per function)."
+        )
+
+    build_dir = LAMBDA_LAYERS_DIR / fn
+    python_dir = build_dir / "python"
+    if build_dir.exists():
+        shutil.rmtree(build_dir)
+    python_dir.mkdir(parents=True)
+
+    print(f"==> Building layer for '{fn}' from {reqs.name} -> {build_dir}")
+    # manylinux2014 (glibc 2.17) — matches Amazon Linux 2, which backs the
+    # Lambda python3.11 runtime (glibc 2.26). Newer manylinux_2_28 wheels
+    # (glibc >=2.28, e.g. PyMuPDF >=1.26) would import-error at runtime — pin
+    # deps to versions that still ship a manylinux2014 wheel.
+    c.run(
+        f'"{sys.executable}" -m pip install '
+        "--platform manylinux2014_x86_64 --python-version 3.11 "
+        "--implementation cp --abi cp311 --only-binary=:all: "
+        f'--target "{python_dir}" -r "{reqs}"'
+    )
+
+    size = _dir_size(build_dir)
+    print(f"==> Layer '{fn}' built: {size / 1024 / 1024:.1f} MB decompressed")
+    if size > LAYER_SIZE_WARN_BYTES:
+        print(
+            "    WARNING: over the safety margin for the 250MB Lambda code+layers "
+            "limit — trim requirements or split further before deploying."
+        )
+    next_msg = (
+        "Next: fab env.plan <env> --engine tf --build-pdf-layer (or --engine cf)."
+        if fn == "pdf"
+        else "Next: fab env.plan <env> --engine tf --build-csv-layer (or --engine cf)."
+    )
+    print(f"\n{next_msg}")
+
+
+# --------------------------------------------------------------------------- #
 # Namespaces
 # --------------------------------------------------------------------------- #
 env = Collection("env")
@@ -572,6 +663,7 @@ ollama.add_task(logs)
 
 lambda_ns = Collection("lambda")
 lambda_ns.add_task(pull)
+lambda_ns.add_task(build_layer, name="build-layer")
 
 ns = Collection()
 ns.add_collection(env)

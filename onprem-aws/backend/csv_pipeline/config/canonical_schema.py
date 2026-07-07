@@ -229,7 +229,15 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "dtype": "string",
         "role": "entity",
         "domain": "shared",
-        "aliases": ["equipment_id", "truck_id", "vehicle_id", "asset_id", "unit_id", "device_id", "machine_id"],
+        "aliases": [
+            "equipment_id",
+            "truck_id",
+            "vehicle_id",
+            "asset_id",
+            "unit_id",
+            "device_id",
+            "machine_id",
+        ],
         "description": "Unique identifier of a vehicle / haul truck or other tracked asset. In condition-monitoring files a per-machine `device_id` maps here (the device IS the machine, not an external sensor node).",
         "required": True,
         "kpi_links": [],
@@ -351,7 +359,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # DATETIME
     # =======================================================================
@@ -359,7 +366,15 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "dtype": "datetime",
         "role": "datetime",
         "domain": "shared",
-        "aliases": ["timestamp", "generated_time", "event_time", "reading_time", "_time", "time", "registered_in"],
+        "aliases": [
+            "timestamp",
+            "generated_time",
+            "event_time",
+            "reading_time",
+            "_time",
+            "time",
+            "registered_in",
+        ],
         "description": "Date and time at which an event or reading was recorded.",
         "required": True,
         "kpi_links": [],
@@ -409,7 +424,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # CATEGORICAL - asset / operator / location attributes
     # =======================================================================
@@ -593,7 +607,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # METRICS - asset / location specs
     # =======================================================================
@@ -601,7 +614,12 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "dtype": "float",
         "role": "metric",
         "domain": "fleet",
-        "aliases": ["capacity_tons", "capacity_tonnes", "max_payload_tonnes", "rated_capacity_t"],
+        "aliases": [
+            "capacity_tons",
+            "capacity_tonnes",
+            "max_payload_tonnes",
+            "rated_capacity_t",
+        ],
         "description": "Rated payload capacity of the asset in tonnes; reference for overload and payload-utilization checks.",
         "required": False,
         "kpi_links": ["overload_rate", "payload_utilization"],
@@ -633,7 +651,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # METRICS - equipment health telemetry
     # =======================================================================
@@ -641,7 +658,12 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "dtype": "float",
         "role": "metric",
         "domain": "asset_health",
-        "aliases": ["engine_temp_c", "engine_temperature_c", "device_temp", "machine_temp"],
+        "aliases": [
+            "engine_temp_c",
+            "engine_temperature_c",
+            "device_temp",
+            "machine_temp",
+        ],
         "description": "Engine / device temperature of a monitored machine, in degrees Celsius. Generic `temperature`/`temperature_c` resolve here only as a fallback (weak_aliases) and only when no domain-specific temperature field is active in the file.",
         "required": False,
         "kpi_links": [],
@@ -733,7 +755,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # METRICS - fuel management
     # =======================================================================
@@ -741,7 +762,13 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "dtype": "float",
         "role": "metric",
         "domain": "fleet",
-        "aliases": ["fuel_volume_l", "fuel_litres", "fuel_liters", "fuel_l", "fuel_consumed_l"],
+        "aliases": [
+            "fuel_volume_l",
+            "fuel_litres",
+            "fuel_liters",
+            "fuel_l",
+            "fuel_consumed_l",
+        ],
         "description": "Volume of fuel consumed or dispensed, in litres.",
         "required": False,
         "kpi_links": ["fuel_efficiency", "fuel_consumption_rate", "tonnes_per_litre"],
@@ -773,7 +800,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # METRICS - GPS movement
     # =======================================================================
@@ -781,7 +807,13 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "dtype": "float",
         "role": "metric",
         "domain": "gps",
-        "aliases": ["speed_kmh", "speed_km_h", "speed", "speed_avg_kph", "avg_speed_kph"],
+        "aliases": [
+            "speed_kmh",
+            "speed_km_h",
+            "speed",
+            "speed_avg_kph",
+            "avg_speed_kph",
+        ],
         "description": "Instantaneous vehicle speed in km/h.",
         "required": False,
         "kpi_links": ["speed_compliance_rate"],
@@ -831,7 +863,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": ["speeding_rate", "speed_compliance_rate"],
     },
-
     # =======================================================================
     # METRICS - haul cycle tracking
     # =======================================================================
@@ -843,8 +874,12 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "description": "Actual payload moved in a haul cycle, in tonnes.",
         "required": False,
         "kpi_links": [
-            "haul_truck_productivity", "payload_utilization", "total_tonnes_moved",
-            "tonnes_per_hour", "tonnes_per_litre", "payload_accuracy",
+            "haul_truck_productivity",
+            "payload_utilization",
+            "total_tonnes_moved",
+            "tonnes_per_hour",
+            "tonnes_per_litre",
+            "payload_accuracy",
         ],
     },
     "ore_grade": {
@@ -883,7 +918,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # METRICS - maintenance recommendations
     # =======================================================================
@@ -896,7 +930,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": ["mean_time_between_failures"],
     },
-
     # =======================================================================
     # METRICS - operator fatigue
     # =======================================================================
@@ -945,7 +978,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # METRICS - safety / environmental
     # =======================================================================
@@ -958,7 +990,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # METRICS - tire pressure monitoring
     # =======================================================================
@@ -1002,7 +1033,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # OPERATIONAL METRICS - per-cycle / per-asset (mining_truck_fleet)
     # =======================================================================
@@ -1042,7 +1072,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # WIDE-FORMAT TIRE PRESSURE (one column per corner)
     #   Unpivot to pressure_psi + tire_position for the long-format model.
@@ -1083,7 +1112,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # DUAL GPS POINTS PER CYCLE (load point + dump point on one row)
     # =======================================================================
@@ -1123,7 +1151,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": [],
     },
-
     # =======================================================================
     # ZONE REFERENCES & ML COLUMNS (mining_truck_fleet)
     # =======================================================================
@@ -1172,7 +1199,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": ["prediction_accuracy"],
     },
-
     # =======================================================================
     # AMBIENT ENVIRONMENTAL SENSORS (gas / air-quality / weather)
     #   Targets of the EAV pivot from time-series exports (e.g. InfluxDB).
@@ -1186,7 +1212,13 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "dtype": "float",
         "role": "metric",
         "domain": "environmental_sensor",
-        "aliases": ["temperature", "ambient_temperature", "ambient_temp", "temp", "air_temp"],
+        "aliases": [
+            "temperature",
+            "ambient_temperature",
+            "ambient_temp",
+            "temp",
+            "air_temp",
+        ],
         "description": "Ambient air temperature at the sensor node.",
         "required": False,
         "kpi_links": [],
@@ -1342,7 +1374,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "kpi_links": [],
         "expected_unit": "missing",
     },
-
     # =======================================================================
     # CROSS-DOMAIN LINK FLAGS
     # =======================================================================
@@ -1364,7 +1395,6 @@ CANONICAL_SCHEMA: dict[str, dict] = {
         "required": False,
         "kpi_links": ["unsafe_behaviour_rate"],
     },
-
     # =======================================================================
     # PRE-AGGREGATED DAILY KPI OUTPUTS (production_kpi_daily.csv)
     #   These are already-computed KPI values, not formula inputs.
@@ -1472,18 +1502,19 @@ CANONICAL_SCHEMA: dict[str, dict] = {
 # for a canonical match.
 # ===========================================================================
 IGNORABLE_FIELDS: set[str] = {
-    "result",       # InfluxDB: query result name (e.g. "mean")
-    "table",        # InfluxDB: result table index
-    "_start",       # InfluxDB: query window start bound
-    "_stop",        # InfluxDB: query window stop bound
+    "result",  # InfluxDB: query result name (e.g. "mean")
+    "table",  # InfluxDB: result table index
+    "_start",  # InfluxDB: query window start bound
+    "_stop",  # InfluxDB: query window stop bound
     "_result",
-    "unnamed: 0",   # pandas index artifact from a leading comma column
-    "",             # empty header (leading-comma column)
+    "unnamed: 0",  # pandas index artifact from a leading comma column
+    "",  # empty header (leading-comma column)
 }
 
 
 def is_ignorable(header: str) -> bool:
     """True if a raw column header is transport/query mechanics, not data."""
     import re
+
     norm = re.sub(r"[^a-z0-9]", "", header.lower())
     return any(re.sub(r"[^a-z0-9]", "", f.lower()) == norm for f in IGNORABLE_FIELDS)

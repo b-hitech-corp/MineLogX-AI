@@ -36,6 +36,7 @@ Usage (from the repo root)
   from rag_agent.rag_chatbot import answer, retrieve
   print(answer("..."))
 """
+
 from __future__ import annotations
 
 import json
@@ -50,13 +51,13 @@ from opensearchpy import AWSV4SignerAuth, OpenSearch, RequestsHttpConnection
 # Config (env-driven)
 # ---------------------------------------------------------------------------
 
-REGION       = os.getenv("AWS_REGION", "us-east-1")
-HOST         = os.getenv("OPENSEARCH_HOST", "")
-PDF_INDEX    = os.getenv("PDF_INDEX", "pdf_legal_vecs")
-CSV_INDEX    = os.getenv("CSV_INDEX", "minelogx-telemetry-v1")
-DIM          = 1024
+REGION = os.getenv("AWS_REGION", "us-east-1")
+HOST = os.getenv("OPENSEARCH_HOST", "")
+PDF_INDEX = os.getenv("PDF_INDEX", "pdf_legal_vecs")
+CSV_INDEX = os.getenv("CSV_INDEX", "minelogx-telemetry-v1")
+DIM = 1024
 COHERE_MODEL = os.getenv("COHERE_EMBED_MODEL_ID", "cohere.embed-v4:0")
-TITAN_MODEL  = os.getenv("TITAN_EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0")
+TITAN_MODEL = os.getenv("TITAN_EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0")
 CLAUDE_MODEL = os.getenv("RAG_CLAUDE_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
 _bedrock = None
@@ -93,6 +94,7 @@ def _client() -> OpenSearch:
 # Query embedders — MUST match the models/params used at ingest time
 # ---------------------------------------------------------------------------
 
+
 def embed_query_titan(text: str) -> list[float]:
     """Titan Embed v2 — matches pdf_titan_embedder (1024-dim, normalized)."""
     resp = _bedrock_rt().invoke_model(
@@ -112,13 +114,15 @@ def embed_query_cohere(text: str) -> list[float]:
     """
     resp = _bedrock_rt().invoke_model(
         modelId=COHERE_MODEL,
-        body=json.dumps({
-            "texts": [text],
-            "input_type": "search_query",
-            "truncate": "END",
-            "output_dimension": DIM,
-            "embedding_types": ["int8"],
-        }),
+        body=json.dumps(
+            {
+                "texts": [text],
+                "input_type": "search_query",
+                "truncate": "END",
+                "output_dimension": DIM,
+                "embedding_types": ["int8"],
+            }
+        ),
         contentType="application/json",
         accept="application/json",
     )
@@ -131,6 +135,7 @@ def embed_query_cohere(text: str) -> list[float]:
 # kNN search + retrieval
 # ---------------------------------------------------------------------------
 
+
 def knn(index: str, vector: list[float], k: int = 4) -> list[dict]:
     body = {"size": k, "query": {"knn": {"text_embedding": {"vector": vector, "k": k}}}}
     return _client().search(index=index, body=body).get("hits", {}).get("hits", [])
@@ -138,10 +143,10 @@ def knn(index: str, vector: list[float], k: int = 4) -> list[dict]:
 
 @dataclass
 class Hit:
-    index:   str
-    score:   float
-    text:    str
-    locator: str   # human-readable source reference for citations
+    index: str
+    score: float
+    text: str
+    locator: str  # human-readable source reference for citations
 
 
 def retrieve(question: str, k: int = 4) -> list[Hit]:
@@ -152,12 +157,14 @@ def retrieve(question: str, k: int = 4) -> list[Hit]:
     try:
         for h in knn(PDF_INDEX, embed_query_titan(question), k):
             s = h.get("_source", {})
-            hits.append(Hit(
-                index=PDF_INDEX,
-                score=h.get("_score", 0.0),
-                text=f"{s.get('title', '')}\n{s.get('body', '')}".strip(),
-                locator=f"{s.get('source_key', '?')} p.{s.get('page_start')}-{s.get('page_end')}",
-            ))
+            hits.append(
+                Hit(
+                    index=PDF_INDEX,
+                    score=h.get("_score", 0.0),
+                    text=f"{s.get('title', '')}\n{s.get('body', '')}".strip(),
+                    locator=f"{s.get('source_key', '?')} p.{s.get('page_start')}-{s.get('page_end')}",
+                )
+            )
     except Exception as exc:  # noqa: BLE001
         print(f"[{PDF_INDEX} search error] {exc}", file=sys.stderr)
 
@@ -165,12 +172,14 @@ def retrieve(question: str, k: int = 4) -> list[Hit]:
     try:
         for h in knn(CSV_INDEX, embed_query_cohere(question), k):
             s = h.get("_source", {})
-            hits.append(Hit(
-                index=CSV_INDEX,
-                score=h.get("_score", 0.0),
-                text=s.get("text", ""),
-                locator=f"{s.get('source_file', '?')} chunk {s.get('chunk_index')}",
-            ))
+            hits.append(
+                Hit(
+                    index=CSV_INDEX,
+                    score=h.get("_score", 0.0),
+                    text=s.get("text", ""),
+                    locator=f"{s.get('source_file', '?')} chunk {s.get('chunk_index')}",
+                )
+            )
     except Exception as exc:  # noqa: BLE001
         print(f"[{CSV_INDEX} search error] {exc}", file=sys.stderr)
 
@@ -181,6 +190,7 @@ def retrieve(question: str, k: int = 4) -> list[Hit]:
 # Generation
 # ---------------------------------------------------------------------------
 
+
 def answer(question: str, k: int = 4) -> str:
     """Retrieve from both indexes and have Claude answer grounded in the hits."""
     hits = retrieve(question, k)
@@ -188,8 +198,7 @@ def answer(question: str, k: int = 4) -> str:
         return "No relevant context was retrieved from either index."
 
     context = "\n\n".join(
-        f"[{i + 1}] (source: {h.locator})\n{h.text[:1500]}"
-        for i, h in enumerate(hits)
+        f"[{i + 1}] (source: {h.locator})\n{h.text[:1500]}" for i, h in enumerate(hits)
     )
     prompt = (
         "You are a mining-domain assistant. Answer the question using ONLY the "
@@ -213,6 +222,7 @@ def answer(question: str, k: int = 4) -> str:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]

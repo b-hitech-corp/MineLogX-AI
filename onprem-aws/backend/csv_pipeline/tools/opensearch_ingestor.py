@@ -40,6 +40,7 @@ Public API
     ingest_chunks(file_path, local_mode, index_name) -> IngestResult
     ensure_index_exists(client, index_name)          -> bool
 """
+
 from __future__ import annotations
 
 import json
@@ -62,10 +63,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _EMBED_INPUT_TYPE_DOC = "search_document"
-_EMBED_DIMENSIONS     = 1024
+_EMBED_DIMENSIONS = 1024
 
-_RETRY_ATTEMPTS   = 3
-_RETRY_BACKOFF_S  = 2.0   # seconds; multiplied by attempt number
+_RETRY_ATTEMPTS = 3
+_RETRY_BACKOFF_S = 2.0  # seconds; multiplied by attempt number
 
 # AOSS NextGen vector index mapping.
 # No engine / method — NextGen chooses the optimal HNSW configuration.
@@ -76,22 +77,22 @@ _INDEX_BODY = {
     },
     "mappings": {
         "properties": {
-            "chunk_id":       {"type": "keyword"},
-            "text":           {"type": "text", "analyzer": "standard"},
+            "chunk_id": {"type": "keyword"},
+            "text": {"type": "text", "analyzer": "standard"},
             "text_embedding": {
-                "type":      "knn_vector",
+                "type": "knn_vector",
                 "dimension": _EMBED_DIMENSIONS,
             },
-            "source_file":    {"type": "keyword"},
-            "folder":         {"type": "keyword"},
-            "chunk_index":    {"type": "integer"},
-            "row_range":      {"type": "integer"},
-            "date_start":     {"type": "date", "ignore_malformed": True},
-            "date_end":       {"type": "date", "ignore_malformed": True},
-            "entity_values":  {"type": "object", "enabled": False},
+            "source_file": {"type": "keyword"},
+            "folder": {"type": "keyword"},
+            "chunk_index": {"type": "integer"},
+            "row_range": {"type": "integer"},
+            "date_start": {"type": "date", "ignore_malformed": True},
+            "date_end": {"type": "date", "ignore_malformed": True},
+            "entity_values": {"type": "object", "enabled": False},
             "schema_version": {"type": "keyword"},
-            "column_list":    {"type": "keyword"},
-            "row_count":      {"type": "integer"},
+            "column_list": {"type": "keyword"},
+            "row_count": {"type": "integer"},
         }
     },
 }
@@ -101,17 +102,19 @@ _INDEX_BODY = {
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class IngestResult:
-    index_name:        str
-    documents_indexed: int       = 0
-    documents_failed:  int       = 0
-    errors:            list[str] = field(default_factory=list)
+    index_name: str
+    documents_indexed: int = 0
+    documents_failed: int = 0
+    errors: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def ingest_chunks(
     file_path: str,
@@ -135,16 +138,18 @@ def ingest_chunks(
     -------
     IngestResult with counts and any per-batch errors.
     """
-    cfg      = settings.opensearch
+    cfg = settings.opensearch
     idx_name = index_name or cfg.index_name
-    result   = IngestResult(index_name=idx_name)
+    result = IngestResult(index_name=idx_name)
 
     # ── Step 1: Read JSONL ────────────────────────────────────────────────
     try:
         chunks = _read_jsonl(file_path, local_mode)
     except Exception as exc:
         result.errors.append(f"JSONL read failed: {exc}")
-        logger.error("[opensearch_ingestor] JSONL read failed for '%s': %s", file_path, exc)
+        logger.error(
+            "[opensearch_ingestor] JSONL read failed for '%s': %s", file_path, exc
+        )
         return result
 
     if not chunks:
@@ -154,12 +159,14 @@ def ingest_chunks(
 
     logger.info(
         "[opensearch_ingestor] '%s': %d chunks to ingest → index=%s",
-        file_path, len(chunks), idx_name,
+        file_path,
+        len(chunks),
+        idx_name,
     )
 
     # ── Step 2: Build AOSS client (SigV4 only) ───────────────────────────
     try:
-        os_client  = _build_aoss_client()
+        os_client = _build_aoss_client()
     except Exception as exc:
         result.errors.append(f"OpenSearch client build failed: {exc}")
         return result
@@ -177,7 +184,7 @@ def ingest_chunks(
     batch_size = cfg.bulk_batch_size
 
     for batch_start in range(0, len(chunks), batch_size):
-        batch = chunks[batch_start: batch_start + batch_size]
+        batch = chunks[batch_start : batch_start + batch_size]
         batch_num = batch_start // batch_size
 
         texts = [c["text"] for c in batch]
@@ -190,7 +197,9 @@ def ingest_chunks(
             result.documents_failed += len(batch)
             logger.warning(
                 "[opensearch_ingestor] Embedding failed for batch %d of '%s': %s",
-                batch_num, file_path, exc,
+                batch_num,
+                file_path,
+                exc,
             )
             continue
 
@@ -206,25 +215,31 @@ def ingest_chunks(
         try:
             indexed, failed_items = _bulk_index(os_client, actions)
             result.documents_indexed += indexed
-            result.documents_failed  += len(failed_items)
-            for item in failed_items[:5]:   # cap error list to avoid noise
+            result.documents_failed += len(failed_items)
+            for item in failed_items[:5]:  # cap error list to avoid noise
                 result.errors.append(f"index error: {item}")
             if failed_items:
                 logger.warning(
                     "[opensearch_ingestor] %d doc(s) failed in batch %d of '%s'",
-                    len(failed_items), batch_num, file_path,
+                    len(failed_items),
+                    batch_num,
+                    file_path,
                 )
         except Exception as exc:
             result.errors.append(f"bulk index batch {batch_num}: {exc}")
             result.documents_failed += len(batch)
             logger.warning(
                 "[opensearch_ingestor] Bulk index failed for batch %d of '%s': %s",
-                batch_num, file_path, exc,
+                batch_num,
+                file_path,
+                exc,
             )
 
     logger.info(
         "[opensearch_ingestor] '%s' complete: %d indexed, %d failed",
-        file_path, result.documents_indexed, result.documents_failed,
+        file_path,
+        result.documents_indexed,
+        result.documents_failed,
     )
     return result
 
@@ -232,6 +247,7 @@ def ingest_chunks(
 # ---------------------------------------------------------------------------
 # Index management
 # ---------------------------------------------------------------------------
+
 
 def ensure_index_exists(client: OpenSearch, index_name: str) -> bool:
     """
@@ -253,6 +269,7 @@ def ensure_index_exists(client: OpenSearch, index_name: str) -> bool:
 # Embedding
 # ---------------------------------------------------------------------------
 
+
 def _embed_texts(bedrock_rt, texts: list[str]) -> list[list[float]]:
     """
     Call Cohere Embed V4 on Bedrock to embed a batch of texts.
@@ -263,13 +280,13 @@ def _embed_texts(bedrock_rt, texts: list[str]) -> list[list[float]]:
     Retries up to _RETRY_ATTEMPTS times with linear back-off on transient
     failures (throttling, temporary unavailability).
     """
-    cfg        = settings.opensearch
-    embed_type = cfg.embedding_type   # "int8" or "float"
+    cfg = settings.opensearch
+    embed_type = cfg.embedding_type  # "int8" or "float"
 
     body: dict = {
-        "texts":      texts,
+        "texts": texts,
         "input_type": _EMBED_INPUT_TYPE_DOC,
-        "truncate":   "END",
+        "truncate": "END",
         # Cohere Embed v4 defaults to 1536 dims; pin to the index's dimension
         # (cfg.output_dimension, 1024) or the knn_vector mapping rejects the doc.
         "output_dimension": cfg.output_dimension,
@@ -280,11 +297,11 @@ def _embed_texts(bedrock_rt, texts: list[str]) -> list[list[float]]:
     last_exc: Optional[Exception] = None
     for attempt in range(_RETRY_ATTEMPTS):
         try:
-            resp   = bedrock_rt.invoke_model(
-                modelId     = cfg.embedding_model_id,
-                body        = json.dumps(body),
-                contentType = "application/json",
-                accept      = "application/json",
+            resp = bedrock_rt.invoke_model(
+                modelId=cfg.embedding_model_id,
+                body=json.dumps(body),
+                contentType="application/json",
+                accept="application/json",
             )
             result = json.loads(resp["body"].read())
             break
@@ -294,7 +311,10 @@ def _embed_texts(bedrock_rt, texts: list[str]) -> list[list[float]]:
                 wait = _RETRY_BACKOFF_S * (attempt + 1)
                 logger.warning(
                     "[opensearch_ingestor] Bedrock embed attempt %d failed (%s); "
-                    "retrying in %.1fs", attempt + 1, exc, wait,
+                    "retrying in %.1fs",
+                    attempt + 1,
+                    exc,
+                    wait,
                 )
                 time.sleep(wait)
     else:
@@ -320,9 +340,10 @@ def _embed_texts(bedrock_rt, texts: list[str]) -> list[list[float]]:
 # Bulk indexing
 # ---------------------------------------------------------------------------
 
+
 def _build_bulk_actions(
-    chunks:     list[dict],
-    vectors:    list[list[float]],
+    chunks: list[dict],
+    vectors: list[list[float]],
     index_name: str,
 ) -> list[dict]:
     """
@@ -333,23 +354,23 @@ def _build_bulk_actions(
     """
     actions = []
     for chunk, vector in zip(chunks, vectors):
-        meta       = chunk.get("metadata", {})
+        meta = chunk.get("metadata", {})
         date_range = meta.get("date_range") or {}
 
         doc = {
-            "chunk_id":       chunk["chunk_id"],
-            "text":           chunk["text"],
+            "chunk_id": chunk["chunk_id"],
+            "text": chunk["text"],
             "text_embedding": vector,
-            "source_file":    meta.get("source_file", ""),
-            "folder":         meta.get("folder", ""),
-            "chunk_index":    meta.get("chunk_index", 0),
-            "row_range":      meta.get("row_range", [0, 0]),
-            "date_start":     date_range.get("start"),
-            "date_end":       date_range.get("end"),
-            "entity_values":  meta.get("entity_values", {}),
+            "source_file": meta.get("source_file", ""),
+            "folder": meta.get("folder", ""),
+            "chunk_index": meta.get("chunk_index", 0),
+            "row_range": meta.get("row_range", [0, 0]),
+            "date_start": date_range.get("start"),
+            "date_end": date_range.get("end"),
+            "entity_values": meta.get("entity_values", {}),
             "schema_version": meta.get("schema_version", "1.0"),
-            "column_list":    meta.get("column_list", []),
-            "row_count":      meta.get("row_count", 0),
+            "column_list": meta.get("column_list", []),
+            "row_count": meta.get("row_count", 0),
         }
         # No "_id" key — AOSS NextGen vector collections assign IDs automatically
         actions.append({"_index": index_name, "_source": doc})
@@ -358,7 +379,7 @@ def _build_bulk_actions(
 
 
 def _bulk_index(
-    client:  OpenSearch,
+    client: OpenSearch,
     actions: list[dict],
 ) -> tuple[int, list[dict]]:
     """
@@ -370,22 +391,25 @@ def _bulk_index(
     success, errors = os_bulk(
         client,
         actions,
-        raise_on_error     = False,
-        raise_on_exception = False,
+        raise_on_error=False,
+        raise_on_exception=False,
     )
     failed: list[dict] = []
     for err in errors:
-        op    = err.get("index", err.get("create", {}))
-        failed.append({
-            "id":    op.get("_id"),
-            "error": op.get("error", str(err)),
-        })
+        op = err.get("index", err.get("create", {}))
+        failed.append(
+            {
+                "id": op.get("_id"),
+                "error": op.get("error", str(err)),
+            }
+        )
     return success, failed
 
 
 # ---------------------------------------------------------------------------
 # Client factory
 # ---------------------------------------------------------------------------
+
 
 def _build_aoss_client() -> OpenSearch:
     """
@@ -394,25 +418,26 @@ def _build_aoss_client() -> OpenSearch:
     Uses the default boto3 credential chain (instance role, env vars,
     ~/.aws/credentials, etc.).
     """
-    cfg         = settings.opensearch
+    cfg = settings.opensearch
     credentials = boto3.Session().get_credentials()
-    auth        = AWSV4SignerAuth(credentials, cfg.aws_region, "aoss")
+    auth = AWSV4SignerAuth(credentials, cfg.aws_region, "aoss")
 
     return OpenSearch(
-        hosts              = [{"host": cfg.host, "port": cfg.port}],
-        http_auth          = auth,
-        use_ssl            = True,
-        verify_certs       = cfg.verify_certs,
-        connection_class   = RequestsHttpConnection,
-        timeout            = 30,
-        max_retries        = 3,
-        retry_on_timeout   = True,
+        hosts=[{"host": cfg.host, "port": cfg.port}],
+        http_auth=auth,
+        use_ssl=True,
+        verify_certs=cfg.verify_certs,
+        connection_class=RequestsHttpConnection,
+        timeout=30,
+        max_retries=3,
+        retry_on_timeout=True,
     )
 
 
 # ---------------------------------------------------------------------------
 # JSONL helpers
 # ---------------------------------------------------------------------------
+
 
 def _read_jsonl(file_path: str, local_mode: bool) -> list[dict]:
     """Read the JSONL produced by Stage 3 from S3 or local disk."""
@@ -426,7 +451,7 @@ def _read_jsonl(file_path: str, local_mode: bool) -> list[dict]:
 
 
 def _fetch_jsonl_bytes(file_path: str, local_mode: bool) -> bytes:
-    p      = PurePosixPath(file_path)
+    p = PurePosixPath(file_path)
     folder = str(p.parent)
     if folder in (".", ""):
         folder = "root"
@@ -443,6 +468,6 @@ def _fetch_jsonl_bytes(file_path: str, local_mode: bool) -> bytes:
         return local_path.read_bytes()
 
     s3_key = f"{settings.s3.prefix}vectorization/{folder}/chunks/{jsonl_name}"
-    s3     = boto3.client("s3", region_name=settings.s3.region)
-    obj    = s3.get_object(Bucket=settings.s3.bucket_name, Key=s3_key)
+    s3 = boto3.client("s3", region_name=settings.s3.region)
+    obj = s3.get_object(Bucket=settings.s3.bucket_name, Key=s3_key)
     return obj["Body"].read()

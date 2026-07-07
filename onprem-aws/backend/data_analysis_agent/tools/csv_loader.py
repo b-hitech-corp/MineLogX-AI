@@ -6,6 +6,7 @@ infers the schema, and returns a structured description the LLM can reason about
 The parsed DataFrame is cached in memory so subsequent tool calls don't
 re-fetch from S3.
 """
+
 from __future__ import annotations
 
 import io
@@ -22,7 +23,7 @@ from data_analysis_agent.config.settings import settings
 # ---------------------------------------------------------------------------
 # In-process DataFrame cache
 # ---------------------------------------------------------------------------
-_cache: dict[str, tuple[pd.DataFrame, float]] = {}   # key → (df, timestamp)
+_cache: dict[str, tuple[pd.DataFrame, float]] = {}  # key → (df, timestamp)
 
 
 def _cache_get(key: str) -> Optional[pd.DataFrame]:
@@ -40,6 +41,7 @@ def _cache_set(key: str, df: pd.DataFrame) -> None:
 # ---------------------------------------------------------------------------
 # Public tool function
 # ---------------------------------------------------------------------------
+
 
 def load_csv(
     file_path: str,
@@ -96,7 +98,9 @@ _DATE_NAME_PATTERNS = ("date", "time", "timestamp", "_at", "_on", "created", "up
 
 def _detect_date_columns(df: pd.DataFrame) -> list[str]:
     """Return column names that look like datetimes based on naming conventions."""
-    return [col for col in df.columns if any(p in col.lower() for p in _DATE_NAME_PATTERNS)]
+    return [
+        col for col in df.columns if any(p in col.lower() for p in _DATE_NAME_PATTERNS)
+    ]
 
 
 def _fetch(
@@ -158,11 +162,15 @@ def _describe(df: pd.DataFrame, file_path: str) -> dict:
             "null_pct": round(df[col].isna().mean() * 100, 1),
         }
         if col_type in ("integer", "float"):
-            info.update({
-                "min": float(df[col].min()) if pd.notna(df[col].min()) else None,
-                "max": float(df[col].max()) if pd.notna(df[col].max()) else None,
-                "mean": round(float(df[col].mean()), 3) if pd.notna(df[col].mean()) else None,
-            })
+            info.update(
+                {
+                    "min": float(df[col].min()) if pd.notna(df[col].min()) else None,
+                    "max": float(df[col].max()) if pd.notna(df[col].max()) else None,
+                    "mean": round(float(df[col].mean()), 3)
+                    if pd.notna(df[col].mean())
+                    else None,
+                }
+            )
         elif col_type == "categorical":
             top = df[col].value_counts().head(5).to_dict()
             info["top_values"] = {str(k): int(v) for k, v in top.items()}
@@ -172,11 +180,17 @@ def _describe(df: pd.DataFrame, file_path: str) -> dict:
         columns.append(info)
 
     # Date range (from any datetime column)
-    datetime_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
+    datetime_cols = [
+        c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])
+    ]
     date_range = None
     if datetime_cols:
         col = datetime_cols[0]
-        date_range = {"column": col, "start": str(df[col].min()), "end": str(df[col].max())}
+        date_range = {
+            "column": col,
+            "start": str(df[col].min()),
+            "end": str(df[col].max()),
+        }
 
     result = {
         "file_path": file_path,
@@ -184,6 +198,8 @@ def _describe(df: pd.DataFrame, file_path: str) -> dict:
         "column_count": len(df.columns),
         "columns": columns,
         "date_range": date_range,
-        "preview_rows": json.loads(df.head(3).to_json(orient="records", date_format="iso")),
+        "preview_rows": json.loads(
+            df.head(3).to_json(orient="records", date_format="iso")
+        ),
     }
     return result

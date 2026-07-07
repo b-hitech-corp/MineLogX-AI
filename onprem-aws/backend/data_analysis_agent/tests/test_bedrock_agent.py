@@ -4,15 +4,21 @@ All tests are fully mocked — no AWS credentials or API calls required.
 
 Run with: pytest tests/test_bedrock_agent.py -v
 """
+
 import sys
 import os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import pytest
 from unittest.mock import patch
 
 import data_analysis_agent.agent.bedrock_orchestrator as orch
-from data_analysis_agent.agent.bedrock_orchestrator import FleetAgent, AgentResult, _dispatch
+from data_analysis_agent.agent.bedrock_orchestrator import (
+    FleetAgent,
+    AgentResult,
+    _dispatch,
+)
 from data_analysis_agent.config.settings import settings
 
 
@@ -20,6 +26,7 @@ from data_analysis_agent.config.settings import settings
 # Response builders — plain dicts matching invoke_claude's return shape
 # (the parsed Bedrock invoke_model body: {"stop_reason": ..., "content": [...]})
 # ---------------------------------------------------------------------------
+
 
 def _end_turn(text: str) -> dict:
     """Mock invoke_claude response with stop_reason='end_turn'."""
@@ -38,8 +45,8 @@ def _tool_use(name: str, tool_id: str, inputs: dict) -> dict:
 # FleetAgent.__init__
 # ---------------------------------------------------------------------------
 
-class TestFleetAgentInit:
 
+class TestFleetAgentInit:
     def test_max_turns_from_settings(self):
         agent = FleetAgent()
         assert agent.max_turns == settings.bedrock.max_agent_turns
@@ -50,8 +57,8 @@ class TestFleetAgentInit:
 # FleetAgent.run()
 # ---------------------------------------------------------------------------
 
-class TestFleetAgentRun:
 
+class TestFleetAgentRun:
     @pytest.fixture
     def agent(self):
         return FleetAgent()
@@ -100,7 +107,10 @@ class TestFleetAgentRun:
             _tool_use("kpi_engine__available_kpis", "t1", {}),
             _end_turn("KPIs listed."),
         ]
-        with patch("data_analysis_agent.agent.bedrock_orchestrator._dispatch", return_value={"available_kpis": []}):
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator._dispatch",
+            return_value={"available_kpis": []},
+        ):
             result = agent.run("What KPIs are available?")
 
         assert len(result.tool_calls) == 1
@@ -111,7 +121,9 @@ class TestFleetAgentRun:
             _tool_use("kpi_engine__available_kpis", "t1", {}),
             _end_turn("Done."),
         ]
-        with patch("data_analysis_agent.agent.bedrock_orchestrator._dispatch", return_value={}):
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator._dispatch", return_value={}
+        ):
             result = agent.run("Any question")
         assert result.turns == 2
 
@@ -139,7 +151,10 @@ class TestFleetAgentRun:
             _tool_use("kpi_engine__available_kpis", "tool_abc", {}),
             _end_turn("Done."),
         ]
-        with patch("data_analysis_agent.agent.bedrock_orchestrator._dispatch", return_value={"available_kpis": []}):
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator._dispatch",
+            return_value={"available_kpis": []},
+        ):
             agent.run("List KPIs")
 
         second_call_messages = mock_invoke.call_args_list[1].args[0]
@@ -153,7 +168,10 @@ class TestFleetAgentRun:
             _tool_use("kpi_engine__available_kpis", "t1", {}),
             _end_turn("Done anyway."),
         ]
-        with patch("data_analysis_agent.agent.bedrock_orchestrator._dispatch", side_effect=ValueError("fail")):
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator._dispatch",
+            side_effect=ValueError("fail"),
+        ):
             result = agent.run("List KPIs")
         assert isinstance(result, AgentResult)
 
@@ -167,11 +185,17 @@ class TestFleetAgentRun:
             return {}
 
         mock_invoke.side_effect = [
-            _tool_use("chart_spec_builder__build_bar_chart", "t1",
-                      {"title": "Fuel", "data": [], "x_key": "id", "y_keys": ["v"]}),
+            _tool_use(
+                "chart_spec_builder__build_bar_chart",
+                "t1",
+                {"title": "Fuel", "data": [], "x_key": "id", "y_keys": ["v"]},
+            ),
             _end_turn("Chart built."),
         ]
-        with patch("data_analysis_agent.agent.bedrock_orchestrator._dispatch", side_effect=fake_dispatch):
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator._dispatch",
+            side_effect=fake_dispatch,
+        ):
             result = agent.run("Show fuel by vehicle")
 
         assert len(result.charts) == 1
@@ -182,6 +206,7 @@ class TestFleetAgentRun:
 # Chart capture via _dispatch
 # ---------------------------------------------------------------------------
 
+
 class TestChartCapture:
     """Chart builder calls inside _dispatch must append specs to _run_charts."""
 
@@ -189,44 +214,64 @@ class TestChartCapture:
         orch._run_charts = []
 
     def test_line_chart_captured(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_line_chart",
-                   return_value={"chart_type": "LineChart", "title": "T", "data": []}):
-            _dispatch("chart_spec_builder__build_line_chart",
-                      {"title": "T", "data": [], "x_key": "date", "y_keys": ["v"]})
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_line_chart",
+            return_value={"chart_type": "LineChart", "title": "T", "data": []},
+        ):
+            _dispatch(
+                "chart_spec_builder__build_line_chart",
+                {"title": "T", "data": [], "x_key": "date", "y_keys": ["v"]},
+            )
         assert len(orch._run_charts) == 1
         assert orch._run_charts[0]["chart_type"] == "LineChart"
 
     def test_bar_chart_captured(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_bar_chart",
-                   return_value={"chart_type": "BarChart", "title": "T", "data": []}):
-            _dispatch("chart_spec_builder__build_bar_chart",
-                      {"title": "T", "data": [], "x_key": "id", "y_keys": ["v"]})
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_bar_chart",
+            return_value={"chart_type": "BarChart", "title": "T", "data": []},
+        ):
+            _dispatch(
+                "chart_spec_builder__build_bar_chart",
+                {"title": "T", "data": [], "x_key": "id", "y_keys": ["v"]},
+            )
         assert len(orch._run_charts) == 1
         assert orch._run_charts[0]["chart_type"] == "BarChart"
 
     def test_kpi_cards_captured(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_kpi_cards",
-                   return_value={"chart_type": "KPICards", "title": "T", "cards": []}):
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_kpi_cards",
+            return_value={"chart_type": "KPICards", "title": "T", "cards": []},
+        ):
             _dispatch("chart_spec_builder__build_kpi_cards", {"title": "T", "kpis": []})
         assert len(orch._run_charts) == 1
         assert orch._run_charts[0]["chart_type"] == "KPICards"
 
     def test_pie_chart_captured(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_pie_chart",
-                   return_value={"chart_type": "PieChart", "title": "T", "data": []}):
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_pie_chart",
+            return_value={"chart_type": "PieChart", "title": "T", "data": []},
+        ):
             _dispatch("chart_spec_builder__build_pie_chart", {"title": "T", "data": []})
         assert len(orch._run_charts) == 1
         assert orch._run_charts[0]["chart_type"] == "PieChart"
 
     def test_multiple_charts_accumulated_in_order(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_line_chart",
-                   return_value={"chart_type": "LineChart", "title": "L", "data": []}):
-            _dispatch("chart_spec_builder__build_line_chart",
-                      {"title": "L", "data": [], "x_key": "d", "y_keys": ["v"]})
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_bar_chart",
-                   return_value={"chart_type": "BarChart", "title": "B", "data": []}):
-            _dispatch("chart_spec_builder__build_bar_chart",
-                      {"title": "B", "data": [], "x_key": "id", "y_keys": ["v"]})
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_line_chart",
+            return_value={"chart_type": "LineChart", "title": "L", "data": []},
+        ):
+            _dispatch(
+                "chart_spec_builder__build_line_chart",
+                {"title": "L", "data": [], "x_key": "d", "y_keys": ["v"]},
+            )
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.chart_spec_builder.build_bar_chart",
+            return_value={"chart_type": "BarChart", "title": "B", "data": []},
+        ):
+            _dispatch(
+                "chart_spec_builder__build_bar_chart",
+                {"title": "B", "data": [], "x_key": "id", "y_keys": ["v"]},
+            )
         assert len(orch._run_charts) == 2
         assert orch._run_charts[0]["chart_type"] == "LineChart"
         assert orch._run_charts[1]["chart_type"] == "BarChart"
@@ -236,75 +281,108 @@ class TestChartCapture:
 # _dispatch routing
 # ---------------------------------------------------------------------------
 
+
 class TestDispatch:
     """_dispatch must route each tool name to the correct module function."""
 
     def test_csv_loader_delegates(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.csv_loader.load_csv",
-                   return_value={"row_count": 10}) as m:
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.csv_loader.load_csv",
+            return_value={"row_count": 10},
+        ) as m:
             result = _dispatch("csv_loader__load_csv", {"file_path": "f.csv"})
             m.assert_called_once_with(file_path="f.csv")
             assert result["row_count"] == 10
 
     def test_schema_advisor_delegates(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.schema_advisor.discover_schema",
-                   return_value={"feasible_kpis": []}) as m:
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.schema_advisor.discover_schema",
+            return_value={"feasible_kpis": []},
+        ) as m:
             _dispatch("schema_advisor__discover_schema", {"file_path": "f.csv"})
             m.assert_called_once_with(file_path="f.csv")
 
     def test_kpi_available_delegates(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.kpi_engine.available_kpis",
-                   return_value={"available_kpis": []}) as m:
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.kpi_engine.available_kpis",
+            return_value={"available_kpis": []},
+        ) as m:
             _dispatch("kpi_engine__available_kpis", {})
             m.assert_called_once()
 
     def test_kpi_calculate_delegates(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.kpi_engine.calculate_kpi",
-                   return_value={"kpis": {}}) as m:
-            _dispatch("kpi_engine__calculate_kpi",
-                      {"file_path": "f.csv", "kpi_names": ["fuel_efficiency"]})
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.kpi_engine.calculate_kpi",
+            return_value={"kpis": {}},
+        ) as m:
+            _dispatch(
+                "kpi_engine__calculate_kpi",
+                {"file_path": "f.csv", "kpi_names": ["fuel_efficiency"]},
+            )
             m.assert_called_once_with(file_path="f.csv", kpi_names=["fuel_efficiency"])
 
     def test_describe_columns_delegates(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.stats_analyzer.describe_columns",
-                   return_value={}) as m:
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.stats_analyzer.describe_columns",
+            return_value={},
+        ) as m:
             _dispatch("stats_analyzer__describe_columns", {"file_path": "f.csv"})
             m.assert_called_once_with(file_path="f.csv")
 
     def test_rank_entities_delegates(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.stats_analyzer.rank_entities",
-                   return_value={}) as m:
-            _dispatch("stats_analyzer__rank_entities",
-                      {"file_path": "f.csv", "metric_column": "fuel", "entity_column": "id"})
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.stats_analyzer.rank_entities",
+            return_value={},
+        ) as m:
+            _dispatch(
+                "stats_analyzer__rank_entities",
+                {"file_path": "f.csv", "metric_column": "fuel", "entity_column": "id"},
+            )
             m.assert_called_once()
 
     def test_detect_outliers_delegates(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.insight_extractor.detect_outliers",
-                   return_value={}) as m:
-            _dispatch("insight_extractor__detect_outliers",
-                      {"file_path": "f.csv", "column": "idle_hours"})
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.insight_extractor.detect_outliers",
+            return_value={},
+        ) as m:
+            _dispatch(
+                "insight_extractor__detect_outliers",
+                {"file_path": "f.csv", "column": "idle_hours"},
+            )
             m.assert_called_once_with(file_path="f.csv", column="idle_hours")
 
     def test_detect_trend_delegates(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.insight_extractor.detect_trend",
-                   return_value={}) as m:
-            _dispatch("insight_extractor__detect_trend",
-                      {"file_path": "f.csv", "date_column": "date", "value_column": "v"})
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.insight_extractor.detect_trend",
+            return_value={},
+        ) as m:
+            _dispatch(
+                "insight_extractor__detect_trend",
+                {"file_path": "f.csv", "date_column": "date", "value_column": "v"},
+            )
             m.assert_called_once()
 
     def test_check_thresholds_delegates(self):
         rules = [{"column": "idle_hours", "operator": ">", "value": 2.0}]
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.insight_extractor.check_thresholds",
-                   return_value={}) as m:
-            _dispatch("insight_extractor__check_thresholds",
-                      {"file_path": "f.csv", "rules": rules})
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.insight_extractor.check_thresholds",
+            return_value={},
+        ) as m:
+            _dispatch(
+                "insight_extractor__check_thresholds",
+                {"file_path": "f.csv", "rules": rules},
+            )
             m.assert_called_once_with(file_path="f.csv", rules=rules)
 
     def test_fleet_performance_summary_delegates(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.insight_extractor.fleet_performance_summary",
-                   return_value={}) as m:
-            _dispatch("insight_extractor__fleet_performance_summary",
-                      {"file_path": "f.csv", "metric_column": "fuel", "entity_column": "id"})
+        with patch(
+            "data_analysis_agent.agent.bedrock_orchestrator.insight_extractor.fleet_performance_summary",
+            return_value={},
+        ) as m:
+            _dispatch(
+                "insight_extractor__fleet_performance_summary",
+                {"file_path": "f.csv", "metric_column": "fuel", "entity_column": "id"},
+            )
             m.assert_called_once()
 
     def test_unknown_tool_raises_value_error(self):

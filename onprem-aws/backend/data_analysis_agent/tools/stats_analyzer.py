@@ -5,14 +5,15 @@ time-series aggregations over fleet data.
 
 All numeric outputs come from pandas/scipy — the LLM interprets, not calculates.
 """
+
 from __future__ import annotations
 
 from typing import Optional
 import pandas as pd
-import numpy as np
 
 try:
-    from scipy import stats as scipy_stats
+    from scipy import stats as scipy_stats  # noqa: F401
+
     _SCIPY = True
 except ImportError:
     _SCIPY = False
@@ -76,7 +77,13 @@ def rank_entities(
         if col not in df.columns:
             return {"error": f"Column '{col}' not found. Available: {list(df.columns)}"}
 
-    agg_map = {"mean": "mean", "sum": "sum", "max": "max", "min": "min", "count": "count"}
+    agg_map = {
+        "mean": "mean",
+        "sum": "sum",
+        "max": "max",
+        "min": "min",
+        "count": "count",
+    }
     if agg_func not in agg_map:
         return {"error": f"agg_func must be one of {list(agg_map.keys())}"}
 
@@ -105,7 +112,7 @@ def time_series_aggregation(
     date_column: str,
     value_columns: list[str],
     *,
-    freq: str = "W",           # "D"=daily, "W"=weekly, "ME"=month-end
+    freq: str = "W",  # "D"=daily, "W"=weekly, "ME"=month-end
     agg_func: str = "sum",
     group_by: Optional[str] = None,
 ) -> dict:
@@ -166,6 +173,7 @@ def correlation_matrix(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _df_to_records(df: pd.DataFrame) -> list[dict]:
     records = []

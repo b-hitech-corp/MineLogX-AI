@@ -35,6 +35,7 @@ Prerequisites (the pipeline talks to real AWS services)
     execution role granted aoss:APIAccessAll on the collection.
   - The source CSV present at the given S3 key (or under sample_data/ with --local).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -87,24 +88,48 @@ def run_example(
     print(f"overall_success : {result.overall_success}")
     print(f"failed_stages   : {result.failed_stages}")
     for r in result.stage_results:
-        print(f"  stage {r.stage} {r.name:<22} {r.status_label:<8} "
-              f"{r.duration_s:6.1f}s  artifact={r.artifact_key}")
+        print(
+            f"  stage {r.stage} {r.name:<22} {r.status_label:<8} "
+            f"{r.duration_s:6.1f}s  artifact={r.artifact_key}"
+        )
 
     return result
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Run the CSV Vectorization Pipeline on one file.")
-    p.add_argument("file_path", nargs="?", default="C1/fuel_management_events.csv",
-                   help="S3 key of the CSV (or sample_data-relative path with --local).")
-    p.add_argument("--stages", nargs="+", type=int, choices=[1, 2, 3, 4], default=None,
-                   help="Subset of stages to run (default: all four).")
-    p.add_argument("--force", action="store_true",
-                   help="Re-run every stage even if artefacts already exist.")
-    p.add_argument("--local", action="store_true",
-                   help="Read/write artefacts from sample_data/ instead of S3.")
-    p.add_argument("--backend", default="bedrock", choices=["bedrock", "ollama"],
-                   help="LLM backend for Stage 1 (default: bedrock).")
+    p = argparse.ArgumentParser(
+        description="Run the CSV Vectorization Pipeline on one file."
+    )
+    p.add_argument(
+        "file_path",
+        nargs="?",
+        default="C1/fuel_management_events.csv",
+        help="S3 key of the CSV (or sample_data-relative path with --local).",
+    )
+    p.add_argument(
+        "--stages",
+        nargs="+",
+        type=int,
+        choices=[1, 2, 3, 4],
+        default=None,
+        help="Subset of stages to run (default: all four).",
+    )
+    p.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run every stage even if artefacts already exist.",
+    )
+    p.add_argument(
+        "--local",
+        action="store_true",
+        help="Read/write artefacts from sample_data/ instead of S3.",
+    )
+    p.add_argument(
+        "--backend",
+        default="bedrock",
+        choices=["bedrock", "ollama"],
+        help="LLM backend for Stage 1 (default: bedrock).",
+    )
     return p.parse_args(argv)
 
 

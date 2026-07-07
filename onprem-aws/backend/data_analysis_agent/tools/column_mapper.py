@@ -15,6 +15,7 @@ Both functions accept a backend parameter:
   "bedrock" (default) — uses native boto3 (invoke_model) with Claude on Amazon Bedrock.
   "ollama"            — uses the Ollama HTTP API (qwen3:8b on EC2).
 """
+
 from __future__ import annotations
 
 import json
@@ -24,7 +25,10 @@ from typing import Any
 
 import requests
 
-from data_analysis_agent.config.kpi_formulas import KPI_REGISTRY, get_all_required_variables
+from data_analysis_agent.config.kpi_formulas import (
+    KPI_REGISTRY,
+    get_all_required_variables,
+)
 from data_analysis_agent.config.settings import settings
 from data_analysis_agent.tools.bedrock_client import invoke_claude
 
@@ -33,13 +37,14 @@ logger = logging.getLogger(__name__)
 # Variable caps per backend.
 # Qwen3:8b (small model) struggles with long prompts — keep it at 20.
 # Claude Sonnet 4.6 has a 200K-token context window and handles all variables comfortably.
-_MAX_VARS_OLLAMA  = 20
+_MAX_VARS_OLLAMA = 20
 _MAX_VARS_BEDROCK = 999  # effectively no cap
 
 
 # ---------------------------------------------------------------------------
 # Internal LLM helpers — one per backend
 # ---------------------------------------------------------------------------
+
 
 def _llm_complete(prompt: str, backend: str, max_tokens: int = 1024) -> str | None:
     """
@@ -63,10 +68,10 @@ def _llm_complete(prompt: str, backend: str, max_tokens: int = 1024) -> str | No
             resp = requests.post(
                 f"{settings.ollama.endpoint}/api/generate",
                 json={
-                    "model":  settings.ollama.model,
+                    "model": settings.ollama.model,
                     "prompt": f"/no_think\n{prompt}",
                     "stream": False,
-                    "think":  False,
+                    "think": False,
                     "options": {"temperature": 0.0, "num_predict": max_tokens},
                 },
                 timeout=90,
@@ -113,26 +118,41 @@ def map_columns_to_kpi_variables(
 
     columns = schema.get("columns", [])
     col_names = {col["name"] for col in columns}
-    numeric_cols = {col["name"] for col in columns if col["type"] in ("float", "integer")}
+    numeric_cols = {
+        col["name"] for col in columns if col["type"] in ("float", "integer")
+    }
 
     # Prioritise variables that have at least one plausible column type match.
     # KPI variables that end in common numeric suffixes are almost always floats.
     _numeric_suffixes = (
-        "_hours", "_km", "_litres", "_l", "_pct", "_rate", "_count",
-        "_tonnes", "_min", "_t", "_score", "_kg", "_grams",
+        "_hours",
+        "_km",
+        "_litres",
+        "_l",
+        "_pct",
+        "_rate",
+        "_count",
+        "_tonnes",
+        "_min",
+        "_t",
+        "_score",
+        "_kg",
+        "_grams",
     )
-    numeric_vars = {v for v in variable_sources if any(v.endswith(s) for s in _numeric_suffixes)}
+    numeric_vars = {
+        v for v in variable_sources if any(v.endswith(s) for s in _numeric_suffixes)
+    }
     other_vars = {v for v in variable_sources if v not in numeric_vars}
 
     # Cap variables per backend: small models need a short prompt; Claude handles all of them.
     max_vars = _MAX_VARS_OLLAMA if backend == "ollama" else _MAX_VARS_BEDROCK
     candidate_vars: dict[str, str] = {}
     if numeric_cols:
-        for v in sorted(numeric_vars):   # sorted → deterministic selection
+        for v in sorted(numeric_vars):  # sorted → deterministic selection
             if len(candidate_vars) >= max_vars:
                 break
             candidate_vars[v] = variable_sources[v]
-    for v in sorted(other_vars):         # sorted → deterministic selection
+    for v in sorted(other_vars):  # sorted → deterministic selection
         if len(candidate_vars) >= max_vars:
             break
         candidate_vars[v] = variable_sources[v]
@@ -150,10 +170,7 @@ def map_columns_to_kpi_variables(
         col_lines.append(line)
     cols_text = "\n".join(col_lines)
 
-    var_lines = "\n".join(
-        f"- {var}  [{kpi}]"
-        for var, kpi in candidate_vars.items()
-    )
+    var_lines = "\n".join(f"- {var}  [{kpi}]" for var, kpi in candidate_vars.items())
 
     json_template = json.dumps(
         {v: "column_name_or_null" for v in candidate_vars}, indent=2
@@ -188,7 +205,9 @@ def map_columns_to_kpi_variables(
     if raw_mapping is None:
         logger.warning(
             "column_mapper (%s): no JSON found for '%s'. Snippet: %s",
-            backend, schema.get("file_path"), clean[:300],
+            backend,
+            schema.get("file_path"),
+            clean[:300],
         )
         return {v: None for v in variable_sources}
 
@@ -205,7 +224,10 @@ def map_columns_to_kpi_variables(
         ):
             # Numeric KPI variables must only map to numeric columns.
             # This prevents the LLM from matching e.g. 'tonnes' → 'vehicle_id'.
-            if any(var.endswith(s) for s in _numeric_suffixes) and candidate not in numeric_cols:
+            if (
+                any(var.endswith(s) for s in _numeric_suffixes)
+                and candidate not in numeric_cols
+            ):
                 result[var] = None
             else:
                 result[var] = candidate
@@ -215,7 +237,9 @@ def map_columns_to_kpi_variables(
     matched = [f"{v}→{c}" for v, c in result.items() if c]
     logger.info(
         "column_mapper (%s): %d/%d variables matched for '%s': %s",
-        backend, len(matched), len(variable_sources),
+        backend,
+        len(matched),
+        len(variable_sources),
         schema.get("file_path"),
         ", ".join(matched) if matched else "none",
     )
@@ -252,8 +276,7 @@ def map_direct_kpi_columns(
 
     # Compact KPI catalogue — one line per KPI
     kpi_lines = "\n".join(
-        f"- {kpi.name}: {kpi.description} [{kpi.unit}]"
-        for kpi in KPI_REGISTRY.values()
+        f"- {kpi.name}: {kpi.description} [{kpi.unit}]" for kpi in KPI_REGISTRY.values()
     )
 
     col_lines = "\n".join(f"- {c['name']} ({c['type']})" for c in numeric_cols)
@@ -291,7 +314,9 @@ def map_direct_kpi_columns(
     if raw_mapping is None:
         logger.warning(
             "map_direct_kpi_columns (%s): no JSON found for '%s'. Snippet: %s",
-            backend, schema.get("file_path"), clean[:300],
+            backend,
+            schema.get("file_path"),
+            clean[:300],
         )
         return {}
 
@@ -309,7 +334,8 @@ def map_direct_kpi_columns(
     matched = [f"{k}←{c}" for k, c in result.items()]
     logger.info(
         "map_direct_kpi_columns (%s): %d direct KPI column(s) found for '%s': %s",
-        backend, len(matched),
+        backend,
+        len(matched),
         schema.get("file_path"),
         ", ".join(matched) if matched else "none",
     )
@@ -344,8 +370,13 @@ _INSPECT_TOOL: dict = {
                         "role": {
                             "type": "string",
                             "enum": [
-                                "entity", "metric", "datetime", "categorical",
-                                "segment_marker", "metadata", "unknown",
+                                "entity",
+                                "metric",
+                                "datetime",
+                                "categorical",
+                                "segment_marker",
+                                "metadata",
+                                "unknown",
                             ],
                             "description": (
                                 "entity=ID/identifier, metric=numeric measurement, "
@@ -527,17 +558,18 @@ def inspect_schema_with_tool_use(llm_input: str, backend: str = "bedrock") -> di
 def _empty_inspect_result(error: str) -> dict:
     """Safe fallback when the LLM call fails — empty recipe, error captured."""
     return {
-        "column_classifications":  [],
-        "transformation_steps":    [],
+        "column_classifications": [],
+        "transformation_steps": [],
         "has_structural_anomalies": False,
-        "anomaly_description":     None,
-        "reasoning":               f"LLM call failed: {error}",
+        "anomaly_description": None,
+        "reasoning": f"LLM call failed: {error}",
     }
 
 
 # ---------------------------------------------------------------------------
 # (existing _extract_json below — unchanged)
 # ---------------------------------------------------------------------------
+
 
 def _extract_json(text: str) -> dict[str, Any] | None:
     """

@@ -25,6 +25,7 @@ Public API
     extract_with_claude(pdf_bytes, bucket, key, file_size_bytes, total_pages,
                         config, bedrock_client, **opts) -> ClaudeExtractionResult
 """
+
 from __future__ import annotations
 
 import json
@@ -44,9 +45,10 @@ logger = logging.getLogger(__name__)
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ClaudeExtractionResult:
-    raw_sections: list[dict]   # compatible with normalize_sections()
+    raw_sections: list[dict]  # compatible with normalize_sections()
     input_tokens: int
     output_tokens: int
     batch_index: int
@@ -97,10 +99,22 @@ _EXTRACT_TOOL = {
                             "type": "object",
                             "required": ["title", "body", "page_start", "page_end"],
                             "properties": {
-                                "title":      {"type": "string", "description": "Exact section heading as it appears in the document."},
-                                "body":       {"type": "string", "description": "Complete verbatim section text incl. sub-clauses, numbered lists, pipe-delimited tables, and schedules."},
-                                "page_start": {"type": "integer", "description": "1-based page where the section begins."},
-                                "page_end":   {"type": "integer", "description": "1-based inclusive page where the section ends."},
+                                "title": {
+                                    "type": "string",
+                                    "description": "Exact section heading as it appears in the document.",
+                                },
+                                "body": {
+                                    "type": "string",
+                                    "description": "Complete verbatim section text incl. sub-clauses, numbered lists, pipe-delimited tables, and schedules.",
+                                },
+                                "page_start": {
+                                    "type": "integer",
+                                    "description": "1-based page where the section begins.",
+                                },
+                                "page_end": {
+                                    "type": "integer",
+                                    "description": "1-based inclusive page where the section ends.",
+                                },
                             },
                         },
                     }
@@ -140,6 +154,7 @@ def _sanitize_doc_name(key: str) -> str:
 # Response parsing
 # ---------------------------------------------------------------------------
 
+
 def _parse_claude_sections(raw_text: str) -> list[dict]:
     """Parse Claude's JSON array response into a list of section dicts.
 
@@ -169,6 +184,7 @@ def _parse_claude_sections(raw_text: str) -> list[dict]:
     # Attempt 3: try json-repair if available
     try:
         from json_repair import repair_json  # optional dependency
+
         repaired = repair_json(text)
         result = json.loads(repaired)
         if isinstance(result, list):
@@ -177,7 +193,9 @@ def _parse_claude_sections(raw_text: str) -> list[dict]:
     except Exception:
         pass
 
-    logger.error("Could not parse Claude response as JSON array. Raw preview: %s", text[:500])
+    logger.error(
+        "Could not parse Claude response as JSON array. Raw preview: %s", text[:500]
+    )
     return []
 
 
@@ -186,11 +204,13 @@ def _extract_citations(content_block: dict) -> list[dict]:
     citations: list[dict] = []
     for citation in content_block.get("citations", []):
         loc = citation.get("location", {})
-        citations.append({
-            "page": loc.get("pageNumber"),
-            "source_content": citation.get("sourceContent", ""),
-            "title": citation.get("title", ""),
-        })
+        citations.append(
+            {
+                "page": loc.get("pageNumber"),
+                "source_content": citation.get("sourceContent", ""),
+                "title": citation.get("title", ""),
+            }
+        )
     return citations
 
 
@@ -223,6 +243,7 @@ def _extract_response_text_and_citations(
 # ---------------------------------------------------------------------------
 # Core extraction call
 # ---------------------------------------------------------------------------
+
 
 def _call_claude(
     pdf_bytes: bytes,
@@ -273,7 +294,9 @@ def _call_claude(
 
     logger.info(
         "Claude call complete | %d sections | %d input tokens | %d output tokens",
-        len(raw_sections), input_tokens, output_tokens,
+        len(raw_sections),
+        input_tokens,
+        output_tokens,
     )
     return raw_sections, input_tokens, output_tokens
 
@@ -308,16 +331,21 @@ def _extract_tool_sections(response: dict) -> list[dict]:
     # Defensive fallback: if no tool block came back, try parsing any text content.
     text, _ = _extract_response_text_and_citations(response)
     if text.strip():
-        logger.warning("No emit_sections tool block in response; falling back to text JSON parse")
+        logger.warning(
+            "No emit_sections tool block in response; falling back to text JSON parse"
+        )
         return _parse_claude_sections(text)
 
-    logger.error("Claude returned neither an emit_sections tool call nor parseable text")
+    logger.error(
+        "Claude returned neither an emit_sections tool call nor parseable text"
+    )
     return []
 
 
 # ---------------------------------------------------------------------------
 # Carry-over context builder
 # ---------------------------------------------------------------------------
+
 
 def _build_carry_over(last_section: dict) -> str:
     """Build the context carry-over string for the next mini-batch prompt."""
@@ -336,6 +364,7 @@ def _build_carry_over(last_section: dict) -> str:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def extract_with_claude(
     pdf_bytes: bytes,
@@ -371,13 +400,18 @@ def extract_with_claude(
     Returns:
         ClaudeExtractionResult with raw_sections and token usage.
     """
-    bedrock = bedrock_client or boto3.client("bedrock-runtime", region_name=config.aws_region)
+    bedrock = bedrock_client or boto3.client(
+        "bedrock-runtime", region_name=config.aws_region
+    )
     doc_name = _sanitize_doc_name(key)
     size_mb = len(pdf_bytes) / (1024 * 1024)
 
     logger.info(
         "Claude extraction | batch=%d | %.2f MB | pages≈%d | offset_page=%d",
-        batch_index, size_mb, total_pages, page_start_offset,
+        batch_index,
+        size_mb,
+        total_pages,
+        page_start_offset,
     )
 
     errors: list[str] = []

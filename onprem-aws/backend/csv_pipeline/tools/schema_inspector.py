@@ -18,6 +18,7 @@ Public API
 ----------
     inspect_schema_sampled(file_path, local_mode, backend) -> dict
 """
+
 from __future__ import annotations
 
 import json
@@ -66,8 +67,13 @@ _INSPECT_TOOL: dict = {
                         "role": {
                             "type": "string",
                             "enum": [
-                                "entity", "metric", "datetime", "categorical",
-                                "segment_marker", "metadata", "unknown",
+                                "entity",
+                                "metric",
+                                "datetime",
+                                "categorical",
+                                "segment_marker",
+                                "metadata",
+                                "unknown",
                             ],
                         },
                         "kpi_variable": {
@@ -96,7 +102,7 @@ _INSPECT_TOOL: dict = {
                     "required": ["operation", "params"],
                     "properties": {
                         "operation": {"type": "string"},
-                        "params":    {"type": "object"},
+                        "params": {"type": "object"},
                     },
                 },
             },
@@ -149,6 +155,7 @@ If the file is already a clean flat table, output an empty transformation_steps 
 # LLM call
 # ---------------------------------------------------------------------------
 
+
 def _llm_complete(prompt: str, backend: str, max_tokens: int = 1024) -> str | None:
     if backend == "bedrock":
         try:
@@ -167,7 +174,7 @@ def _llm_complete(prompt: str, backend: str, max_tokens: int = 1024) -> str | No
             resp = requests.post(
                 f"{settings.ollama.endpoint}/api/generate",
                 json={
-                    "model":  settings.ollama.model,
+                    "model": settings.ollama.model,
                     "prompt": f"/no_think\n{prompt}",
                     "stream": False,
                     "options": {"temperature": 0.0, "num_predict": max_tokens},
@@ -185,11 +192,11 @@ def _llm_complete(prompt: str, backend: str, max_tokens: int = 1024) -> str | No
 
 def _empty_inspect_result(error: str) -> dict:
     return {
-        "column_classifications":   [],
-        "transformation_steps":     [],
+        "column_classifications": [],
+        "transformation_steps": [],
         "has_structural_anomalies": False,
-        "anomaly_description":      None,
-        "reasoning":                f"LLM call failed: {error}",
+        "anomaly_description": None,
+        "reasoning": f"LLM call failed: {error}",
     }
 
 
@@ -212,7 +219,7 @@ def _extract_json(text: str) -> dict[str, Any] | None:
                 depth -= 1
                 if depth == 0:
                     try:
-                        return json.loads(text[start: i + 1])
+                        return json.loads(text[start : i + 1])
                     except json.JSONDecodeError:
                         break
     try:
@@ -282,6 +289,7 @@ def inspect_schema_with_tool_use(llm_input: str, backend: str = "bedrock") -> di
 # Public API — Stage 1 entrypoint
 # ---------------------------------------------------------------------------
 
+
 def inspect_schema_sampled(
     file_path: str,
     local_mode: bool = False,
@@ -310,34 +318,34 @@ def inspect_schema_sampled(
     llm_result = inspect_schema_with_tool_use(llm_input, backend=backend)
 
     descriptor = {
-        "file_path":               file_path,
-        "schema_version":          "1.0",
-        "produced_at":             datetime.now(timezone.utc).isoformat(),
-        "row_count":               profile.row_count,
-        "column_count":            profile.column_count,
-        "column_names":            profile.column_names,
+        "file_path": file_path,
+        "schema_version": "1.0",
+        "produced_at": datetime.now(timezone.utc).isoformat(),
+        "row_count": profile.row_count,
+        "column_count": profile.column_count,
+        "column_names": profile.column_names,
         "column_stats": {
             col: {
-                "inferred_type":      s.inferred_type,
-                "null_pct":           s.null_pct,
-                "min":                s.min_val,
-                "max":                s.max_val,
-                "mean":               s.mean,
-                "cardinality":        s.cardinality,
+                "inferred_type": s.inferred_type,
+                "null_pct": s.null_pct,
+                "min": s.min_val,
+                "max": s.max_val,
+                "mean": s.mean,
+                "cardinality": s.cardinality,
                 "cardinality_capped": s.cardinality_capped,
-                "sample_values":      s.sample_values,
+                "sample_values": s.sample_values,
             }
             for col, s in profile.column_stats.items()
         },
-        "column_classifications":   llm_result.get("column_classifications", []),
-        "transformation_steps":     llm_result.get("transformation_steps", []),
+        "column_classifications": llm_result.get("column_classifications", []),
+        "transformation_steps": llm_result.get("transformation_steps", []),
         "has_structural_anomalies": llm_result.get("has_structural_anomalies", False),
-        "anomaly_description":      llm_result.get("anomaly_description"),
+        "anomaly_description": llm_result.get("anomaly_description"),
         "anomaly_records": [
             {
-                "row_index":    r.row_index,
+                "row_index": r.row_index,
                 "anomaly_type": r.anomaly_type,
-                "detail":       r.detail,
+                "detail": r.detail,
             }
             for r in profile.anomaly_records
         ],
@@ -354,12 +362,14 @@ def inspect_schema_sampled(
         logger.info(
             "[schema_inspector] %d unknown column(s) flagged (excluded from canonical "
             "schema, processing continues): %s",
-            len(reconciliation.unknown_columns), reconciliation.unknown_columns,
+            len(reconciliation.unknown_columns),
+            reconciliation.unknown_columns,
         )
     if reconciliation.ambiguous_columns:
         logger.warning(
             "[schema_inspector] %d ambiguous column(s) quarantined for review: %s",
-            len(reconciliation.ambiguous_columns), list(reconciliation.ambiguous_columns),
+            len(reconciliation.ambiguous_columns),
+            list(reconciliation.ambiguous_columns),
         )
 
     if not local_mode:
@@ -367,7 +377,8 @@ def inspect_schema_sampled(
         descriptor["schema_s3_key"] = s3_key
         logger.info(
             "[schema_inspector] Schema descriptor written → s3://%s/%s",
-            settings.s3.bucket_name, s3_key,
+            settings.s3.bucket_name,
+            s3_key,
         )
 
     return descriptor
@@ -375,18 +386,18 @@ def inspect_schema_sampled(
 
 def _persist_schema_descriptor(descriptor: dict, file_path: str) -> str:
     """Write schema_descriptor.json to S3. Returns the S3 key."""
-    p      = PurePosixPath(file_path)
+    p = PurePosixPath(file_path)
     folder = str(p.parent)
     if folder in (".", ""):
         folder = "root"
-    stem   = p.stem
+    stem = p.stem
     s3_key = f"{settings.s3.prefix}vectorization/{folder}/schema/{stem}.schema.json"
 
     s3 = boto3.client("s3", region_name=settings.s3.region)
     s3.put_object(
-        Bucket      = settings.s3.bucket_name,
-        Key         = s3_key,
-        Body        = json.dumps(descriptor, indent=2, default=str).encode("utf-8"),
-        ContentType = "application/json",
+        Bucket=settings.s3.bucket_name,
+        Key=s3_key,
+        Body=json.dumps(descriptor, indent=2, default=str).encode("utf-8"),
+        ContentType="application/json",
     )
     return s3_key

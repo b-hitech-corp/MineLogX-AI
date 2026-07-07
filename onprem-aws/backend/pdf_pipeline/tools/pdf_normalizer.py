@@ -26,12 +26,13 @@ Public API
     normalize_sections(raw_sections, extraction_method, metadata, config) -> list[SectionRecord]
     build_section_metadata(bucket, key, doc_class, file_size_bytes, total_pages) -> SectionMetadata
 """
+
 from __future__ import annotations
 
 import re
 import unicodedata
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from pdf_pipeline.config.pdf_pipeline_settings import PdfPipelineConfig
@@ -45,11 +46,12 @@ SCHEMA_VERSION = "1.0"
 # Core dataclasses
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class SectionMetadata:
     source_bucket: str
     source_key: str
-    doc_class: str            # "complex_legal" | "simple"
+    doc_class: str  # "complex_legal" | "simple"
     file_size_bytes: int
     total_pages: int
     schema_version: str = SCHEMA_VERSION
@@ -57,15 +59,15 @@ class SectionMetadata:
 
 @dataclass
 class SectionRecord:
-    section_id: str           # "{sanitized_filename}-s{index:04d}"
-    title: str                # section heading; "untitled-{n}" if absent
-    body: str                 # full section text (normalized, embedding-ready)
-    page_start: int           # 1-based
-    page_end: int             # 1-based, inclusive
-    extraction_method: str    # "textract" | "claude_native" | "claude_batch"
-    batch_index: int          # 0 for single-call; batch number for mini-batch
-    tables: list[dict]        # Textract table cells; empty for Claude paths
-    citations: list[dict]     # Bedrock Citations API data; empty for Textract
+    section_id: str  # "{sanitized_filename}-s{index:04d}"
+    title: str  # section heading; "untitled-{n}" if absent
+    body: str  # full section text (normalized, embedding-ready)
+    page_start: int  # 1-based
+    page_end: int  # 1-based, inclusive
+    extraction_method: str  # "textract" | "claude_native" | "claude_batch"
+    batch_index: int  # 0 for single-call; batch number for mini-batch
+    tables: list[dict]  # Textract table cells; empty for Claude paths
+    citations: list[dict]  # Bedrock Citations API data; empty for Textract
     metadata: SectionMetadata
 
 
@@ -124,7 +126,7 @@ def _chunk_by_length(
     if len(text) <= max_chars:
         return [text]
     step = max_chars - overlap
-    chunks = [text[i: i + max_chars] for i in range(0, len(text), step)]
+    chunks = [text[i : i + max_chars] for i in range(0, len(text), step)]
     if len(chunks) > 1 and len(chunks[-1]) <= overlap:
         chunks = chunks[:-1]
     return chunks
@@ -141,6 +143,7 @@ def _sanitize_filename(filename: str) -> str:
 # ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
+
 
 def build_section_metadata(
     bucket: str,
@@ -162,6 +165,7 @@ def build_section_metadata(
 # ---------------------------------------------------------------------------
 # Main normalizer
 # ---------------------------------------------------------------------------
+
 
 def normalize_sections(
     raw_sections: list[dict[str, Any]],
@@ -202,7 +206,10 @@ def normalize_sections(
         citations = raw.get("citations", [])
 
         # Clean title
-        title = _clean_title(raw_title, config.max_title_chars) or f"untitled-{section_counter}"
+        title = (
+            _clean_title(raw_title, config.max_title_chars)
+            or f"untitled-{section_counter}"
+        )
 
         # Clean body
         body = _clean_body(raw_body)
@@ -228,42 +235,51 @@ def normalize_sections(
             total_sub = len(sub_chunks)
             logger.debug(
                 "Section '%s' (%d chars) split into %d sub-sections",
-                title, len(body), total_sub,
+                title,
+                len(body),
+                total_sub,
             )
             for sub_idx, sub_body in enumerate(sub_chunks):
                 sub_title = f"{title} (part {sub_idx + 1} of {total_sub})"
                 section_id = f"{base_name}-s{section_counter:04d}"
-                records.append(SectionRecord(
+                records.append(
+                    SectionRecord(
+                        section_id=section_id,
+                        title=sub_title,
+                        body=sub_body,
+                        page_start=page_start,
+                        page_end=page_end,
+                        extraction_method=extraction_method,
+                        batch_index=batch_index,
+                        tables=tables if sub_idx == 0 else [],
+                        citations=citations if sub_idx == 0 else [],
+                        metadata=metadata,
+                    )
+                )
+                section_counter += 1
+        else:
+            section_id = f"{base_name}-s{section_counter:04d}"
+            records.append(
+                SectionRecord(
                     section_id=section_id,
-                    title=sub_title,
-                    body=sub_body,
+                    title=title,
+                    body=body,
                     page_start=page_start,
                     page_end=page_end,
                     extraction_method=extraction_method,
                     batch_index=batch_index,
-                    tables=tables if sub_idx == 0 else [],
-                    citations=citations if sub_idx == 0 else [],
+                    tables=tables,
+                    citations=citations,
                     metadata=metadata,
-                ))
-                section_counter += 1
-        else:
-            section_id = f"{base_name}-s{section_counter:04d}"
-            records.append(SectionRecord(
-                section_id=section_id,
-                title=title,
-                body=body,
-                page_start=page_start,
-                page_end=page_end,
-                extraction_method=extraction_method,
-                batch_index=batch_index,
-                tables=tables,
-                citations=citations,
-                metadata=metadata,
-            ))
+                )
+            )
             section_counter += 1
 
     logger.info(
         "Normalized %d raw sections → %d SectionRecords (method=%s, batch=%d)",
-        len(raw_sections), len(records), extraction_method, batch_index,
+        len(raw_sections),
+        len(records),
+        extraction_method,
+        batch_index,
     )
     return records

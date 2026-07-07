@@ -5,9 +5,11 @@ Run with: pytest tests/test_agent.py -v
 All tests are fully mocked — no EC2 endpoint or CSV file required.
 For live tests against the real model, see test_agent_integration.py.
 """
+
 import pytest
 import sys
 import os
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from unittest.mock import patch, MagicMock
@@ -22,6 +24,7 @@ FILE = "fleet_may_2024.csv"
 # ---------------------------------------------------------------------------
 # FleetAgent initialisation
 # ---------------------------------------------------------------------------
+
 
 class TestFleetAgentInit:
     def test_ollama_model_receives_configured_endpoint(self):
@@ -47,6 +50,7 @@ class TestFleetAgentInit:
 # ---------------------------------------------------------------------------
 # FleetAgent.run()
 # ---------------------------------------------------------------------------
+
 
 class TestFleetAgentRun:
     @pytest.fixture
@@ -162,6 +166,7 @@ class TestFleetAgentRun:
 # Chart tool capture
 # ---------------------------------------------------------------------------
 
+
 class TestChartToolCapture:
     """Chart @tool wrappers must append specs to _run_charts."""
 
@@ -192,7 +197,14 @@ class TestChartToolCapture:
     def test_kpi_cards_appended(self):
         orch.chart_spec_builder__build_kpi_cards(
             title="Fleet KPIs",
-            kpis=[{"label": "Fuel Efficiency", "value": 7.8, "unit": "km/L", "trend": "up"}],
+            kpis=[
+                {
+                    "label": "Fuel Efficiency",
+                    "value": 7.8,
+                    "unit": "km/L",
+                    "trend": "up",
+                }
+            ],
         )
         assert len(orch._run_charts) == 1
         assert orch._run_charts[0]["chart_type"] == "KPICards"
@@ -207,7 +219,10 @@ class TestChartToolCapture:
 
     def test_multiple_charts_accumulated_in_order(self):
         orch.chart_spec_builder__build_line_chart(
-            title="Line", data=[{"date": "2024-05-01", "v": 1}], x_key="date", y_keys=["v"]
+            title="Line",
+            data=[{"date": "2024-05-01", "v": 1}],
+            x_key="date",
+            y_keys=["v"],
         )
         orch.chart_spec_builder__build_bar_chart(
             title="Bar", data=[{"id": "A", "v": 2}], x_key="id", y_keys=["v"]
@@ -234,11 +249,15 @@ class TestChartToolCapture:
 # Tool wrapper delegation
 # ---------------------------------------------------------------------------
 
+
 class TestToolWrappers:
     """Each @tool wrapper must delegate to its underlying tool module function."""
 
     def test_csv_loader_delegates(self):
-        with patch("data_analysis_agent.agent.orchestrator.csv_loader.load_csv", return_value={"row_count": 15}) as mock_fn:
+        with patch(
+            "data_analysis_agent.agent.orchestrator.csv_loader.load_csv",
+            return_value={"row_count": 15},
+        ) as mock_fn:
             result = orch.csv_loader__load_csv(file_path=FILE, use_local_fallback=True)
             mock_fn.assert_called_once_with(
                 file_path=FILE,
@@ -248,8 +267,13 @@ class TestToolWrappers:
             assert result["row_count"] == 15
 
     def test_kpi_calculate_delegates(self):
-        with patch("data_analysis_agent.agent.orchestrator.kpi_engine.calculate_kpi", return_value={"kpis": {}}) as mock_fn:
-            orch.kpi_engine__calculate_kpi(file_path=FILE, kpi_names=["fuel_efficiency"])
+        with patch(
+            "data_analysis_agent.agent.orchestrator.kpi_engine.calculate_kpi",
+            return_value={"kpis": {}},
+        ) as mock_fn:
+            orch.kpi_engine__calculate_kpi(
+                file_path=FILE, kpi_names=["fuel_efficiency"]
+            )
             mock_fn.assert_called_once_with(
                 file_path=FILE,
                 kpi_names=["fuel_efficiency"],
@@ -258,17 +282,26 @@ class TestToolWrappers:
             )
 
     def test_kpi_available_delegates(self):
-        with patch("data_analysis_agent.agent.orchestrator.kpi_engine.available_kpis", return_value={"available_kpis": []}) as mock_fn:
+        with patch(
+            "data_analysis_agent.agent.orchestrator.kpi_engine.available_kpis",
+            return_value={"available_kpis": []},
+        ) as mock_fn:
             orch.kpi_engine__available_kpis()
             mock_fn.assert_called_once()
 
     def test_describe_columns_delegates(self):
-        with patch("data_analysis_agent.agent.orchestrator.stats_analyzer.describe_columns", return_value={}) as mock_fn:
+        with patch(
+            "data_analysis_agent.agent.orchestrator.stats_analyzer.describe_columns",
+            return_value={},
+        ) as mock_fn:
             orch.stats_analyzer__describe_columns(file_path=FILE)
             mock_fn.assert_called_once_with(file_path=FILE, columns=None)
 
     def test_rank_entities_delegates(self):
-        with patch("data_analysis_agent.agent.orchestrator.stats_analyzer.rank_entities", return_value={}) as mock_fn:
+        with patch(
+            "data_analysis_agent.agent.orchestrator.stats_analyzer.rank_entities",
+            return_value={},
+        ) as mock_fn:
             orch.stats_analyzer__rank_entities(
                 file_path=FILE, metric_column="fuel_litres", entity_column="vehicle_id"
             )
@@ -282,7 +315,10 @@ class TestToolWrappers:
             )
 
     def test_detect_outliers_delegates(self):
-        with patch("data_analysis_agent.agent.orchestrator.insight_extractor.detect_outliers", return_value={}) as mock_fn:
+        with patch(
+            "data_analysis_agent.agent.orchestrator.insight_extractor.detect_outliers",
+            return_value={},
+        ) as mock_fn:
             orch.insight_extractor__detect_outliers(file_path=FILE, column="idle_hours")
             mock_fn.assert_called_once_with(
                 file_path=FILE,
@@ -293,7 +329,10 @@ class TestToolWrappers:
             )
 
     def test_detect_trend_delegates(self):
-        with patch("data_analysis_agent.agent.orchestrator.insight_extractor.detect_trend", return_value={}) as mock_fn:
+        with patch(
+            "data_analysis_agent.agent.orchestrator.insight_extractor.detect_trend",
+            return_value={},
+        ) as mock_fn:
             orch.insight_extractor__detect_trend(
                 file_path=FILE, date_column="date", value_column="distance_km"
             )
@@ -306,12 +345,18 @@ class TestToolWrappers:
 
     def test_check_thresholds_delegates(self):
         rules = [{"column": "idle_hours", "operator": ">", "value": 2.0}]
-        with patch("data_analysis_agent.agent.orchestrator.insight_extractor.check_thresholds", return_value={}) as mock_fn:
+        with patch(
+            "data_analysis_agent.agent.orchestrator.insight_extractor.check_thresholds",
+            return_value={},
+        ) as mock_fn:
             orch.insight_extractor__check_thresholds(file_path=FILE, rules=rules)
             mock_fn.assert_called_once_with(file_path=FILE, rules=rules)
 
     def test_fleet_performance_summary_delegates(self):
-        with patch("data_analysis_agent.agent.orchestrator.insight_extractor.fleet_performance_summary", return_value={}) as mock_fn:
+        with patch(
+            "data_analysis_agent.agent.orchestrator.insight_extractor.fleet_performance_summary",
+            return_value={},
+        ) as mock_fn:
             orch.insight_extractor__fleet_performance_summary(
                 file_path=FILE, metric_column="fuel_litres", entity_column="vehicle_id"
             )

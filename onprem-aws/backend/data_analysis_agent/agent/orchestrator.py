@@ -6,6 +6,7 @@ The Strands Agent handles the tool-use loop automatically.
 Tools are declared with the @tool decorator; Strands generates their schemas
 from type annotations and docstrings and passes them to the model.
 """
+
 from __future__ import annotations
 
 import logging
@@ -24,7 +25,14 @@ except ImportError as _e:
 
 from data_analysis_agent.agent.prompts import SYSTEM_PROMPT, build_task_prompt
 from data_analysis_agent.config.settings import settings
-from data_analysis_agent.tools import csv_loader, kpi_engine, stats_analyzer, insight_extractor, chart_spec_builder, schema_advisor
+from data_analysis_agent.tools import (
+    csv_loader,
+    kpi_engine,
+    stats_analyzer,
+    insight_extractor,
+    chart_spec_builder,
+    schema_advisor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +45,7 @@ _run_charts: list[dict] = []
 # ---------------------------------------------------------------------------
 # Tool definitions
 # ---------------------------------------------------------------------------
+
 
 @tool
 def csv_loader__load_csv(
@@ -236,8 +245,13 @@ def chart_spec_builder__build_line_chart(
 ) -> dict:
     """Build a Recharts-compatible JSON spec for a line/time-series chart."""
     spec = chart_spec_builder.build_line_chart(
-        title=title, data=data, x_key=x_key, y_keys=y_keys,
-        y_label=y_label, x_label=x_label, description=description,
+        title=title,
+        data=data,
+        x_key=x_key,
+        y_keys=y_keys,
+        y_label=y_label,
+        x_label=x_label,
+        description=description,
     )
     _run_charts.append(spec)
     return spec
@@ -256,8 +270,14 @@ def chart_spec_builder__build_bar_chart(
 ) -> dict:
     """Build a Recharts-compatible JSON spec for a bar chart. layout options: vertical, horizontal."""
     spec = chart_spec_builder.build_bar_chart(
-        title=title, data=data, x_key=x_key, y_keys=y_keys,
-        layout=layout, stacked=stacked, y_label=y_label, description=description,
+        title=title,
+        data=data,
+        x_key=x_key,
+        y_keys=y_keys,
+        layout=layout,
+        stacked=stacked,
+        y_label=y_label,
+        description=description,
     )
     _run_charts.append(spec)
     return spec
@@ -270,7 +290,9 @@ def chart_spec_builder__build_kpi_cards(
     description: Optional[str] = None,
 ) -> dict:
     """Build a KPI summary card layout spec. Each kpi: {label, value, unit, trend}."""
-    spec = chart_spec_builder.build_kpi_cards(title=title, kpis=kpis, description=description)
+    spec = chart_spec_builder.build_kpi_cards(
+        title=title, kpis=kpis, description=description
+    )
     _run_charts.append(spec)
     return spec
 
@@ -286,8 +308,12 @@ def chart_spec_builder__build_pie_chart(
 ) -> dict:
     """Build a Recharts-compatible JSON spec for a pie or donut chart."""
     spec = chart_spec_builder.build_pie_chart(
-        title=title, data=data, name_key=name_key, value_key=value_key,
-        donut=donut, description=description,
+        title=title,
+        data=data,
+        name_key=name_key,
+        value_key=value_key,
+        donut=donut,
+        description=description,
     )
     _run_charts.append(spec)
     return spec
@@ -317,6 +343,7 @@ _TOOLS = [
 # Agent result
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class AgentResult:
     summary: str
@@ -329,6 +356,7 @@ class AgentResult:
 # ---------------------------------------------------------------------------
 # Main agent class
 # ---------------------------------------------------------------------------
+
 
 class FleetAgent:
     def __init__(self) -> None:
@@ -355,7 +383,11 @@ class FleetAgent:
         _run_charts = []
 
         if verbose:
-            logger.info("Running agent with model %s on %s", settings.ollama.model, settings.ollama.endpoint)
+            logger.info(
+                "Running agent with model %s on %s",
+                settings.ollama.model,
+                settings.ollama.endpoint,
+            )
 
         agent = Agent(
             model=self.model,

@@ -3,6 +3,7 @@ s3_browser — Tool 7
 Lists CSV files within an S3 prefix (folder).
 In local_mode, scans sample_data/<folder>/ instead.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -42,7 +43,7 @@ def _list_s3(folder: str) -> list[str]:
             if key.lower().endswith(".csv") and not key.endswith("/"):
                 # Return key relative to the configured prefix so csv_loader
                 # can reconstruct the full S3 key using settings.s3.prefix + path
-                relative = key[len(settings.s3.prefix):]
+                relative = key[len(settings.s3.prefix) :]
                 keys.append(relative)
 
     return sorted(keys)
@@ -54,6 +55,5 @@ def _list_local(folder: str) -> list[str]:
         return []
     root = Path(settings.local_data_path)
     return sorted(
-        str(p.relative_to(root)).replace("\\", "/")
-        for p in base.rglob("*.csv")
+        str(p.relative_to(root)).replace("\\", "/") for p in base.rglob("*.csv")
     )

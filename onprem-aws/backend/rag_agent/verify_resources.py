@@ -1,13 +1,13 @@
 import requests
-import json
 import time
 
 # ================================================================
 # ENDPOINTS
 # ================================================================
-QWEN3_ENDPOINT      = "http://ec2-98-81-228-187.compute-1.amazonaws.com:11434"
-GEMMA3_ENDPOINT     = "http://ec2-100-31-82-64.compute-1.amazonaws.com:11434"
+QWEN3_ENDPOINT = "http://ec2-98-81-228-187.compute-1.amazonaws.com:11434"
+GEMMA3_ENDPOINT = "http://ec2-100-31-82-64.compute-1.amazonaws.com:11434"
 EMBEDDINGS_ENDPOINT = "http://ec2-3-208-23-94.compute-1.amazonaws.com:11434"
+
 
 # ================================================================
 # HELPERS
@@ -18,12 +18,8 @@ def query_model(endpoint, model, prompt):
         start = time.time()
         response = requests.post(
             f"{endpoint}/api/generate",
-            json={
-                "model": model,
-                "prompt": prompt,
-                "stream": False
-            },
-            timeout=120
+            json={"model": model, "prompt": prompt, "stream": False},
+            timeout=120,
         )
         elapsed = time.time() - start
         result = response.json()
@@ -31,17 +27,15 @@ def query_model(endpoint, model, prompt):
     except Exception as e:
         return None, 0, str(e)
 
+
 def get_embeddings(endpoint, model, text):
     """Get embeddings for a text and return vector + time"""
     try:
         start = time.time()
         response = requests.post(
             f"{endpoint}/api/embeddings",
-            json={
-                "model": model,
-                "prompt": text
-            },
-            timeout=30
+            json={"model": model, "prompt": text},
+            timeout=30,
         )
         elapsed = time.time() - start
         result = response.json()
@@ -50,6 +44,7 @@ def get_embeddings(endpoint, model, text):
     except Exception as e:
         return None, 0, str(e)
 
+
 def check_health(endpoint, model):
     """Check if a model is available"""
     try:
@@ -57,8 +52,9 @@ def check_health(endpoint, model):
         models = response.json().get("models", [])
         available = [m["name"] for m in models]
         return model in available or any(model in m for m in available)
-    except Exception as e:
+    except Exception:
         return False
+
 
 # ================================================================
 # TESTS
@@ -69,8 +65,8 @@ def test_health_checks():
     print("=" * 60)
 
     checks = [
-        (QWEN3_ENDPOINT,      "qwen3:8b"),
-        (GEMMA3_ENDPOINT,     "gemma3:12b"),
+        (QWEN3_ENDPOINT, "qwen3:8b"),
+        (GEMMA3_ENDPOINT, "gemma3:12b"),
         (EMBEDDINGS_ENDPOINT, "mxbai-embed-large"),
     ]
 
@@ -78,6 +74,7 @@ def test_health_checks():
         status = check_health(endpoint, model)
         icon = "✅" if status else "❌"
         print(f"{icon} {model} — {endpoint}")
+
 
 def test_chat_models():
     print("\n" + "=" * 60)
@@ -87,7 +84,7 @@ def test_chat_models():
     prompt = "In one sentence, what is fleet telemetry in mining operations?"
 
     models = [
-        (QWEN3_ENDPOINT,  "qwen3:8b",   "Qwen3 8B"),
+        (QWEN3_ENDPOINT, "qwen3:8b", "Qwen3 8B"),
         (GEMMA3_ENDPOINT, "gemma3:12b", "Gemma3 12B"),
     ]
 
@@ -100,6 +97,7 @@ def test_chat_models():
         else:
             print(f"📥 Response: {response}")
             print(f"⏱️  Time: {elapsed:.2f}s")
+
 
 def test_embeddings():
     print("\n" + "=" * 60)
@@ -124,6 +122,7 @@ def test_embeddings():
             print(f"🔢 First 5 values: {embedding[:5]}")
             print(f"⏱️  Time: {elapsed:.2f}s")
 
+
 def test_similarity():
     print("\n" + "=" * 60)
     print("🔍 SIMILARITY TEST")
@@ -133,8 +132,8 @@ def test_similarity():
 
     def cosine_similarity(v1, v2):
         dot = sum(a * b for a, b in zip(v1, v2))
-        mag1 = math.sqrt(sum(a ** 2 for a in v1))
-        mag2 = math.sqrt(sum(b ** 2 for b in v2))
+        mag1 = math.sqrt(sum(a**2 for a in v1))
+        mag2 = math.sqrt(sum(b**2 for b in v2))
         return dot / (mag1 * mag2) if mag1 and mag2 else 0
 
     texts = [
@@ -145,9 +144,7 @@ def test_similarity():
 
     embeddings = []
     for text in texts:
-        emb, _, error = get_embeddings(
-            EMBEDDINGS_ENDPOINT, "mxbai-embed-large", text
-        )
+        emb, _, error = get_embeddings(EMBEDDINGS_ENDPOINT, "mxbai-embed-large", text)
         if not error:
             embeddings.append((text, emb))
 
@@ -157,6 +154,7 @@ def test_similarity():
         for text, emb in embeddings[1:]:
             similarity = cosine_similarity(base_emb, emb)
             print(f"🔗 vs '{text}' → similarity: {similarity:.4f}")
+
 
 # ================================================================
 # MAIN

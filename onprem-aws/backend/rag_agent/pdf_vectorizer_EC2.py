@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import copy
 import io
-import json
 import logging
 import re
 import time
@@ -41,20 +40,22 @@ logger = logging.getLogger(__name__)
 # Default constants (can be overridden via function parameters)
 # ---------------------------------------------------------------------------
 
-DEFAULT_REGION                  = "us-east-2"
-DEFAULT_EMBEDDINGS_ENDPOINT     = "http://ec2-3-208-23-94.compute-1.amazonaws.com:11434"
-DEFAULT_EMBEDDINGS_MODEL        = "mxbai-embed-large"
-DEFAULT_EMBEDDING_DIMS          = 1024
-DEFAULT_EMBEDDINGS_TIMEOUT      = 30        # seconds per embedding request
-DEFAULT_MAX_PAGES_PER_CHUNK     = 2
-DEFAULT_MAX_EMBED_CHARS         = 6_000
-DEFAULT_COMPRESSION_TARGET_MB   = 4.0
+DEFAULT_REGION = "us-east-2"
+DEFAULT_EMBEDDINGS_ENDPOINT = "http://ec2-3-208-23-94.compute-1.amazonaws.com:11434"
+DEFAULT_EMBEDDINGS_MODEL = "mxbai-embed-large"
+DEFAULT_EMBEDDING_DIMS = 1024
+DEFAULT_EMBEDDINGS_TIMEOUT = 30  # seconds per embedding request
+DEFAULT_MAX_PAGES_PER_CHUNK = 2
+DEFAULT_MAX_EMBED_CHARS = 6_000
+DEFAULT_COMPRESSION_TARGET_MB = 4.0
 DEFAULT_COMPRESSION_QUALITY_STEPS = [85, 70, 50, 30]
-DEFAULT_CHUNK_SIZE_LIMIT_MB     = 4.5
-DEFAULT_VECTOR_BATCH_SIZE       = 100
-DEFAULT_CHUNK_STRATEGY          = "length"  # Supported values: "length", "section"
-DEFAULT_CHUNK_OVERLAP           = 100       # Overlap in characters between length-based chunks
-SECTION_HEADING_PATTERN         = r"(?m)^#{1,6}\s+.+$|^[A-Z][^\n]{0,80}\n[-=]{3,}"  # Markdown + underline headings
+DEFAULT_CHUNK_SIZE_LIMIT_MB = 4.5
+DEFAULT_VECTOR_BATCH_SIZE = 100
+DEFAULT_CHUNK_STRATEGY = "length"  # Supported values: "length", "section"
+DEFAULT_CHUNK_OVERLAP = 100  # Overlap in characters between length-based chunks
+SECTION_HEADING_PATTERN = (
+    r"(?m)^#{1,6}\s+.+$|^[A-Z][^\n]{0,80}\n[-=]{3,}"  # Markdown + underline headings
+)
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +158,7 @@ def list_s3_files(
         key = obj["Key"]
         if key == folder_path:
             continue
-        relative = key[len(folder_path):]
+        relative = key[len(folder_path) :]
         if "/" in relative:
             continue  # Skip files in nested sub-folders
         if extension_filter and not key.lower().endswith(extension_filter.lower()):
@@ -220,7 +221,9 @@ def compress_pdf_chunk(
 
             size_mb = len(compressed_bytes) / (1024 * 1024)
             if size_mb <= target_size_mb:
-                logger.info("Chunk compressed to %.2f MB (quality=%d)", size_mb, quality)
+                logger.info(
+                    "Chunk compressed to %.2f MB (quality=%d)", size_mb, quality
+                )
                 return compressed_bytes
 
             logger.debug("Quality %d -> %.2f MB (still too large)", quality, size_mb)
@@ -284,7 +287,9 @@ def split_pdf_into_chunks(
         if size_mb > chunk_size_limit_mb:
             logger.warning(
                 "Chunk %d/%d is %.2f MB -> attempting compression...",
-                idx + 1, num_chunks, size_mb,
+                idx + 1,
+                num_chunks,
+                size_mb,
             )
             compressed = compress_pdf_chunk(
                 chunk_doc,
@@ -292,7 +297,9 @@ def split_pdf_into_chunks(
                 quality_steps=compression_quality_steps,
             )
             if compressed is None:
-                logger.error("Chunk %d/%d skipped (could not compress)", idx + 1, num_chunks)
+                logger.error(
+                    "Chunk %d/%d skipped (could not compress)", idx + 1, num_chunks
+                )
                 chunk_doc.close()
                 continue
             chunk_bytes = compressed
@@ -338,9 +345,11 @@ def extract_text_with_fitz(
                 # Extract text blocks and join them preserving reading order
                 blocks = page.get_text("blocks")
                 page_text = "\n".join(
-                    block[4]                     # block[4] is the text content
-                    for block in sorted(blocks, key=lambda b: (b[1], b[0]))  # sort top-to-bottom, left-to-right
-                    if block[6] == 0             # block type 0 = text (not image)
+                    block[4]  # block[4] is the text content
+                    for block in sorted(
+                        blocks, key=lambda b: (b[1], b[0])
+                    )  # sort top-to-bottom, left-to-right
+                    if block[6] == 0  # block type 0 = text (not image)
                 )
             else:
                 page_text = page.get_text("text")
@@ -431,7 +440,9 @@ def chunk_text_by_section(
 
     # No headings detected — treat the entire text as one section
     if not matches:
-        logger.debug("No section headings found; falling back to length-based chunking.")
+        logger.debug(
+            "No section headings found; falling back to length-based chunking."
+        )
         return chunk_text_by_length(text, max_chars=max_chars, overlap=0)
 
     # Build section boundaries from heading positions
@@ -493,7 +504,9 @@ def split_text_into_embed_chunks(
     if strategy == "length":
         return chunk_text_by_length(text, max_chars=max_chars, overlap=overlap)
     else:  # section
-        return chunk_text_by_section(text, max_chars=max_chars, heading_pattern=heading_pattern)
+        return chunk_text_by_section(
+            text, max_chars=max_chars, heading_pattern=heading_pattern
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -612,7 +625,7 @@ def process_pdf_to_vectors(
     Raises:
         ValueError: If an unsupported chunk_strategy value is provided.
     """
-    s3  = s3_client      or boto3.client("s3")
+    s3 = s3_client or boto3.client("s3")
     s3v = s3vectors_client or boto3.client("s3vectors", region_name=region)
 
     logger.info("=== Starting: %s (strategy=%s) ===", file_key, chunk_strategy)
@@ -625,7 +638,9 @@ def process_pdf_to_vectors(
         logger.info("      Size: %.2f MB", len(pdf_bytes) / (1024 * 1024))
 
         # Step 2: Split into page-chunks
-        logger.info("[2/3] Splitting into chunks (max %d pages)...", max_pages_per_chunk)
+        logger.info(
+            "[2/3] Splitting into chunks (max %d pages)...", max_pages_per_chunk
+        )
         chunks = split_pdf_into_chunks(
             pdf_bytes=pdf_bytes,
             max_pages_per_chunk=max_pages_per_chunk,
@@ -637,7 +652,9 @@ def process_pdf_to_vectors(
         clean_name = sanitize_filename(file_key.split("/")[-1])
 
         # Step 3: Extract text, chunk, and embed
-        logger.info("[3/3] Processing %d chunks (fitz -> %s)...", len(chunks), embeddings_model)
+        logger.info(
+            "[3/3] Processing %d chunks (fitz -> %s)...", len(chunks), embeddings_model
+        )
         vectors_prepared: list[dict[str, Any]] = []
 
         vectors_failed = 0
@@ -646,16 +663,23 @@ def process_pdf_to_vectors(
             chunk_key = f"{clean_name}-chunk-{idx}"
             logger.info(
                 "  Chunk %d/%d | pages %d-%d",
-                idx + 1, len(chunks), start_page + 1, end_page,
+                idx + 1,
+                len(chunks),
+                start_page + 1,
+                end_page,
             )
 
             try:
                 # Extract text locally with fitz
-                text = extract_text_with_fitz(chunk_bytes, preserve_layout=preserve_layout)
+                text = extract_text_with_fitz(
+                    chunk_bytes, preserve_layout=preserve_layout
+                )
                 logger.info("    Extracted %d characters", len(text))
 
                 if not text.strip():
-                    logger.warning("    Chunk %d produced empty text, skipping.", idx + 1)
+                    logger.warning(
+                        "    Chunk %d produced empty text, skipping.", idx + 1
+                    )
                     vectors_failed += 1
                     continue
 
@@ -669,12 +693,18 @@ def process_pdf_to_vectors(
                 )
                 logger.info(
                     "    Split into %d sub-chunk(s) | strategy=%s | max_chars=%d",
-                    len(text_chunks), chunk_strategy, max_embed_chars,
+                    len(text_chunks),
+                    chunk_strategy,
+                    max_embed_chars,
                 )
 
                 # Embed and store each sub-chunk as an independent vector
                 for sub_idx, text_chunk in enumerate(text_chunks):
-                    sub_key = f"{chunk_key}-sub-{sub_idx}" if len(text_chunks) > 1 else chunk_key
+                    sub_key = (
+                        f"{chunk_key}-sub-{sub_idx}"
+                        if len(text_chunks) > 1
+                        else chunk_key
+                    )
 
                     embedding = embed_text_with_mxbai(
                         text=text_chunk,
@@ -684,39 +714,49 @@ def process_pdf_to_vectors(
                     )
                     logger.info(
                         "    Sub-chunk %d/%d embedded | %d dims | key=%s",
-                        sub_idx + 1, len(text_chunks), len(embedding), sub_key,
+                        sub_idx + 1,
+                        len(text_chunks),
+                        len(embedding),
+                        sub_key,
                     )
 
                     vector_data: dict[str, Any] = {
                         "key": sub_key,
                         "data": {"float32": embedding},
                         "metadata": {
-                            "source_bucket":        bucket_name,
-                            "source_key":           file_key,
-                            "start_page":           start_page,
-                            "end_page":             end_page,
-                            "chunk_index":          idx,
-                            "sub_chunk_index":      sub_idx,
-                            "chunk_strategy":       chunk_strategy,
-                            "text_extractor":       "fitz",
+                            "source_bucket": bucket_name,
+                            "source_key": file_key,
+                            "start_page": start_page,
+                            "end_page": end_page,
+                            "chunk_index": idx,
+                            "sub_chunk_index": sub_idx,
+                            "chunk_strategy": chunk_strategy,
+                            "text_extractor": "fitz",
                             "original_text_length": len(text),
-                            "sub_chunk_length":     len(text_chunk),
-                            "embedding_model":      embeddings_model,
-                            "dimensions":           len(embedding),
-                            "created_at":           datetime.now(timezone.utc).isoformat(),
-                            "text":                 text_chunk,   # store the actual chunk text for RAG retrieval
+                            "sub_chunk_length": len(text_chunk),
+                            "embedding_model": embeddings_model,
+                            "dimensions": len(embedding),
+                            "created_at": datetime.now(timezone.utc).isoformat(),
+                            "text": text_chunk,  # store the actual chunk text for RAG retrieval
                         },
                     }
                     vectors_prepared.append(copy.deepcopy(vector_data))
 
             except Exception:
-                logger.warning("  Chunk %d/%d FAILED, skipping.", idx + 1, len(chunks), exc_info=True)
+                logger.warning(
+                    "  Chunk %d/%d FAILED, skipping.",
+                    idx + 1,
+                    len(chunks),
+                    exc_info=True,
+                )
                 vectors_failed += 1
                 continue
 
         logger.info(
             "  Chunks done | %d succeeded | %d failed | %d vectors prepared",
-            len(chunks) - vectors_failed, vectors_failed, len(vectors_prepared),
+            len(chunks) - vectors_failed,
+            vectors_failed,
+            len(vectors_prepared),
         )
 
         # Store vectors in S3 Vectors
@@ -746,7 +786,9 @@ def process_pdf_to_vectors(
 
         logger.info(
             "=== COMPLETED: %s | %d/%d chunks processed ===",
-            file_key, len(vectors_prepared), len(chunks),
+            file_key,
+            len(vectors_prepared),
+            len(chunks),
         )
         return vectors_prepared
 
@@ -818,7 +860,7 @@ def batch_process_pdfs(
         Cumulative list of all successfully processed vectors.
     """
     # Create AWS clients once and reuse across the entire batch
-    s3  = s3_client       or boto3.client("s3")
+    s3 = s3_client or boto3.client("s3")
     s3v = s3vectors_client or boto3.client("s3vectors", region_name=region)
 
     all_vectors: list[dict[str, Any]] = []
@@ -827,7 +869,11 @@ def batch_process_pdfs(
 
     logger.info(
         "### BATCH PROCESSING | source: s3://%s | target: %s/%s | strategy: %s | model: %s ###",
-        bucket_name, vector_bucket_name, index_name, chunk_strategy, embeddings_model,
+        bucket_name,
+        vector_bucket_name,
+        index_name,
+        chunk_strategy,
+        embeddings_model,
     )
 
     for folder in folders:
@@ -872,7 +918,9 @@ def batch_process_pdfs(
 
     logger.info(
         "### BATCH COMPLETE | successful: %d | failed: %d | total vectors: %d ###",
-        successful, failed, len(all_vectors),
+        successful,
+        failed,
+        len(all_vectors),
     )
     return all_vectors
 
@@ -936,7 +984,9 @@ def clear_vector_index(
 
             deleted_in_batch = len(keys) - len(failures)
             total_deleted += deleted_in_batch
-            logger.debug("Batch deleted: %d vectors (total: %d)", deleted_in_batch, total_deleted)
+            logger.debug(
+                "Batch deleted: %d vectors (total: %d)", deleted_in_batch, total_deleted
+            )
 
             time.sleep(delay_between_batches)
 

@@ -20,13 +20,14 @@ Public API
     scan_section_boundaries(pdf_bytes, config) -> SectionMap
     build_batches(section_map, pdf_bytes, config) -> list[BatchSlice]
 """
+
 from __future__ import annotations
 
 import io
 import logging
 import re
 import statistics
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import fitz  # PyMuPDF — for batch byte slicing
@@ -54,10 +55,11 @@ _NUMBERED_HEADING_RE = re.compile(
 # Result dataclasses
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class SectionBoundary:
     title: str
-    page_number: int   # 1-based
+    page_number: int  # 1-based
     detection_method: str  # "font_size" | "numbering" | "all_caps"
 
 
@@ -71,8 +73,8 @@ class SectionMap:
 @dataclass
 class BatchSlice:
     batch_index: int
-    page_start: int    # 1-based, inclusive
-    page_end: int      # 1-based, inclusive
+    page_start: int  # 1-based, inclusive
+    page_end: int  # 1-based, inclusive
     pdf_bytes: bytes
     size_mb: float
 
@@ -80,6 +82,7 @@ class BatchSlice:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _is_all_caps_heading(text: str) -> bool:
     stripped = text.strip()
@@ -117,7 +120,9 @@ def _extract_font_size_headings(pdf_path_or_stream: Any) -> list[tuple[int, str]
                 current_line: list[dict] = []
                 prev_top = None
 
-                for word in sorted(words, key=lambda w: (w.get("top", 0), w.get("x0", 0))):
+                for word in sorted(
+                    words, key=lambda w: (w.get("top", 0), w.get("x0", 0))
+                ):
                     top = word.get("top", 0)
                     if prev_top is None or abs(top - prev_top) < 3:
                         current_line.append(word)
@@ -170,9 +175,7 @@ def _extract_numbered_headings(pdf_path_or_stream: Any) -> list[tuple[int, str]]
     return results
 
 
-def _deduplicate_boundaries(
-    raw: list[tuple[int, str, str]]
-) -> list[SectionBoundary]:
+def _deduplicate_boundaries(raw: list[tuple[int, str, str]]) -> list[SectionBoundary]:
     """Deduplicate headings found by multiple detection methods on the same page."""
     seen: set[tuple[int, str]] = set()
     out: list[SectionBoundary] = []
@@ -180,17 +183,20 @@ def _deduplicate_boundaries(
         key = (page_num, title[:60].lower())
         if key not in seen:
             seen.add(key)
-            out.append(SectionBoundary(
-                title=title,
-                page_number=page_num,
-                detection_method=method,
-            ))
+            out.append(
+                SectionBoundary(
+                    title=title,
+                    page_number=page_num,
+                    detection_method=method,
+                )
+            )
     return out
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def scan_section_boundaries(
     pdf_bytes: bytes,
@@ -208,7 +214,7 @@ def scan_section_boundaries(
     Returns:
         SectionMap with a list of SectionBoundary entries sorted by page number.
     """
-    pdf_stream = io.BytesIO(pdf_bytes)
+    pdf_stream = io.BytesIO(pdf_bytes)  # noqa: F841
 
     # Determine total page count via fitz (fast xref read)
     try:
@@ -271,7 +277,9 @@ def build_batches(
     if section_map.boundaries:
         boundary_pages = sorted({b.page_number for b in section_map.boundaries})
     else:
-        logger.warning("No section boundaries detected; falling back to page-count splits")
+        logger.warning(
+            "No section boundaries detected; falling back to page-count splits"
+        )
         boundary_pages = list(range(1, total_pages + 1, config.batch_max_pages))
 
     # Open the full PDF for slicing
@@ -288,22 +296,23 @@ def build_batches(
         chunk.close()
         return data
 
-    i = 0
     while start_page <= total_pages:
         # Tentatively accumulate pages until we hit a size or page limit
         candidate_end = start_page
-        last_valid_boundary = start_page
+        last_valid_boundary = start_page  # noqa: F841
 
         while candidate_end <= total_pages:
             # Check if adding one more page to this batch would exceed limits
             tentative_end = min(candidate_end + config.batch_max_pages - 1, total_pages)
             # Find the largest boundary page ≤ tentative_end
-            valid_end = start_page
+            valid_end = start_page  # noqa: F841
             for bp in boundary_pages:
                 if start_page < bp <= tentative_end:
-                    valid_end = bp - 1  # cut just before the next section starts
+                    valid_end = (
+                        bp - 1
+                    )  # cut just before the next section starts  # noqa: F841
                 elif bp == start_page:
-                    valid_end = start_page
+                    valid_end = start_page  # noqa: F841
 
             # If we'd exceed batch_max_pages, cut at the last valid boundary
             pages_in_batch = tentative_end - start_page + 1
@@ -320,16 +329,21 @@ def build_batches(
                 batch_bytes = _slice_to_bytes(start_page, actual_end)
                 size_mb = len(batch_bytes) / (1024 * 1024)
 
-                batches.append(BatchSlice(
-                    batch_index=batch_index,
-                    page_start=start_page,
-                    page_end=actual_end,
-                    pdf_bytes=batch_bytes,
-                    size_mb=size_mb,
-                ))
+                batches.append(
+                    BatchSlice(
+                        batch_index=batch_index,
+                        page_start=start_page,
+                        page_end=actual_end,
+                        pdf_bytes=batch_bytes,
+                        size_mb=size_mb,
+                    )
+                )
                 logger.info(
                     "Batch %d: pages %d–%d (%.2f MB)",
-                    batch_index, start_page, actual_end, size_mb,
+                    batch_index,
+                    start_page,
+                    actual_end,
+                    size_mb,
                 )
                 start_page = actual_end + 1
                 batch_index += 1
@@ -340,16 +354,21 @@ def build_batches(
                 size_mb = len(batch_bytes) / (1024 * 1024)
                 if size_mb <= config.batch_max_mb:
                     # The rest fits — create the final batch
-                    batches.append(BatchSlice(
-                        batch_index=batch_index,
-                        page_start=start_page,
-                        page_end=total_pages,
-                        pdf_bytes=batch_bytes,
-                        size_mb=size_mb,
-                    ))
+                    batches.append(
+                        BatchSlice(
+                            batch_index=batch_index,
+                            page_start=start_page,
+                            page_end=total_pages,
+                            pdf_bytes=batch_bytes,
+                            size_mb=size_mb,
+                        )
+                    )
                     logger.info(
                         "Batch %d (final): pages %d–%d (%.2f MB)",
-                        batch_index, start_page, total_pages, size_mb,
+                        batch_index,
+                        start_page,
+                        total_pages,
+                        size_mb,
                     )
                     start_page = total_pages + 1
                     batch_index += 1
@@ -365,16 +384,21 @@ def build_batches(
                         cut_at = start_page + config.batch_max_pages - 1
                     batch_bytes = _slice_to_bytes(start_page, cut_at)
                     size_mb = len(batch_bytes) / (1024 * 1024)
-                    batches.append(BatchSlice(
-                        batch_index=batch_index,
-                        page_start=start_page,
-                        page_end=cut_at,
-                        pdf_bytes=batch_bytes,
-                        size_mb=size_mb,
-                    ))
+                    batches.append(
+                        BatchSlice(
+                            batch_index=batch_index,
+                            page_start=start_page,
+                            page_end=cut_at,
+                            pdf_bytes=batch_bytes,
+                            size_mb=size_mb,
+                        )
+                    )
                     logger.info(
                         "Batch %d: pages %d–%d (%.2f MB)",
-                        batch_index, start_page, cut_at, size_mb,
+                        batch_index,
+                        start_page,
+                        cut_at,
+                        size_mb,
                     )
                     start_page = cut_at + 1
                     batch_index += 1

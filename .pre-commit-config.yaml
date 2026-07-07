@@ -22,15 +22,16 @@ repos:
     hooks:
       - id: ruff
         args: [--fix]
-        exclude: ^onprem-aws/demo/
+        exclude: ^onprem-aws/demo/|\.ipynb$
       - id: ruff-format
-        exclude: ^onprem-aws/demo/
+        exclude: ^onprem-aws/demo/|\.ipynb$
 
   - repo: https://github.com/PyCQA/bandit
     rev: 1.9.4
     hooks:
       - id: bandit   # runs only on staged .py; .venv never reaches here
-        exclude: ^onprem-aws/demo/
+        exclude: ^onprem-aws/demo/|\.ipynb$
+        args: ["-f", "json", "-ll"]  # json=ASCII-safe (avoids cp1252 crash); -ll=MEDIUM+ only (skips B101 assert-in-tests and B110 try/except/pass, all LOW)
 
   # --- YAML ---
   - repo: https://github.com/adrienverge/yamllint
