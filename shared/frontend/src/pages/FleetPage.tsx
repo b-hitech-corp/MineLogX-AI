@@ -16,7 +16,7 @@ export function FleetPage() {
   const { data } = useCompanyData()
 
   useEffect(() => {
-    getFleetAssets().then(setAssets)
+    getFleetAssets().then(setAssets).catch((err) => console.error('Failed to load fleet assets:', err))
   }, [])
 
   const filtered = filter === 'all' ? assets : assets.filter((a) => a.status === filter)

@@ -5,6 +5,7 @@ const CHAT_ENDPOINT =
     : 'https://szfoqv25uftblx6xpowrslzi3y0yumcy.lambda-url.us-east-1.on.aws/')
 
 export async function sendChatPrompt(query: string, model?: string): Promise<string> {
+  console.log(`Sending chat prompt: ${JSON.stringify({ query, model })}`)
   const res = await fetch(CHAT_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

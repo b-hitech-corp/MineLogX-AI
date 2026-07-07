@@ -15,8 +15,8 @@ export function FuelPage() {
   const { data } = useCompanyData()
 
   useEffect(() => {
-    getFuelRecords().then(setRecords)
-    getFuelTrend().then(setTrend)
+    getFuelRecords().then(setRecords).catch((err) => console.error('Failed to load fuel records:', err))
+    getFuelTrend().then(setTrend).catch((err) => console.error('Failed to load fuel trend:', err))
   }, [])
 
   const totalConsumed = records.reduce((s, r) => s + r.fuelUsedLitres, 0)
