@@ -26,6 +26,8 @@ scipy>=1.12.0          # optional: data_analysis_agent/tools/stats_analyzer.py
 # pyarrow (~40-90 MB) is what keeps the CSV Lambda within its size budget.
 
 # --- LLM SDK (Anthropic Claude via Bedrock) ---
+# Only csv_pipeline still uses this (schema_inspector.py). data_analysis_agent
+# was migrated to native boto3 invoke_model; drop this once csv_pipeline follows.
 anthropic[bedrock]==0.112.0    # uses anthropic.AnthropicBedrock
 
 # --- PDF parsing (PDF vectorization pipeline) ---

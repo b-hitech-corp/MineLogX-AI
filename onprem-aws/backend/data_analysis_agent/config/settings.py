@@ -36,7 +36,7 @@ class BedrockConfig:
     # Cross-region inference profile for Claude Sonnet 4.6.
     # Override with BEDROCK_MODEL_ID if the exact version string differs in your account.
     model_id: str = field(default_factory=lambda: os.getenv(
-        "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6-20250514-v1:0"
+        "BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6"
     ))
     max_tokens: int = 8096
     max_agent_turns: int = 20

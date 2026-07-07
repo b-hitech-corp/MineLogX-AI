@@ -9,7 +9,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import data_analysis_agent.agent.bedrock_orchestrator as orch
 from data_analysis_agent.agent.bedrock_orchestrator import FleetAgent, AgentResult, _dispatch
@@ -17,31 +17,21 @@ from data_analysis_agent.config.settings import settings
 
 
 # ---------------------------------------------------------------------------
-# Response builders
+# Response builders — plain dicts matching invoke_claude's return shape
+# (the parsed Bedrock invoke_model body: {"stop_reason": ..., "content": [...]})
 # ---------------------------------------------------------------------------
 
-def _end_turn(text: str) -> MagicMock:
-    """Mock Anthropic response with stop_reason='end_turn'."""
-    block = MagicMock()
-    block.type = "text"
-    block.text = text
-    resp = MagicMock()
-    resp.stop_reason = "end_turn"
-    resp.content = [block]
-    return resp
+def _end_turn(text: str) -> dict:
+    """Mock invoke_claude response with stop_reason='end_turn'."""
+    return {"stop_reason": "end_turn", "content": [{"type": "text", "text": text}]}
 
 
-def _tool_use(name: str, tool_id: str, inputs: dict) -> MagicMock:
-    """Mock Anthropic response with stop_reason='tool_use'."""
-    block = MagicMock()
-    block.type = "tool_use"
-    block.name = name
-    block.id = tool_id
-    block.input = inputs
-    resp = MagicMock()
-    resp.stop_reason = "tool_use"
-    resp.content = [block]
-    return resp
+def _tool_use(name: str, tool_id: str, inputs: dict) -> dict:
+    """Mock invoke_claude response with stop_reason='tool_use'."""
+    return {
+        "stop_reason": "tool_use",
+        "content": [{"type": "tool_use", "name": name, "id": tool_id, "input": inputs}],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -50,16 +40,10 @@ def _tool_use(name: str, tool_id: str, inputs: dict) -> MagicMock:
 
 class TestFleetAgentInit:
 
-    def test_bedrock_client_created_with_configured_region(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.anthropic.AnthropicBedrock") as MockClient:
-            FleetAgent()
-            MockClient.assert_called_once_with(aws_region=settings.bedrock.region)
-
     def test_max_turns_from_settings(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.anthropic.AnthropicBedrock"):
-            agent = FleetAgent()
-            assert agent.max_turns == settings.bedrock.max_agent_turns
-            assert agent.max_turns > 0
+        agent = FleetAgent()
+        assert agent.max_turns == settings.bedrock.max_agent_turns
+        assert agent.max_turns > 0
 
 
 # ---------------------------------------------------------------------------
@@ -70,45 +54,49 @@ class TestFleetAgentRun:
 
     @pytest.fixture
     def agent(self):
-        with patch("data_analysis_agent.agent.bedrock_orchestrator.anthropic.AnthropicBedrock"):
-            return FleetAgent()
+        return FleetAgent()
 
-    def test_returns_agent_result_instance(self, agent):
-        agent.client.messages.create.return_value = _end_turn("Done.")
+    @pytest.fixture
+    def mock_invoke(self):
+        with patch("data_analysis_agent.agent.bedrock_orchestrator.invoke_claude") as m:
+            yield m
+
+    def test_returns_agent_result_instance(self, agent, mock_invoke):
+        mock_invoke.return_value = _end_turn("Done.")
         result = agent.run("Summarise fleet performance")
         assert isinstance(result, AgentResult)
 
-    def test_summary_is_text_from_end_turn(self, agent):
-        agent.client.messages.create.return_value = _end_turn("Top vehicle is V003.")
+    def test_summary_is_text_from_end_turn(self, agent, mock_invoke):
+        mock_invoke.return_value = _end_turn("Top vehicle is V003.")
         result = agent.run("Who is the most fuel-efficient vehicle?")
         assert result.summary == "Top vehicle is V003."
 
-    def test_charts_empty_when_no_chart_tools_called(self, agent):
-        agent.client.messages.create.return_value = _end_turn("12 vehicles.")
+    def test_charts_empty_when_no_chart_tools_called(self, agent, mock_invoke):
+        mock_invoke.return_value = _end_turn("12 vehicles.")
         result = agent.run("How many vehicles?")
         assert result.charts == []
 
-    def test_run_resets_charts_from_previous_run(self, agent):
+    def test_run_resets_charts_from_previous_run(self, agent, mock_invoke):
         orch._run_charts = [{"chart_type": "LineChart", "title": "Stale"}]
-        agent.client.messages.create.return_value = _end_turn("Done.")
+        mock_invoke.return_value = _end_turn("Done.")
         result = agent.run("Any question")
         assert result.charts == []
 
-    def test_successive_runs_do_not_share_charts(self, agent):
+    def test_successive_runs_do_not_share_charts(self, agent, mock_invoke):
         def first_run(*args, **kwargs):
             orch._run_charts.append({"chart_type": "BarChart", "title": "Run 1"})
             return _end_turn("First.")
 
-        agent.client.messages.create.side_effect = first_run
+        mock_invoke.side_effect = first_run
         agent.run("First question")
 
-        agent.client.messages.create.side_effect = None
-        agent.client.messages.create.return_value = _end_turn("Second.")
+        mock_invoke.side_effect = None
+        mock_invoke.return_value = _end_turn("Second.")
         result = agent.run("Second question")
         assert result.charts == []
 
-    def test_tool_call_logged(self, agent):
-        agent.client.messages.create.side_effect = [
+    def test_tool_call_logged(self, agent, mock_invoke):
+        mock_invoke.side_effect = [
             _tool_use("kpi_engine__available_kpis", "t1", {}),
             _end_turn("KPIs listed."),
         ]
@@ -118,8 +106,8 @@ class TestFleetAgentRun:
         assert len(result.tool_calls) == 1
         assert result.tool_calls[0]["tool"] == "kpi_engine__available_kpis"
 
-    def test_turns_incremented_per_api_call(self, agent):
-        agent.client.messages.create.side_effect = [
+    def test_turns_incremented_per_api_call(self, agent, mock_invoke):
+        mock_invoke.side_effect = [
             _tool_use("kpi_engine__available_kpis", "t1", {}),
             _end_turn("Done."),
         ]
@@ -127,41 +115,41 @@ class TestFleetAgentRun:
             result = agent.run("Any question")
         assert result.turns == 2
 
-    def test_model_id_passed_to_api(self, agent):
-        agent.client.messages.create.return_value = _end_turn("Done.")
+    def test_model_id_passed_to_api(self, agent, mock_invoke):
+        mock_invoke.return_value = _end_turn("Done.")
         agent.run("Any question")
-        kwargs = agent.client.messages.create.call_args.kwargs
-        assert kwargs["model"] == settings.bedrock.model_id
+        kwargs = mock_invoke.call_args.kwargs
+        assert kwargs["model_id"] == settings.bedrock.model_id
 
-    def test_system_prompt_passed_to_api(self, agent):
-        agent.client.messages.create.return_value = _end_turn("Done.")
+    def test_system_prompt_passed_to_api(self, agent, mock_invoke):
+        mock_invoke.return_value = _end_turn("Done.")
         agent.run("Any question")
-        kwargs = agent.client.messages.create.call_args.kwargs
+        kwargs = mock_invoke.call_args.kwargs
         assert isinstance(kwargs["system"], str)
         assert len(kwargs["system"]) > 0
 
-    def test_first_message_is_user_role(self, agent):
-        agent.client.messages.create.return_value = _end_turn("Done.")
+    def test_first_message_is_user_role(self, agent, mock_invoke):
+        mock_invoke.return_value = _end_turn("Done.")
         agent.run("How many vehicles?")
-        messages = agent.client.messages.create.call_args.kwargs["messages"]
+        messages = mock_invoke.call_args.args[0]
         assert messages[0]["role"] == "user"
 
-    def test_tool_result_sent_as_user_message(self, agent):
-        agent.client.messages.create.side_effect = [
+    def test_tool_result_sent_as_user_message(self, agent, mock_invoke):
+        mock_invoke.side_effect = [
             _tool_use("kpi_engine__available_kpis", "tool_abc", {}),
             _end_turn("Done."),
         ]
         with patch("data_analysis_agent.agent.bedrock_orchestrator._dispatch", return_value={"available_kpis": []}):
             agent.run("List KPIs")
 
-        second_call_messages = agent.client.messages.create.call_args_list[1].kwargs["messages"]
+        second_call_messages = mock_invoke.call_args_list[1].args[0]
         last_msg = second_call_messages[-1]
         assert last_msg["role"] == "user"
         assert last_msg["content"][0]["type"] == "tool_result"
         assert last_msg["content"][0]["tool_use_id"] == "tool_abc"
 
-    def test_dispatch_exception_does_not_raise(self, agent):
-        agent.client.messages.create.side_effect = [
+    def test_dispatch_exception_does_not_raise(self, agent, mock_invoke):
+        mock_invoke.side_effect = [
             _tool_use("kpi_engine__available_kpis", "t1", {}),
             _end_turn("Done anyway."),
         ]
@@ -169,7 +157,7 @@ class TestFleetAgentRun:
             result = agent.run("List KPIs")
         assert isinstance(result, AgentResult)
 
-    def test_charts_collected_from_chart_tool(self, agent):
+    def test_charts_collected_from_chart_tool(self, agent, mock_invoke):
         fake_spec = {"chart_type": "BarChart", "title": "Fuel"}
 
         def fake_dispatch(name, inputs):
@@ -178,7 +166,7 @@ class TestFleetAgentRun:
                 return fake_spec
             return {}
 
-        agent.client.messages.create.side_effect = [
+        mock_invoke.side_effect = [
             _tool_use("chart_spec_builder__build_bar_chart", "t1",
                       {"title": "Fuel", "data": [], "x_key": "id", "y_keys": ["v"]}),
             _end_turn("Chart built."),
