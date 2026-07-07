@@ -29,10 +29,28 @@ variable "csv_schedule_expression" {
   default     = "rate(1 day)"
 }
 
-variable "lambda_layer_arns" {
-  description = "Runtime-deps layer ARNs for the pipeline Lambdas (built separately)."
-  type        = list(string)
-  default     = []
+variable "build_csv_layer" {
+  description = "Publish the CSV deps layer (built by `fab lambda.build-layer csv` into csv_layer_build_dir). Off by default so `terraform plan` doesn't fail before the layer has been built once."
+  type        = bool
+  default     = false
+}
+
+variable "csv_layer_build_dir" {
+  description = "Directory containing the CSV layer's `python/` tree, produced by `fab lambda.build-layer csv`."
+  type        = string
+  default     = null
+}
+
+variable "build_pdf_layer" {
+  description = "Publish the PDF deps layer (built by `fab lambda.build-layer pdf` into pdf_layer_build_dir). Off by default so `terraform plan` doesn't fail before the layer has been built once."
+  type        = bool
+  default     = false
+}
+
+variable "pdf_layer_build_dir" {
+  description = "Directory containing the PDF layer's `python/` tree, produced by `fab lambda.build-layer pdf`."
+  type        = string
+  default     = null
 }
 
 variable "tags" {
@@ -61,6 +79,9 @@ locals {
 
   telemetry_bucket   = module.s3.bucket_ids["telemetry-data"]
   legislation_bucket = module.s3.bucket_ids["legislation-documents"]
+
+  pdf_layer_build_dir = coalesce(var.pdf_layer_build_dir, "${local.backend_dir}/.layers/pdf")
+  csv_layer_build_dir = coalesce(var.csv_layer_build_dir, "${local.backend_dir}/.layers/csv")
 
   # Bedrock InvokeModel — foundation models + cross-region inference profiles.
   bedrock_model_arns = [
@@ -248,6 +269,13 @@ module "lambda_api" {
   tags = var.tags
 }
 
+module "lambda_layer_csv" {
+  count      = var.build_csv_layer ? 1 : 0
+  source     = "../lambda_layer"
+  layer_name = "${var.name_prefix}-csv-deps"
+  build_dir  = local.csv_layer_build_dir
+}
+
 module "lambda_csv" {
   source        = "../lambda"
   function_name = local.fn.csv
@@ -257,7 +285,7 @@ module "lambda_csv" {
   role_arn      = module.iam.role_arns["csv"]
   timeout       = 300
   memory_size   = 1024
-  layer_arns    = var.lambda_layer_arns
+  layer_arns    = var.build_csv_layer ? [module.lambda_layer_csv[0].arn] : []
   environment = {
     OPENSEARCH_HOST  = module.opensearch.collection_host
     OPENSEARCH_INDEX = "csv_telemetry_vecs"
@@ -266,6 +294,13 @@ module "lambda_csv" {
     GUARDRAIL_ID     = module.bedrock_guardrails.guardrail_id
   }
   tags = var.tags
+}
+
+module "lambda_layer_pdf" {
+  count      = var.build_pdf_layer ? 1 : 0
+  source     = "../lambda_layer"
+  layer_name = "${var.name_prefix}-pdf-deps"
+  build_dir  = local.pdf_layer_build_dir
 }
 
 module "lambda_pdf" {
@@ -277,7 +312,7 @@ module "lambda_pdf" {
   role_arn      = module.iam.role_arns["pdf"]
   timeout       = 300
   memory_size   = 1024
-  layer_arns    = var.lambda_layer_arns
+  layer_arns    = var.build_pdf_layer ? [module.lambda_layer_pdf[0].arn] : []
   environment = {
     OPENSEARCH_HOST      = module.opensearch.collection_host
     PDF_OPENSEARCH_INDEX = "pdf_legal_vecs"

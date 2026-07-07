@@ -18,6 +18,7 @@ Usage
 The report schema is documented in _FILE_REPORT_SCHEMA at the bottom of
 this file and is designed to be consumed directly by the front-end dashboard.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,7 +27,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from data_analysis_agent.config.settings import settings
 from data_analysis_agent.tools import (
     chart_spec_builder,
     csv_loader,
@@ -39,7 +39,7 @@ from data_analysis_agent.tools.s3_browser import list_folder
 
 logger = logging.getLogger(__name__)
 
-_LABEL = lambda col: col.replace("_", " ").title()   # noqa: E731
+_LABEL = lambda col: col.replace("_", " ").title()  # noqa: E731
 
 
 # ---------------------------------------------------------------------------
@@ -49,55 +49,99 @@ _LABEL = lambda col: col.replace("_", " ").title()   # noqa: E731
 # Maps each UI section → the KPI names that belong to it.
 _SECTION_KPIS: dict[str, list[str]] = {
     "fleet": [
-        "fleet_availability", "vehicle_utilization", "mean_cycle_time",
-        "idle_rate", "on_time_delivery",
+        "fleet_availability",
+        "vehicle_utilization",
+        "mean_cycle_time",
+        "idle_rate",
+        "on_time_delivery",
     ],
     "maintenance": [
-        "mean_time_between_failures", "mean_time_to_repair", "unplanned_downtime_rate",
-        "planned_maintenance_compliance", "maintenance_compliance", "oil_sample_compliance",
-        "work_order_backlog_ratio", "pm_schedule_adherence", "defect_capture_rate",
+        "mean_time_between_failures",
+        "mean_time_to_repair",
+        "unplanned_downtime_rate",
+        "planned_maintenance_compliance",
+        "maintenance_compliance",
+        "oil_sample_compliance",
+        "work_order_backlog_ratio",
+        "pm_schedule_adherence",
+        "defect_capture_rate",
         "parts_availability_rate",
     ],
     "kpis": [
-        "pre_shift_inspection_rate", "license_compliance_rate", "training_completion_rate",
-        "incident_reporting_rate", "prediction_accuracy", "anomaly_detection_precision",
+        "pre_shift_inspection_rate",
+        "license_compliance_rate",
+        "training_completion_rate",
+        "incident_reporting_rate",
+        "prediction_accuracy",
+        "anomaly_detection_precision",
         "recommendation_adoption_rate",
     ],
     "load_and_tonnage": [
-        "total_tonnes_moved", "tonnes_per_hour", "haul_truck_productivity",
-        "payload_utilization", "tonnes_per_litre", "overload_rate", "payload_accuracy",
+        "total_tonnes_moved",
+        "tonnes_per_hour",
+        "haul_truck_productivity",
+        "payload_utilization",
+        "tonnes_per_litre",
+        "overload_rate",
+        "payload_accuracy",
     ],
     "fuel": [
-        "fuel_efficiency", "fuel_consumption_rate", "cost_per_km",
-        "co2_per_km", "carbon_intensity", "dust_compliance_rate",
-        "water_intensity", "idle_emission_contribution",
+        "fuel_efficiency",
+        "fuel_consumption_rate",
+        "cost_per_km",
+        "co2_per_km",
+        "carbon_intensity",
+        "dust_compliance_rate",
+        "water_intensity",
+        "idle_emission_contribution",
     ],
     "gps_location": [
-        "mean_haul_distance", "speed_compliance_rate", "route_deviation_rate",
-        "geofence_violation_rate", "queue_time_ratio",
+        "mean_haul_distance",
+        "speed_compliance_rate",
+        "route_deviation_rate",
+        "geofence_violation_rate",
+        "queue_time_ratio",
     ],
     "safety": [
-        "fatigue_event_rate", "speeding_rate", "seatbelt_compliance",
-        "near_miss_rate", "unsafe_behaviour_rate",
+        "fatigue_event_rate",
+        "speeding_rate",
+        "seatbelt_compliance",
+        "near_miss_rate",
+        "unsafe_behaviour_rate",
     ],
 }
 
 # Reverse lookup: kpi_name → section
 _KPI_TO_SECTION: dict[str, str] = {
-    kpi: section
-    for section, kpis in _SECTION_KPIS.items()
-    for kpi in kpis
+    kpi: section for section, kpis in _SECTION_KPIS.items() for kpi in kpis
 }
 
 # Column name keyword fragments used to route stats/outliers/trends to sections.
 _SECTION_COL_KEYWORDS: dict[str, list[str]] = {
-    "fleet":          ["cycle", "util", "avail", "idle", "active", "scheduled", "dispatch"],
-    "maintenance":    ["maint", "repair", "downtime", "failure", "pm_", "service", "mtbf", "mttr"],
-    "kpis":           ["compli", "inspect", "train", "licen"],
+    "fleet": ["cycle", "util", "avail", "idle", "active", "scheduled", "dispatch"],
+    "maintenance": [
+        "maint",
+        "repair",
+        "downtime",
+        "failure",
+        "pm_",
+        "service",
+        "mtbf",
+        "mttr",
+    ],
+    "kpis": ["compli", "inspect", "train", "licen"],
     "load_and_tonnage": ["tonn", "payload", "haul_truck"],
-    "fuel":           ["fuel", "litr", "emis", "co2", "carbon", "water", "dust"],
-    "gps_location":   ["dist", "speed", "route", "geofence", "queue", "trip", "gps"],
-    "safety":         ["fatigue", "safety", "seatbelt", "near_miss", "unsafe", "incident", "tire"],
+    "fuel": ["fuel", "litr", "emis", "co2", "carbon", "water", "dust"],
+    "gps_location": ["dist", "speed", "route", "geofence", "queue", "trip", "gps"],
+    "safety": [
+        "fatigue",
+        "safety",
+        "seatbelt",
+        "near_miss",
+        "unsafe",
+        "incident",
+        "tire",
+    ],
 }
 
 
@@ -113,6 +157,7 @@ def _col_section(col_name: str) -> str | None:
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
+
 
 class FolderPipeline:
     """
@@ -134,8 +179,8 @@ class FolderPipeline:
     """
 
     MAX_METRIC_COLS = 5
-    TOP_N           = 10
-    TREND_FREQ      = "W"
+    TOP_N = 10
+    TREND_FREQ = "W"
 
     def __init__(self, local_mode: bool = False, backend: str = "bedrock") -> None:
         self.local_mode = local_mode
@@ -165,9 +210,9 @@ class FolderPipeline:
         files_data = [self._process_file(fp) for fp in files]
 
         report: dict = {
-            "folder":       folder,
+            "folder": folder,
             "processed_at": datetime.now(timezone.utc).isoformat(),
-            "file_count":   len(files),
+            "file_count": len(files),
             **self._build_dashboard(files_data),
         }
 
@@ -188,13 +233,13 @@ class FolderPipeline:
 
         ctx: dict = {
             "file_path": file_path,
-            "status":    "pending",
-            "schema":    None,
-            "kpis":      {"feasible": [], "infeasible": []},
+            "status": "pending",
+            "schema": None,
+            "kpis": {"feasible": [], "infeasible": []},
             "statistics": None,
-            "insights":  {
-                "outliers":            [],
-                "trends":              [],
+            "insights": {
+                "outliers": [],
+                "trends": [],
                 "performance_summary": None,
             },
             "charts": [],
@@ -202,7 +247,9 @@ class FolderPipeline:
         }
 
         # ── Step 1: Load ──────────────────────────────────────────────
-        raw_schema = self._call(ctx, "load_csv",
+        raw_schema = self._call(
+            ctx,
+            "load_csv",
             csv_loader.load_csv,
             file_path,
             use_local_fallback=self.local_mode,
@@ -212,7 +259,9 @@ class FolderPipeline:
             return ctx
 
         # ── Step 2: Schema discovery ──────────────────────────────────
-        advisor = self._call(ctx, "discover_schema",
+        advisor = self._call(
+            ctx,
+            "discover_schema",
             schema_advisor.discover_schema,
             file_path,
             backend=self.backend,
@@ -221,53 +270,61 @@ class FolderPipeline:
             ctx["status"] = "error"
             return ctx
 
-        entity_cols        = advisor["entity_columns"]
-        dt_cols            = advisor["datetime_columns"]
-        metric_cols        = advisor["metric_columns"][:self.MAX_METRIC_COLS]
-        feasible_kpis      = advisor["feasible_kpis"]
-        column_mapping     = advisor.get("column_mapping", {})
+        entity_cols = advisor["entity_columns"]
+        dt_cols = advisor["datetime_columns"]
+        metric_cols = advisor["metric_columns"][: self.MAX_METRIC_COLS]
+        feasible_kpis = advisor["feasible_kpis"]
+        column_mapping = advisor.get("column_mapping", {})
         direct_kpi_mapping = advisor.get("direct_kpi_mapping", {})
 
         ctx["schema"] = {
-            "row_count":           raw_schema["row_count"],
-            "column_count":        raw_schema["column_count"],
-            "entity_columns":      entity_cols,
-            "datetime_columns":    dt_cols,
-            "metric_columns":      metric_cols,
+            "row_count": raw_schema["row_count"],
+            "column_count": raw_schema["column_count"],
+            "entity_columns": entity_cols,
+            "datetime_columns": dt_cols,
+            "metric_columns": metric_cols,
             "categorical_columns": advisor["categorical_columns"],
-            "timestamp_pairs":     advisor["timestamp_pairs"],
-            "column_mapping":      column_mapping,
-            "direct_kpi_mapping":  direct_kpi_mapping,
-            "data_quality":        self._data_quality(raw_schema),
-            "preview_rows":        raw_schema.get("preview_rows", []),
+            "timestamp_pairs": advisor["timestamp_pairs"],
+            "column_mapping": column_mapping,
+            "direct_kpi_mapping": direct_kpi_mapping,
+            "data_quality": self._data_quality(raw_schema),
+            "preview_rows": raw_schema.get("preview_rows", []),
         }
 
         # ── Step 3: KPIs ──────────────────────────────────────────────
         kpi_raw = None
         if feasible_kpis:
-            kpi_raw = self._call(ctx, "kpi_calculation",
+            kpi_raw = self._call(
+                ctx,
+                "kpi_calculation",
                 kpi_engine.calculate_kpi,
-                file_path, feasible_kpis,
+                file_path,
+                feasible_kpis,
                 column_mapping=column_mapping,
                 direct_kpi_mapping=direct_kpi_mapping,
             )
         ctx["kpis"] = {
-            "feasible":   self._format_kpi_results(kpi_raw, feasible_kpis),
+            "feasible": self._format_kpi_results(kpi_raw, feasible_kpis),
             "infeasible": advisor["infeasible_kpis"],
         }
 
         # ── Step 4: Statistics ────────────────────────────────────────
         if metric_cols:
-            stats_raw = self._call(ctx, "statistics",
+            stats_raw = self._call(
+                ctx,
+                "statistics",
                 stats_analyzer.describe_columns,
-                file_path, metric_cols,
+                file_path,
+                metric_cols,
             )
             ctx["statistics"] = stats_raw.get("statistics") if stats_raw else None
 
         # ── Step 5: Ranking ───────────────────────────────────────────
         ranking_raw = None
         if metric_cols and entity_cols:
-            ranking_raw = self._call(ctx, "ranking",
+            ranking_raw = self._call(
+                ctx,
+                "ranking",
                 stats_analyzer.rank_entities,
                 file_path,
                 metric_cols[0],
@@ -278,55 +335,81 @@ class FolderPipeline:
         # ── Step 6: Time series ───────────────────────────────────────
         ts_raw = None
         if dt_cols and metric_cols:
-            ts_raw = self._call(ctx, "time_series",
+            ts_raw = self._call(
+                ctx,
+                "time_series",
                 stats_analyzer.time_series_aggregation,
-                file_path, dt_cols[0], metric_cols[:2],
+                file_path,
+                dt_cols[0],
+                metric_cols[:2],
                 freq=self.TREND_FREQ,
             )
 
         # ── Step 7: Outliers ──────────────────────────────────────────
         entity_col = entity_cols[0] if entity_cols else None
         for col in metric_cols:
-            result = self._call(ctx, f"outliers_{col}",
+            result = self._call(
+                ctx,
+                f"outliers_{col}",
                 insight_extractor.detect_outliers,
-                file_path, col, entity_column=entity_col,
+                file_path,
+                col,
+                entity_column=entity_col,
             )
             if result:
-                ctx["insights"]["outliers"].append({
-                    "column":        col,
-                    "method":        result.get("method", "iqr"),
-                    "outlier_count": result.get("outlier_count", 0),
-                    "samples":       (result.get("outlier_samples") or [])[:5],
-                })
+                ctx["insights"]["outliers"].append(
+                    {
+                        "column": col,
+                        "method": result.get("method", "iqr"),
+                        "outlier_count": result.get("outlier_count", 0),
+                        "samples": (result.get("outlier_samples") or [])[:5],
+                    }
+                )
 
         # ── Step 8: Trends ────────────────────────────────────────────
         if dt_cols:
             for col in metric_cols[:2]:
-                result = self._call(ctx, f"trend_{col}",
+                result = self._call(
+                    ctx,
+                    f"trend_{col}",
                     insight_extractor.detect_trend,
-                    file_path, dt_cols[0], col, freq=self.TREND_FREQ,
+                    file_path,
+                    dt_cols[0],
+                    col,
+                    freq=self.TREND_FREQ,
                 )
                 if result:
-                    ctx["insights"]["trends"].append({
-                        "date_column":  dt_cols[0],
-                        "value_column": col,
-                        "direction":    result.get("direction"),
-                        "r_squared":    result.get("r_squared"),
-                        "slope":        result.get("slope"),
-                    })
+                    ctx["insights"]["trends"].append(
+                        {
+                            "date_column": dt_cols[0],
+                            "value_column": col,
+                            "direction": result.get("direction"),
+                            "r_squared": result.get("r_squared"),
+                            "slope": result.get("slope"),
+                        }
+                    )
 
         # ── Step 9: Performance summary ───────────────────────────────
         if metric_cols and entity_col:
-            perf = self._call(ctx, "performance_summary",
+            perf = self._call(
+                ctx,
+                "performance_summary",
                 insight_extractor.fleet_performance_summary,
-                file_path, metric_cols[0], entity_col, top_n=5,
+                file_path,
+                metric_cols[0],
+                entity_col,
+                top_n=5,
             )
             ctx["insights"]["performance_summary"] = perf
 
         # ── Step 10: Charts (always built programmatically) ───────────
         ctx["charts"] = self._build_charts(
-            kpi_raw, ranking_raw, ts_raw,
-            entity_cols, metric_cols, dt_cols,
+            kpi_raw,
+            ranking_raw,
+            ts_raw,
+            entity_cols,
+            metric_cols,
+            dt_cols,
         )
 
         ctx["status"] = "success" if not ctx["errors"] else "partial"
@@ -351,20 +434,20 @@ class FolderPipeline:
         # Initialise empty section buckets
         sections: dict[str, dict] = {
             name: {
-                "kpis":       [],
+                "kpis": [],
                 "statistics": {},
-                "outliers":   [],
-                "trends":     [],
-                "charts":     [],
+                "outliers": [],
+                "trends": [],
+                "charts": [],
             }
             for name in _SECTION_KPIS
         }
 
         overview: dict = {
-            "total_rows":   0,
-            "files":        [],
+            "total_rows": 0,
+            "files": [],
             "data_quality": [],
-            "kpi_summary":  {},
+            "kpi_summary": {},
         }
 
         for fd in files_data:
@@ -372,23 +455,29 @@ class FolderPipeline:
 
             # ── Overview accumulation ─────────────────────────────────
             overview["total_rows"] += schema.get("row_count") or 0
-            overview["files"].append({
-                "path":    fd["file_path"],
-                "status":  fd["status"],
-                "rows":    schema.get("row_count"),
-                "columns": schema.get("column_count"),
-                "errors":  fd.get("errors") or {},
-            })
+            overview["files"].append(
+                {
+                    "path": fd["file_path"],
+                    "status": fd["status"],
+                    "rows": schema.get("row_count"),
+                    "columns": schema.get("column_count"),
+                    "errors": fd.get("errors") or {},
+                }
+            )
             overview["data_quality"].extend(schema.get("data_quality") or [])
 
             # ── KPIs → section (deduplicated by name — last computed wins) ──
             for kpi in (fd.get("kpis") or {}).get("feasible") or []:
-                name    = kpi.get("name", "")
+                name = kpi.get("name", "")
                 section = _KPI_TO_SECTION.get(name)
                 if not section:
                     continue
                 existing = next(
-                    (i for i, k in enumerate(sections[section]["kpis"]) if k.get("name") == name),
+                    (
+                        i
+                        for i, k in enumerate(sections[section]["kpis"])
+                        if k.get("name") == name
+                    ),
                     None,
                 )
                 if existing is None:
@@ -424,7 +513,7 @@ class FolderPipeline:
         # ── KPI summary for overview ──────────────────────────────────
         overview["kpi_summary"] = {
             "total_computed": sum(len(s["kpis"]) for s in sections.values()),
-            "by_section":     {name: len(s["kpis"]) for name, s in sections.items()},
+            "by_section": {name: len(s["kpis"]) for name, s in sections.items()},
         }
 
         return {"overview": overview, **sections}
@@ -477,7 +566,11 @@ class FolderPipeline:
                     continue
                 section = _KPI_TO_SECTION.get(name, "kpis")
                 by_section.setdefault(section, []).append(
-                    {"label": _LABEL(name), "value": data["value"], "unit": data.get("unit", "")}
+                    {
+                        "label": _LABEL(name),
+                        "value": data["value"],
+                        "unit": data.get("unit", ""),
+                    }
                 )
             for section, cards in by_section.items():
                 chart = chart_spec_builder.build_kpi_cards(
@@ -555,9 +648,18 @@ class FolderPipeline:
         out: list[dict] = []
         for name, data in kpi_raw.get("kpis", {}).items():
             if "value" in data:
-                out.append({"name": name, "value": data["value"], "unit": data.get("unit", "")})
+                out.append(
+                    {"name": name, "value": data["value"], "unit": data.get("unit", "")}
+                )
             elif "by_group" in data:
-                out.append({"name": name, "grouped_by": data.get("group_column"), "by_group": data["by_group"], "unit": data.get("unit", "")})
+                out.append(
+                    {
+                        "name": name,
+                        "grouped_by": data.get("group_column"),
+                        "by_group": data["by_group"],
+                        "unit": data.get("unit", ""),
+                    }
+                )
 
         for name, err in (kpi_raw.get("errors") or {}).items():
             out.append({"name": name, "status": "error", "error": err})
@@ -569,25 +671,25 @@ class FolderPipeline:
 # Report schema reference
 # ---------------------------------------------------------------------------
 _DASHBOARD_REPORT_SCHEMA = {
-    "folder":       "str",
+    "folder": "str",
     "processed_at": "str  — ISO-8601 UTC timestamp",
-    "file_count":   "int",
+    "file_count": "int",
     "overview": {
-        "total_rows":  "int  — sum across all files",
-        "files":       "list[{path, status, rows, columns, errors}]",
+        "total_rows": "int  — sum across all files",
+        "files": "list[{path, status, rows, columns, errors}]",
         "data_quality": "list[{column, null_pct}]  — cols >10% nulls across all files",
         "kpi_summary": {
             "total_computed": "int",
-            "by_section":     "dict[section → int]",
+            "by_section": "dict[section → int]",
         },
     },
     # Each section below follows the same shape:
     "<section>": {
-        "kpis":       "list[{name, value, unit}]  — KPIs belonging to this section",
+        "kpis": "list[{name, value, unit}]  — KPIs belonging to this section",
         "statistics": "dict[col → {mean, std, min, 25%, 50%, 75%, max}]",
-        "outliers":   "list[{column, method, outlier_count, samples}]",
-        "trends":     "list[{date_column, value_column, direction, r_squared, slope}]",
-        "charts":     "list[chart_spec]  — section='<section>' tag on every chart",
+        "outliers": "list[{column, method, outlier_count, samples}]",
+        "trends": "list[{date_column, value_column, direction, r_squared, slope}]",
+        "charts": "list[chart_spec]  — section='<section>' tag on every chart",
     },
     # Sections: fleet | maintenance | kpis | load_and_tonnage | fuel | gps_location | safety
 }

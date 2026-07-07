@@ -6,10 +6,10 @@ The LLM asks for KPIs by name; this tool computes them deterministically
 from the config/kpi_formulas registry. No numeric reasoning happens in
 the model — all arithmetic is done here in Python/pandas.
 """
+
 from __future__ import annotations
 
 from typing import Optional
-import pandas as pd
 
 from data_analysis_agent.config.kpi_formulas import KPI_REGISTRY, list_kpis
 from data_analysis_agent.tools.csv_loader import get_dataframe
@@ -63,7 +63,10 @@ def calculate_kpi(
             return {"error": f"filter_expr failed: {exc}"}
 
     if not df.shape[0]:
-        return {"error": "DataFrame is empty after applying filter.", "filter": filter_expr}
+        return {
+            "error": "DataFrame is empty after applying filter.",
+            "filter": filter_expr,
+        }
 
     # Resolve KPI names
     if kpi_names == ["*"]:
@@ -76,7 +79,9 @@ def calculate_kpi(
     for name in kpi_names:
         kpi = KPI_REGISTRY.get(name)
         if kpi is None:
-            errors[name] = f"Unknown KPI '{name}'. Available: {list(KPI_REGISTRY.keys())}"
+            errors[name] = (
+                f"Unknown KPI '{name}'. Available: {list(KPI_REGISTRY.keys())}"
+            )
             continue
 
         # Direct column: the CSV already contains the pre-computed KPI value.
@@ -85,13 +90,19 @@ def calculate_kpi(
             col = direct_kpi_mapping[name]
             if col in df.columns:
                 val = round(float(df[col].mean()), 3)
-                results[name] = {"value": val, "unit": kpi.unit, "source": "direct_column"}
-                metadata.append({
-                    "kpi": name,
-                    "description": kpi.description,
-                    "formula": f"direct read from column '{col}' (mean)",
+                results[name] = {
+                    "value": val,
                     "unit": kpi.unit,
-                })
+                    "source": "direct_column",
+                }
+                metadata.append(
+                    {
+                        "kpi": name,
+                        "description": kpi.description,
+                        "formula": f"direct read from column '{col}' (mean)",
+                        "unit": kpi.unit,
+                    }
+                )
                 continue
 
         if group_by and group_by in df.columns:
@@ -115,12 +126,14 @@ def calculate_kpi(
             except Exception as exc:
                 errors[name] = str(exc)
 
-        metadata.append({
-            "kpi": name,
-            "description": kpi.description,
-            "formula": kpi.formula_doc,
-            "unit": kpi.unit,
-        })
+        metadata.append(
+            {
+                "kpi": name,
+                "description": kpi.description,
+                "formula": kpi.formula_doc,
+                "unit": kpi.unit,
+            }
+        )
 
     return {
         "kpis": results,

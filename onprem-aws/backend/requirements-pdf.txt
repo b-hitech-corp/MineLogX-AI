@@ -1,0 +1,24 @@
+# Runtime deps for the PDF vectorization Lambda ONLY (pdf_pipeline/).
+# Packaged into a Lambda Layer by `fab lambda.build-layer pdf` — kept separate
+# from requirements.txt (which covers all four units) because Lambda layers
+# have a 250MB decompressed budget and pdf_pipeline doesn't need
+# pandas/numpy/pyarrow/scipy/anthropic at all.
+#
+# Verified against onprem-aws/backend/pdf_pipeline imports (fitz, pdfplumber,
+# opensearchpy, dotenv, json_repair) — see pdf_claude_extractor.py,
+# pdf_section_scanner.py, pdf_opensearch_ingestor.py, pdf_pipeline_settings.py.
+
+boto3==1.43.36
+botocore==1.43.36
+opensearch-py==3.2.0
+# Pinned to 1.25.5, NOT the newer 1.27.x from requirements.txt: PyMuPDF >=1.26
+# only ships manylinux_2_28 wheels (glibc >=2.28), but the Lambda python3.11
+# runtime runs on Amazon Linux 2 (glibc 2.26) — a manylinux_2_28 wheel would
+# import-error at runtime. 1.25.5 is the last release with a manylinux2014
+# (glibc 2.17) wheel, which AL2 satisfies.
+PyMuPDF==1.25.5        # imported as `fitz`
+pdfplumber==0.11.10
+pillow==12.2.0         # imported as `PIL`
+requests==2.34.2
+python-dotenv==1.2.2
+json_repair==0.61.0    # optional: pdf_claude_extractor.py forced-tool-use repair

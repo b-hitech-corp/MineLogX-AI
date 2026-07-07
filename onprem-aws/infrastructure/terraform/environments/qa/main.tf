@@ -33,4 +33,6 @@ module "stack" {
   enable_llm_fallback = var.enable_llm_fallback
   ssh_ingress_cidrs   = var.ssh_ingress_cidrs
   ec2_key_name        = var.ec2_key_name
+  build_pdf_layer     = var.build_pdf_layer
+  build_csv_layer     = var.build_csv_layer
 }

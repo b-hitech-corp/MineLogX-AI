@@ -12,11 +12,10 @@ Run with:
 
 No real AWS calls are made in these tests.
 """
+
 from __future__ import annotations
 
-import io
 import json
-from dataclasses import asdict
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -26,10 +25,13 @@ import pytest
 # ---------------------------------------------------------------------------
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+sys.path.insert(
+    0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+)
 
 from pdf_pipeline.config.pdf_pipeline_settings import PdfPipelineConfig
-from pdf_pipeline.tools.pdf_classifier import classify, ClassificationResult
+from pdf_pipeline.tools.pdf_classifier import classify
 from pdf_pipeline.tools.pdf_normalizer import (
     SectionMetadata,
     SectionRecord,
@@ -37,11 +39,9 @@ from pdf_pipeline.tools.pdf_normalizer import (
     normalize_sections,
 )
 from pdf_pipeline.tools.pdf_textract_extractor import (
-    TextractExtractionResult,
     _reconstruct_sections,
 )
 from pdf_pipeline.tools.pdf_claude_extractor import (
-    ClaudeExtractionResult,
     _parse_claude_sections,
     _sanitize_doc_name,
     build_carry_over_context,
@@ -63,6 +63,7 @@ from pdf_pipeline.agent.pdf_vectorization_pipeline import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def config() -> PdfPipelineConfig:
@@ -122,8 +123,8 @@ def sample_sections(sample_metadata) -> list[SectionRecord]:
 # Tests: pdf_classifier
 # ===========================================================================
 
-class TestClassifier:
 
+class TestClassifier:
     def _make_s3(self, file_size=1_000_000, tag_value=None, avg_chars=500.0):
         s3 = MagicMock()
         s3.head_object.return_value = {"ContentLength": file_size}
@@ -139,16 +140,18 @@ class TestClassifier:
         bedrock.converse.return_value = {
             "output": {
                 "message": {
-                    "content": [{
-                        "toolUse": {
-                            "name": "classify_document",
-                            "input": {
-                                "complexity": complexity,
-                                "confidence": confidence,
-                                "reasoning": "Dense regulatory structure detected",
+                    "content": [
+                        {
+                            "toolUse": {
+                                "name": "classify_document",
+                                "input": {
+                                    "complexity": complexity,
+                                    "confidence": confidence,
+                                    "reasoning": "Dense regulatory structure detected",
+                                },
                             }
                         }
-                    }]
+                    ]
                 }
             }
         }
@@ -157,12 +160,20 @@ class TestClassifier:
     def test_signal1_scanned_low_chars(self, config):
         """avg_chars < threshold → immediate simple classification via heuristic"""
         with (
-            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=20),
-            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="x" * 50),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._estimate_page_count",
+                return_value=20,
+            ),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._fetch_first_page_text",
+                return_value="x" * 50,
+            ),
         ):
             s3 = self._make_s3()
             bedrock = MagicMock()
-            result = classify("bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock)
+            result = classify(
+                "bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock
+            )
 
         assert result.doc_class == "simple"
         assert result.signal_used == "heuristic"
@@ -172,12 +183,20 @@ class TestClassifier:
     def test_signal2_complex_legal_tag(self, config):
         """S3 tag 'mining_regulation' → complex_legal, no Haiku call"""
         with (
-            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=30),
-            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="x" * 800),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._estimate_page_count",
+                return_value=30,
+            ),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._fetch_first_page_text",
+                return_value="x" * 800,
+            ),
         ):
             s3 = self._make_s3(tag_value="mining_regulation")
             bedrock = MagicMock()
-            result = classify("bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock)
+            result = classify(
+                "bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock
+            )
 
         assert result.doc_class == "complex_legal"
         assert result.signal_used == "s3_tag"
@@ -187,12 +206,19 @@ class TestClassifier:
     def test_signal2_simple_tag(self, config):
         """S3 tag 'scanned_form' → simple, no Haiku call"""
         with (
-            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=5),
-            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="x" * 800),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=5
+            ),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._fetch_first_page_text",
+                return_value="x" * 800,
+            ),
         ):
             s3 = self._make_s3(tag_value="scanned_form")
             bedrock = MagicMock()
-            result = classify("bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock)
+            result = classify(
+                "bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock
+            )
 
         assert result.doc_class == "simple"
         assert result.signal_used == "s3_tag"
@@ -200,12 +226,20 @@ class TestClassifier:
     def test_signal3_haiku_high_confidence(self, config):
         """Haiku returns high complexity + high confidence → complex_legal"""
         with (
-            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=25),
-            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="Part 1 Preliminary " + "x" * 600),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._estimate_page_count",
+                return_value=25,
+            ),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._fetch_first_page_text",
+                return_value="Part 1 Preliminary " + "x" * 600,
+            ),
         ):
             s3 = self._make_s3()
             bedrock = self._make_bedrock(complexity="high", confidence=0.92)
-            result = classify("bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock)
+            result = classify(
+                "bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock
+            )
 
         assert result.doc_class == "complex_legal"
         assert result.signal_used == "haiku"
@@ -213,12 +247,20 @@ class TestClassifier:
     def test_signal3_haiku_low_confidence_safe_default(self, config):
         """Haiku returns low confidence → safe-default to complex_legal"""
         with (
-            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=25),
-            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="Some content " + "x" * 600),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._estimate_page_count",
+                return_value=25,
+            ),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._fetch_first_page_text",
+                return_value="Some content " + "x" * 600,
+            ),
         ):
             s3 = self._make_s3()
             bedrock = self._make_bedrock(complexity="low", confidence=0.4)
-            result = classify("bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock)
+            result = classify(
+                "bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock
+            )
 
         # Even though complexity=low, confidence < threshold → safe default
         assert result.doc_class == "complex_legal"
@@ -227,12 +269,19 @@ class TestClassifier:
     def test_signal3_haiku_low_complexity_high_confidence(self, config):
         """Haiku returns low complexity + high confidence → simple"""
         with (
-            patch("pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=5),
-            patch("pdf_pipeline.tools.pdf_classifier._fetch_first_page_text", return_value="Standard form " + "x" * 600),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._estimate_page_count", return_value=5
+            ),
+            patch(
+                "pdf_pipeline.tools.pdf_classifier._fetch_first_page_text",
+                return_value="Standard form " + "x" * 600,
+            ),
         ):
             s3 = self._make_s3()
             bedrock = self._make_bedrock(complexity="low", confidence=0.9)
-            result = classify("bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock)
+            result = classify(
+                "bucket", "key.pdf", config, s3_client=s3, bedrock_client=bedrock
+            )
 
         assert result.doc_class == "simple"
         assert result.signal_used == "haiku"
@@ -242,12 +291,22 @@ class TestClassifier:
 # Tests: pdf_normalizer
 # ===========================================================================
 
-class TestNormalizer:
 
+class TestNormalizer:
     def test_basic_normalization(self, config, sample_metadata):
         raw = [
-            {"title": "Section 1", "body": "This is the body text of section one.", "page_start": 1, "page_end": 2},
-            {"title": "Section 2", "body": "Second section body with sufficient content for indexing.", "page_start": 3, "page_end": 5},
+            {
+                "title": "Section 1",
+                "body": "This is the body text of section one.",
+                "page_start": 1,
+                "page_end": 2,
+            },
+            {
+                "title": "Section 2",
+                "body": "Second section body with sufficient content for indexing.",
+                "page_start": 3,
+                "page_end": 5,
+            },
         ]
         records = normalize_sections(raw, "claude_native", sample_metadata, config)
         assert len(records) == 2
@@ -258,7 +317,12 @@ class TestNormalizer:
     def test_short_section_discarded(self, config, sample_metadata):
         raw = [
             {"title": "Blank", "body": "Hi", "page_start": 1, "page_end": 1},
-            {"title": "Real", "body": "This section has enough content to be kept.", "page_start": 2, "page_end": 3},
+            {
+                "title": "Real",
+                "body": "This section has enough content to be kept.",
+                "page_start": 2,
+                "page_end": 3,
+            },
         ]
         records = normalize_sections(raw, "textract", sample_metadata, config)
         assert len(records) == 1
@@ -267,7 +331,14 @@ class TestNormalizer:
     def test_long_body_split_into_sub_sections(self, config, sample_metadata):
         # Create a body longer than titan_max_input_chars (8000 chars)
         long_body = "A" * 9500
-        raw = [{"title": "Long Section", "body": long_body, "page_start": 1, "page_end": 10}]
+        raw = [
+            {
+                "title": "Long Section",
+                "body": long_body,
+                "page_start": 1,
+                "page_end": 10,
+            }
+        ]
         records = normalize_sections(raw, "claude_native", sample_metadata, config)
         assert len(records) >= 2
         assert "(part 1 of" in records[0].title
@@ -277,13 +348,25 @@ class TestNormalizer:
             assert len(r.body) <= config.titan_max_input_chars
 
     def test_table_serialized_into_body(self, config, sample_metadata):
-        tables = [{"cells": [
-            {"row_index": 1, "col_index": 1, "text": "Header A"},
-            {"row_index": 1, "col_index": 2, "text": "Header B"},
-            {"row_index": 2, "col_index": 1, "text": "Value 1"},
-            {"row_index": 2, "col_index": 2, "text": "Value 2"},
-        ]}]
-        raw = [{"title": "Table Section", "body": "Some text.", "page_start": 1, "page_end": 2, "tables": tables}]
+        tables = [
+            {
+                "cells": [
+                    {"row_index": 1, "col_index": 1, "text": "Header A"},
+                    {"row_index": 1, "col_index": 2, "text": "Header B"},
+                    {"row_index": 2, "col_index": 1, "text": "Value 1"},
+                    {"row_index": 2, "col_index": 2, "text": "Value 2"},
+                ]
+            }
+        ]
+        raw = [
+            {
+                "title": "Table Section",
+                "body": "Some text.",
+                "page_start": 1,
+                "page_end": 2,
+                "tables": tables,
+            }
+        ]
         records = normalize_sections(raw, "textract", sample_metadata, config)
         assert len(records) == 1
         assert "Header A" in records[0].body
@@ -291,15 +374,26 @@ class TestNormalizer:
 
     def test_unicode_normalization(self, config, sample_metadata):
         # ü (composed vs decomposed) — both should normalize to the same form
-        body_decomposed = "Bergbausicherheitsgesetz ü content with enough characters here."
-        raw = [{"title": "Test", "body": body_decomposed, "page_start": 1, "page_end": 1}]
+        body_decomposed = (
+            "Bergbausicherheitsgesetz ü content with enough characters here."
+        )
+        raw = [
+            {"title": "Test", "body": body_decomposed, "page_start": 1, "page_end": 1}
+        ]
         records = normalize_sections(raw, "claude_native", sample_metadata, config)
         assert len(records) == 1
         # NFC normalization: composed form
         assert "ü" in records[0].body or "ü" not in records[0].body
 
     def test_missing_title_gets_default(self, config, sample_metadata):
-        raw = [{"title": "", "body": "Sufficient body content for indexing.", "page_start": 1, "page_end": 1}]
+        raw = [
+            {
+                "title": "",
+                "body": "Sufficient body content for indexing.",
+                "page_start": 1,
+                "page_end": 1,
+            }
+        ]
         records = normalize_sections(raw, "claude_native", sample_metadata, config)
         assert records[0].title.startswith("untitled-")
 
@@ -308,8 +402,8 @@ class TestNormalizer:
 # Tests: pdf_claude_extractor — parse logic
 # ===========================================================================
 
-class TestClaudeExtractor:
 
+class TestClaudeExtractor:
     def test_parse_valid_json_array(self):
         raw = '[{"title": "S1", "body": "Body 1", "page_start": 1, "page_end": 2}]'
         result = _parse_claude_sections(raw)
@@ -339,7 +433,10 @@ class TestClaudeExtractor:
         assert name  # not empty
 
     def test_carry_over_context_includes_title(self, sample_sections):
-        last = {"title": "Part 5 — Environmental Controls", "body": "Environmental controls apply to..."}
+        last = {
+            "title": "Part 5 — Environmental Controls",
+            "body": "Environmental controls apply to...",
+        }
         context = build_carry_over_context(last)
         assert "Part 5" in context
         assert "Environmental Controls" in context
@@ -347,14 +444,33 @@ class TestClaudeExtractor:
     def test_extract_with_claude_mocked(self, config):
         """Full extract_with_claude() call with mocked Bedrock response."""
         sections = [
-            {"title": "Part 1", "body": "Preliminary provisions.", "page_start": 1, "page_end": 3},
-            {"title": "Part 2", "body": "Licensing requirements.", "page_start": 4, "page_end": 12},
+            {
+                "title": "Part 1",
+                "body": "Preliminary provisions.",
+                "page_start": 1,
+                "page_end": 3,
+            },
+            {
+                "title": "Part 2",
+                "body": "Licensing requirements.",
+                "page_start": 4,
+                "page_end": 12,
+            },
         ]
         mock_bedrock = MagicMock()
         mock_bedrock.converse.return_value = {
-            "output": {"message": {"content": [
-                {"toolUse": {"name": "emit_sections", "input": {"sections": sections}}}
-            ]}},
+            "output": {
+                "message": {
+                    "content": [
+                        {
+                            "toolUse": {
+                                "name": "emit_sections",
+                                "input": {"sections": sections},
+                            }
+                        }
+                    ]
+                }
+            },
             "usage": {"inputTokens": 1500, "outputTokens": 800},
         }
 
@@ -377,12 +493,23 @@ class TestClaudeExtractor:
 
     def test_extract_with_claude_page_offset(self, config):
         """Page offsets from mini-batch are added to extracted page numbers."""
-        sections = [{"title": "Part 3", "body": "Content.", "page_start": 1, "page_end": 5}]
+        sections = [
+            {"title": "Part 3", "body": "Content.", "page_start": 1, "page_end": 5}
+        ]
         mock_bedrock = MagicMock()
         mock_bedrock.converse.return_value = {
-            "output": {"message": {"content": [
-                {"toolUse": {"name": "emit_sections", "input": {"sections": sections}}}
-            ]}},
+            "output": {
+                "message": {
+                    "content": [
+                        {
+                            "toolUse": {
+                                "name": "emit_sections",
+                                "input": {"sections": sections},
+                            }
+                        }
+                    ]
+                }
+            },
             "usage": {"inputTokens": 100, "outputTokens": 50},
         }
 
@@ -426,14 +553,16 @@ class TestClaudeExtractor:
 # Tests: pdf_textract_extractor — block reconstruction
 # ===========================================================================
 
-class TestTextractReconstruction:
 
+class TestTextractReconstruction:
     def _make_block(self, block_id, btype, text="", page=1, top=0.0, children=None):
         block = {
             "Id": block_id,
             "BlockType": btype,
             "Page": page,
-            "Geometry": {"BoundingBox": {"Top": top, "Left": 0.0, "Width": 1.0, "Height": 0.05}},
+            "Geometry": {
+                "BoundingBox": {"Top": top, "Left": 0.0, "Width": 1.0, "Height": 0.05}
+            },
             "Relationships": [],
         }
         if text:
@@ -444,10 +573,18 @@ class TestTextractReconstruction:
 
     def test_single_section_header_groups_content(self):
         blocks = [
-            self._make_block("h1", "LAYOUT_SECTION_HEADER", page=1, top=0.0, children=["w1"]),
+            self._make_block(
+                "h1", "LAYOUT_SECTION_HEADER", page=1, top=0.0, children=["w1"]
+            ),
             self._make_block("w1", "WORD", text="Introduction", page=1, top=0.0),
             self._make_block("t1", "LAYOUT_TEXT", page=1, top=0.2, children=["w2"]),
-            self._make_block("w2", "WORD", text="This Act applies to all operations.", page=1, top=0.2),
+            self._make_block(
+                "w2",
+                "WORD",
+                text="This Act applies to all operations.",
+                page=1,
+                top=0.2,
+            ),
         ]
         sections = _reconstruct_sections(blocks)
         assert len(sections) == 1
@@ -456,11 +593,15 @@ class TestTextractReconstruction:
 
     def test_multiple_sections_separated(self):
         blocks = [
-            self._make_block("h1", "LAYOUT_SECTION_HEADER", page=1, top=0.0, children=["w1"]),
+            self._make_block(
+                "h1", "LAYOUT_SECTION_HEADER", page=1, top=0.0, children=["w1"]
+            ),
             self._make_block("w1", "WORD", text="Part 1", page=1, top=0.0),
             self._make_block("t1", "LAYOUT_TEXT", page=1, top=0.1, children=["w2"]),
             self._make_block("w2", "WORD", text="Body of Part 1.", page=1, top=0.1),
-            self._make_block("h2", "LAYOUT_SECTION_HEADER", page=2, top=0.0, children=["w3"]),
+            self._make_block(
+                "h2", "LAYOUT_SECTION_HEADER", page=2, top=0.0, children=["w3"]
+            ),
             self._make_block("w3", "WORD", text="Part 2", page=2, top=0.0),
             self._make_block("t2", "LAYOUT_TEXT", page=2, top=0.1, children=["w4"]),
             self._make_block("w4", "WORD", text="Body of Part 2.", page=2, top=0.1),
@@ -475,8 +616,12 @@ class TestTextractReconstruction:
     def test_content_before_first_header_captured(self):
         blocks = [
             self._make_block("t0", "LAYOUT_TEXT", page=1, top=0.0, children=["w0"]),
-            self._make_block("w0", "WORD", text="Preamble content here.", page=1, top=0.0),
-            self._make_block("h1", "LAYOUT_SECTION_HEADER", page=1, top=0.3, children=["w1"]),
+            self._make_block(
+                "w0", "WORD", text="Preamble content here.", page=1, top=0.0
+            ),
+            self._make_block(
+                "h1", "LAYOUT_SECTION_HEADER", page=1, top=0.3, children=["w1"]
+            ),
             self._make_block("w1", "WORD", text="Section 1", page=1, top=0.3),
         ]
         sections = _reconstruct_sections(blocks)
@@ -490,13 +635,15 @@ class TestTextractReconstruction:
 # Tests: pdf_titan_embedder
 # ===========================================================================
 
-class TestTitanEmbedder:
 
+class TestTitanEmbedder:
     def test_embed_section_success(self, config):
         mock_vector = [0.1] * 1024
         mock_client = MagicMock()
         mock_client.invoke_model.return_value = {
-            "body": MagicMock(read=lambda: json.dumps({"embedding": mock_vector}).encode())
+            "body": MagicMock(
+                read=lambda: json.dumps({"embedding": mock_vector}).encode()
+            )
         }
 
         result = embed_section("Test text for embedding.", config, mock_client)
@@ -507,7 +654,9 @@ class TestTitanEmbedder:
         mock_vector = [0.1] * 512  # wrong dimension
         mock_client = MagicMock()
         mock_client.invoke_model.return_value = {
-            "body": MagicMock(read=lambda: json.dumps({"embedding": mock_vector}).encode())
+            "body": MagicMock(
+                read=lambda: json.dumps({"embedding": mock_vector}).encode()
+            )
         }
 
         with pytest.raises(ValueError, match="512 dims"):
@@ -523,7 +672,9 @@ class TestTitanEmbedder:
             if call_count == 1:
                 raise Exception("Simulated Bedrock error")
             return {
-                "body": MagicMock(read=lambda: json.dumps({"embedding": [0.5] * 1024}).encode())
+                "body": MagicMock(
+                    read=lambda: json.dumps({"embedding": [0.5] * 1024}).encode()
+                )
             }
 
         mock_client = MagicMock()
@@ -539,8 +690,8 @@ class TestTitanEmbedder:
 # Tests: pdf_opensearch_ingestor
 # ===========================================================================
 
-class TestOpenSearchIngestor:
 
+class TestOpenSearchIngestor:
     def test_section_to_doc_structure(self, sample_sections):
         section = sample_sections[0]
         embedding = [0.1] * 1024
@@ -561,7 +712,9 @@ class TestOpenSearchIngestor:
         mock_client.indices.exists.return_value = True
         mock_client.delete_by_query.return_value = {"deleted": 0}
 
-        with patch("pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])) as mock_bulk:
+        with patch(
+            "pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])
+        ) as mock_bulk:
             result = ingest_sections(
                 sections_with_embeddings=embeddings,
                 config=config,
@@ -581,7 +734,9 @@ class TestOpenSearchIngestor:
         mock_client.indices.exists.return_value = True
         mock_client.delete_by_query.return_value = {"deleted": 2}
 
-        with patch("pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])) as mock_bulk:
+        with patch(
+            "pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])
+        ) as mock_bulk:
             result = ingest_sections(
                 sections_with_embeddings=embeddings,
                 config=config,
@@ -601,7 +756,9 @@ class TestOpenSearchIngestor:
         mock_client.indices.exists.return_value = True
         mock_client.delete_by_query.return_value = {"deleted": 0}
 
-        with patch("pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])):
+        with patch(
+            "pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])
+        ):
             result = ingest_sections(
                 sections_with_embeddings=embeddings,
                 config=config,
@@ -619,9 +776,11 @@ class TestOpenSearchIngestor:
 # Tests: orchestrator
 # ===========================================================================
 
-class TestOrchestrator:
 
-    def _mock_classification(self, doc_class="complex_legal", page_count=50, file_size=5_000_000):
+class TestOrchestrator:
+    def _mock_classification(
+        self, doc_class="complex_legal", page_count=50, file_size=5_000_000
+    ):
         result = MagicMock()
         result.doc_class = doc_class
         result.page_count = page_count
@@ -635,21 +794,54 @@ class TestOrchestrator:
         classification = self._mock_classification(doc_class="simple", page_count=5)
 
         with (
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.classify", return_value=classification),
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline._run_textract_path") as mock_textract,
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.embed_sections_batch") as mock_embed,
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.ingest_sections") as mock_ingest,
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.build_opensearch_client", return_value=MagicMock()),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.classify",
+                return_value=classification,
+            ),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline._run_textract_path"
+            ) as mock_textract,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.embed_sections_batch"
+            ) as mock_embed,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.ingest_sections"
+            ) as mock_ingest,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.build_opensearch_client",
+                return_value=MagicMock(),
+            ),
         ):
             mock_textract.return_value = (
-                [{"title": "S1", "body": "Sufficient body content here.", "page_start": 1, "page_end": 2}],
-                "textract", 1, 0, 0,
+                [
+                    {
+                        "title": "S1",
+                        "body": "Sufficient body content here.",
+                        "page_start": 1,
+                        "page_end": 2,
+                    }
+                ],
+                "textract",
+                1,
+                0,
+                0,
             )
             mock_embed.return_value = [
-                (MagicMock(section_id="s0", body="...", title="S1",
-                           page_start=1, page_end=2, extraction_method="textract",
-                           batch_index=0, tables=[], citations=[],
-                           metadata=MagicMock()), [0.1] * 1024)
+                (
+                    MagicMock(
+                        section_id="s0",
+                        body="...",
+                        title="S1",
+                        page_start=1,
+                        page_end=2,
+                        extraction_method="textract",
+                        batch_index=0,
+                        tables=[],
+                        citations=[],
+                        metadata=MagicMock(),
+                    ),
+                    [0.1] * 1024,
+                )
             ]
             mock_ingest.return_value = IngestResult(
                 index_name="pdf_legal_vecs_test",
@@ -671,25 +863,64 @@ class TestOrchestrator:
         )
 
         with (
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.classify", return_value=classification),
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline._download_pdf", return_value=b"%PDF-1.4"),
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline._run_claude_single_path") as mock_claude,
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.embed_sections_batch") as mock_embed,
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.ingest_sections") as mock_ingest,
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.build_opensearch_client", return_value=MagicMock()),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.classify",
+                return_value=classification,
+            ),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline._download_pdf",
+                return_value=b"%PDF-1.4",
+            ),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline._run_claude_single_path"
+            ) as mock_claude,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.embed_sections_batch"
+            ) as mock_embed,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.ingest_sections"
+            ) as mock_ingest,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.build_opensearch_client",
+                return_value=MagicMock(),
+            ),
         ):
             mock_claude.return_value = (
                 [
-                    {"title": "Part 1", "body": "Preliminary.", "page_start": 1, "page_end": 5},
-                    {"title": "Part 2", "body": "Licensing.", "page_start": 6, "page_end": 20},
+                    {
+                        "title": "Part 1",
+                        "body": "Preliminary.",
+                        "page_start": 1,
+                        "page_end": 5,
+                    },
+                    {
+                        "title": "Part 2",
+                        "body": "Licensing.",
+                        "page_start": 6,
+                        "page_end": 20,
+                    },
                 ],
-                "claude_native", 1, 5000, 1200,
+                "claude_native",
+                1,
+                5000,
+                1200,
             )
             mock_embed.return_value = [
-                (MagicMock(section_id=f"s{i}", body="...", title=f"Part {i+1}",
-                           page_start=1, page_end=5, extraction_method="claude_native",
-                           batch_index=0, tables=[], citations=[],
-                           metadata=MagicMock()), [0.1] * 1024)
+                (
+                    MagicMock(
+                        section_id=f"s{i}",
+                        body="...",
+                        title=f"Part {i + 1}",
+                        page_start=1,
+                        page_end=5,
+                        extraction_method="claude_native",
+                        batch_index=0,
+                        tables=[],
+                        citations=[],
+                        metadata=MagicMock(),
+                    ),
+                    [0.1] * 1024,
+                )
                 for i in range(2)
             ]
             mock_ingest.return_value = IngestResult(
@@ -708,7 +939,10 @@ class TestOrchestrator:
 
     def test_run_pipeline_classification_failure_returns_error(self, config):
         """Classification exception → pipeline returns error result, does not crash."""
-        with patch("pdf_pipeline.agent.pdf_vectorization_pipeline.classify", side_effect=Exception("S3 error")):
+        with patch(
+            "pdf_pipeline.agent.pdf_vectorization_pipeline.classify",
+            side_effect=Exception("S3 error"),
+        ):
             result = run_pipeline("bucket", "key.pdf", config=config)
 
         assert result.sections_indexed == 0
@@ -719,10 +953,21 @@ class TestOrchestrator:
         """Extraction returns empty list → pipeline reports error gracefully."""
         classification = self._mock_classification()
         with (
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.classify", return_value=classification),
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline._download_pdf", return_value=b"%PDF-1.4"),
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline._run_claude_single_path") as mock_claude,
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.build_opensearch_client", return_value=MagicMock()),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.classify",
+                return_value=classification,
+            ),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline._download_pdf",
+                return_value=b"%PDF-1.4",
+            ),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline._run_claude_single_path"
+            ) as mock_claude,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.build_opensearch_client",
+                return_value=MagicMock(),
+            ),
         ):
             mock_claude.return_value = ([], "claude_native", 1, 0, 0)
             result = run_pipeline("bucket", "key.pdf", config=config)
@@ -736,8 +981,8 @@ class TestOrchestrator:
 # Tests: lambda_handler
 # ===========================================================================
 
-class TestLambdaHandler:
 
+class TestLambdaHandler:
     def _make_event(self, bucket="legal-bucket", key="regulations/test.pdf"):
         return {
             "detail": {
@@ -759,7 +1004,9 @@ class TestLambdaHandler:
 
         with (
             patch.dict(os.environ, {"OPENSEARCH_HOST": "test.aoss.example.com"}),
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.run_pipeline") as mock_run,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.run_pipeline"
+            ) as mock_run,
         ):
             mock_run.return_value = PdfPipelineResult(
                 file_key="legal/Mining Act (2023).pdf",
@@ -792,7 +1039,10 @@ class TestLambdaHandler:
         env = {k: v for k, v in os.environ.items() if k != "OPENSEARCH_HOST"}
         with (
             patch.dict(os.environ, env, clear=True),
-            patch("pdf_pipeline.agent.pdf_vectorization_pipeline.run_pipeline", side_effect=ValueError("OPENSEARCH_HOST not set")),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.run_pipeline",
+                side_effect=ValueError("OPENSEARCH_HOST not set"),
+            ),
         ):
             result = lambda_handler(event, None)
 

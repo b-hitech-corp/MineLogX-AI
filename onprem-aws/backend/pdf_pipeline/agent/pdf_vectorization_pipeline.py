@@ -43,6 +43,7 @@ PDF_CLAUDE_MODEL_ID   — optional: override Claude Sonnet model ID
 PDF_HAIKU_MODEL_ID    — optional: override Claude Haiku model ID
 PDF_TITAN_MODEL_ID    — optional: override Titan Embed model ID
 """
+
 from __future__ import annotations
 
 import json
@@ -71,7 +72,10 @@ from pdf_pipeline.tools.pdf_opensearch_ingestor import (
     build_opensearch_client,
     ingest_sections,
 )
-from pdf_pipeline.tools.pdf_section_scanner import build_batches, scan_section_boundaries
+from pdf_pipeline.tools.pdf_section_scanner import (
+    build_batches,
+    scan_section_boundaries,
+)
 from pdf_pipeline.tools.pdf_textract_extractor import extract_with_textract
 from pdf_pipeline.tools.pdf_titan_embedder import embed_sections_batch
 
@@ -83,12 +87,13 @@ logging.basicConfig(level=logging.INFO)
 # Pipeline result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class PdfPipelineResult:
     file_key: str
     doc_class: str
-    extraction_method: str       # "textract" | "claude_native" | "claude_batch"
-    classification_signal: str   # "heuristic" | "s3_tag" | "haiku"
+    extraction_method: str  # "textract" | "claude_native" | "claude_batch"
+    classification_signal: str  # "heuristic" | "s3_tag" | "haiku"
     sections_extracted: int
     sections_normalized: int
     sections_embedded: int
@@ -97,8 +102,8 @@ class PdfPipelineResult:
     sections_skipped: int
     total_pages: int
     file_size_bytes: int
-    batches_used: int            # 1 for single call / Textract; N for mini-batch
-    input_tokens: int            # total Claude tokens across all batches (0 for Textract)
+    batches_used: int  # 1 for single call / Textract; N for mini-batch
+    input_tokens: int  # total Claude tokens across all batches (0 for Textract)
     output_tokens: int
     duration_s: float
     errors: list[str] = field(default_factory=list)
@@ -112,11 +117,14 @@ class PdfPipelineResult:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _download_pdf(bucket: str, key: str, s3_client: Any) -> bytes:
     """Download a PDF from S3 into memory."""
     resp = s3_client.get_object(Bucket=bucket, Key=key)
     data = resp["Body"].read()
-    logger.info("Downloaded s3://%s/%s (%.2f MB)", bucket, key, len(data) / (1024 * 1024))
+    logger.info(
+        "Downloaded s3://%s/%s (%.2f MB)", bucket, key, len(data) / (1024 * 1024)
+    )
     return data
 
 
@@ -132,6 +140,7 @@ def _exceeds_single_call_threshold(
 # ---------------------------------------------------------------------------
 # Extraction sub-paths
 # ---------------------------------------------------------------------------
+
 
 def _run_textract_path(
     bucket: str,
@@ -179,7 +188,13 @@ def _run_claude_single_path(
         batch_index=0,
         context_note="",
     )
-    return result.raw_sections, "claude_native", 1, result.input_tokens, result.output_tokens
+    return (
+        result.raw_sections,
+        "claude_native",
+        1,
+        result.input_tokens,
+        result.output_tokens,
+    )
 
 
 def _run_claude_minibatch_path(
@@ -215,8 +230,11 @@ def _run_claude_minibatch_path(
     for batch_slice in batches:
         logger.info(
             "Processing batch %d/%d | pages %d–%d | %.2f MB",
-            batch_slice.batch_index + 1, len(batches),
-            batch_slice.page_start, batch_slice.page_end, batch_slice.size_mb,
+            batch_slice.batch_index + 1,
+            len(batches),
+            batch_slice.page_start,
+            batch_slice.page_end,
+            batch_slice.size_mb,
         )
 
         result = extract_with_claude(
@@ -233,9 +251,7 @@ def _run_claude_minibatch_path(
         )
 
         if result.errors:
-            logger.error(
-                "Batch %d failed: %s", batch_slice.batch_index, result.errors
-            )
+            logger.error("Batch %d failed: %s", batch_slice.batch_index, result.errors)
             # Continue processing remaining batches — partial indexing is better than none
 
         all_raw_sections.extend(result.raw_sections)
@@ -260,6 +276,7 @@ def _run_claude_minibatch_path(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def run_pipeline(
     bucket: str,
@@ -296,8 +313,12 @@ def run_pipeline(
     # Build AWS clients once
     s3 = s3_client or boto3.client("s3", region_name=cfg.aws_region)
     textract = textract_client or boto3.client("textract", region_name=cfg.aws_region)
-    bedrock = bedrock_client or boto3.client("bedrock-runtime", region_name=cfg.aws_region)
-    bedrock_rt = bedrock_runtime_client or bedrock  # Titan and Claude share the same service
+    bedrock = bedrock_client or boto3.client(
+        "bedrock-runtime", region_name=cfg.aws_region
+    )
+    bedrock_rt = (
+        bedrock_runtime_client or bedrock
+    )  # Titan and Claude share the same service
     os_client = opensearch_client or build_opensearch_client(cfg)
 
     logger.info("=== PDF Pipeline START: s3://%s/%s ===", bucket, key)
@@ -356,14 +377,18 @@ def run_pipeline(
 
     try:
         if classification.doc_class == "simple":
-            raw_sections, extraction_method, batches_used, input_tokens, output_tokens = (
-                _run_textract_path(
-                    bucket=bucket,
-                    key=key,
-                    classification=classification,
-                    config=cfg,
-                    textract_client=textract,
-                )
+            (
+                raw_sections,
+                extraction_method,
+                batches_used,
+                input_tokens,
+                output_tokens,
+            ) = _run_textract_path(
+                bucket=bucket,
+                key=key,
+                classification=classification,
+                config=cfg,
+                textract_client=textract,
             )
         else:
             # complex_legal — check whether it fits in a single call
@@ -371,32 +396,42 @@ def run_pipeline(
                 classification.file_size_bytes, classification.page_count, cfg
             ):
                 pdf_bytes = _download_pdf(bucket, key, s3)
-                raw_sections, extraction_method, batches_used, input_tokens, output_tokens = (
-                    _run_claude_single_path(
-                        pdf_bytes=pdf_bytes,
-                        bucket=bucket,
-                        key=key,
-                        classification=classification,
-                        config=cfg,
-                        bedrock_client=bedrock,
-                    )
+                (
+                    raw_sections,
+                    extraction_method,
+                    batches_used,
+                    input_tokens,
+                    output_tokens,
+                ) = _run_claude_single_path(
+                    pdf_bytes=pdf_bytes,
+                    bucket=bucket,
+                    key=key,
+                    classification=classification,
+                    config=cfg,
+                    bedrock_client=bedrock,
                 )
             else:
                 pdf_bytes = _download_pdf(bucket, key, s3)
-                raw_sections, extraction_method, batches_used, input_tokens, output_tokens = (
-                    _run_claude_minibatch_path(
-                        pdf_bytes=pdf_bytes,
-                        bucket=bucket,
-                        key=key,
-                        classification=classification,
-                        config=cfg,
-                        bedrock_client=bedrock,
-                    )
+                (
+                    raw_sections,
+                    extraction_method,
+                    batches_used,
+                    input_tokens,
+                    output_tokens,
+                ) = _run_claude_minibatch_path(
+                    pdf_bytes=pdf_bytes,
+                    bucket=bucket,
+                    key=key,
+                    classification=classification,
+                    config=cfg,
+                    bedrock_client=bedrock,
                 )
 
         logger.info(
             "Extraction complete: %d raw sections | method=%s | batches=%d",
-            len(raw_sections), extraction_method, batches_used,
+            len(raw_sections),
+            extraction_method,
+            batches_used,
         )
 
     except Exception as exc:
@@ -525,7 +560,10 @@ def run_pipeline(
     duration = time.time() - start_time
     logger.info(
         "=== PDF Pipeline DONE: %s | %.1fs | %d indexed | %d errors ===",
-        key, duration, ingest_result.documents_indexed, len(errors),
+        key,
+        duration,
+        ingest_result.documents_indexed,
+        len(errors),
     )
 
     return PdfPipelineResult(
@@ -587,7 +625,8 @@ def batch_run_pipeline(
     successful = sum(1 for r in all_results if r.overall_success)
     logger.info(
         "Batch complete: %d/%d PDFs successfully indexed",
-        successful, len(all_results),
+        successful,
+        len(all_results),
     )
     return all_results
 
@@ -595,6 +634,7 @@ def batch_run_pipeline(
 # ---------------------------------------------------------------------------
 # Lambda handler
 # ---------------------------------------------------------------------------
+
 
 def lambda_handler(event: dict, context: Any) -> dict:
     """AWS Lambda entrypoint for EventBridge S3 PutObject events.
@@ -617,7 +657,9 @@ def lambda_handler(event: dict, context: Any) -> dict:
         key = urllib.parse.unquote_plus(raw_key)
 
         if not bucket or not key:
-            logger.error("Invalid event: missing bucket or key. Event: %s", json.dumps(event))
+            logger.error(
+                "Invalid event: missing bucket or key. Event: %s", json.dumps(event)
+            )
             return {"statusCode": 400, "body": "Invalid event structure"}
 
         if not key.lower().endswith(".pdf"):

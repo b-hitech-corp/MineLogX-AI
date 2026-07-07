@@ -8,9 +8,10 @@ adapted to Vega-Lite, Chart.js, or ApexCharts.
 The LLM passes in data + intent; this tool returns a complete JSON spec
 the frontend can render without further interpretation.
 """
+
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 import colorsys
 
 
@@ -39,7 +40,7 @@ def _colors(n: int) -> list[str]:
     for i in range(n - len(_BRAND_COLORS)):
         h = (i / (n - len(_BRAND_COLORS))) * 360
         r, g, b = colorsys.hls_to_rgb(h / 360, 0.45, 0.65)
-        extras.append(f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}")
+        extras.append(f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}")
     return _BRAND_COLORS + extras
 
 
@@ -47,10 +48,11 @@ def _colors(n: int) -> list[str]:
 # Public builder functions
 # ---------------------------------------------------------------------------
 
+
 def build_line_chart(
     *,
     title: str,
-    data: list[dict],           # [{date: "...", series1: v, series2: v}, ...]
+    data: list[dict],  # [{date: "...", series1: v, series2: v}, ...]
     x_key: str,
     y_keys: list[str],
     y_label: Optional[str] = None,
@@ -68,7 +70,12 @@ def build_line_chart(
         "x_axis": {"key": x_key, "label": x_label or x_key},
         "y_axis": {"label": y_label or ""},
         "series": [
-            {"key": k, "name": k.replace("_", " ").title(), "color": colors[i], "dot": False}
+            {
+                "key": k,
+                "name": k.replace("_", " ").title(),
+                "color": colors[i],
+                "dot": False,
+            }
             for i, k in enumerate(y_keys)
         ],
         "tooltip": True,
@@ -80,12 +87,12 @@ def build_line_chart(
 def build_bar_chart(
     *,
     title: str,
-    data: list[dict],           # [{category: "...", value: n}, ...]
+    data: list[dict],  # [{category: "...", value: n}, ...]
     x_key: str,
     y_keys: list[str],
     y_label: Optional[str] = None,
     x_label: Optional[str] = None,
-    layout: str = "vertical",   # "vertical" | "horizontal"
+    layout: str = "vertical",  # "vertical" | "horizontal"
     stacked: bool = False,
     description: Optional[str] = None,
 ) -> dict:
@@ -101,7 +108,12 @@ def build_bar_chart(
         "x_axis": {"key": x_key, "label": x_label or x_key},
         "y_axis": {"label": y_label or ""},
         "series": [
-            {"key": k, "name": k.replace("_", " ").title(), "color": colors[i], "stacked": stacked}
+            {
+                "key": k,
+                "name": k.replace("_", " ").title(),
+                "color": colors[i],
+                "stacked": stacked,
+            }
             for i, k in enumerate(y_keys)
         ],
         "tooltip": True,
@@ -142,7 +154,7 @@ def build_scatter_chart(
 def build_pie_chart(
     *,
     title: str,
-    data: list[dict],           # [{name: "...", value: n}, ...]
+    data: list[dict],  # [{name: "...", value: n}, ...]
     name_key: str = "name",
     value_key: str = "value",
     donut: bool = True,
@@ -150,9 +162,7 @@ def build_pie_chart(
 ) -> dict:
     """Pie / donut chart for composition views."""
     colors = _colors(len(data))
-    data_with_colors = [
-        {**row, "_color": colors[i]} for i, row in enumerate(data)
-    ]
+    data_with_colors = [{**row, "_color": colors[i]} for i, row in enumerate(data)]
     return {
         "chart_type": "PieChart",
         "library": "recharts",
@@ -172,7 +182,7 @@ def build_pie_chart(
 def build_kpi_cards(
     *,
     title: str,
-    kpis: list[dict],   # [{"label": str, "value": any, "unit": str, "trend": str|None}]
+    kpis: list[dict],  # [{"label": str, "value": any, "unit": str, "trend": str|None}]
     description: Optional[str] = None,
 ) -> dict:
     """Structured KPI summary card layout (not a Recharts chart but same spec pattern)."""
@@ -188,7 +198,7 @@ def build_kpi_cards(
 def build_heatmap(
     *,
     title: str,
-    data: list[dict],           # [{row_label: str, col_label: str, value: float}]
+    data: list[dict],  # [{row_label: str, col_label: str, value: float}]
     row_key: str,
     col_key: str,
     value_key: str,
@@ -212,6 +222,7 @@ def build_heatmap(
 # ---------------------------------------------------------------------------
 # Convenience: build the right chart from a stats_analyzer time_series result
 # ---------------------------------------------------------------------------
+
 
 def chart_from_time_series(
     time_series_result: dict,

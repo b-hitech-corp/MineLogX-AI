@@ -13,6 +13,7 @@ Run as a script (folder name is optional, defaults to "C1"):
     python tests/test_pipeline.py C1 --s3          # use S3 instead of local data
     python tests/test_pipeline.py C1 --out out.json
 """
+
 import json
 import os
 import sys
@@ -32,6 +33,7 @@ DEFAULT_FOLDER = "C1"
 # Pytest fixture
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def report():
     """Run the pipeline once and share the result across all tests in this file."""
@@ -44,8 +46,8 @@ def report():
 # Tests
 # ---------------------------------------------------------------------------
 
-class TestPipelineOutput:
 
+class TestPipelineOutput:
     def test_report_has_required_top_level_keys(self, report):
         for key in ("folder", "processed_at", "file_count", "files"):
             assert key in report, f"Missing top-level key: '{key}'"
@@ -58,8 +60,16 @@ class TestPipelineOutput:
         assert len(report["files"]) == report["file_count"]
 
     def test_each_file_has_required_keys(self, report):
-        required = ("file_path", "status", "schema", "kpis",
-                    "statistics", "insights", "charts", "errors")
+        required = (
+            "file_path",
+            "status",
+            "schema",
+            "kpis",
+            "statistics",
+            "insights",
+            "charts",
+            "errors",
+        )
         for f in report["files"]:
             for key in required:
                 assert key in f, f"File '{f.get('file_path')}' missing key '{key}'"
@@ -118,9 +128,11 @@ class TestPipelineOutput:
         for f in report["files"]:
             print(f"\n  [{f['status'].upper()}] {f['file_path']}")
             schema = f.get("schema") or {}
-            print(f"    rows={schema.get('row_count')}  "
-                  f"cols={schema.get('column_count')}  "
-                  f"charts={len(f.get('charts', []))}")
+            print(
+                f"    rows={schema.get('row_count')}  "
+                f"cols={schema.get('column_count')}  "
+                f"charts={len(f.get('charts', []))}"
+            )
             if f["errors"]:
                 print(f"    errors: {list(f['errors'].keys())}")
         print("\nFull JSON:\n")
@@ -133,16 +145,25 @@ class TestPipelineOutput:
 # Script entry point
 # ---------------------------------------------------------------------------
 
+
 def _run_script():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Run FolderPipeline and print JSON report.")
-    parser.add_argument("folder", nargs="?", default=DEFAULT_FOLDER,
-                        help="S3 folder / local subfolder to process (default: C1)")
-    parser.add_argument("--s3", action="store_true",
-                        help="Use S3 instead of local sample_data/")
-    parser.add_argument("--out", metavar="PATH",
-                        help="Write report to this JSON file path")
+    parser = argparse.ArgumentParser(
+        description="Run FolderPipeline and print JSON report."
+    )
+    parser.add_argument(
+        "folder",
+        nargs="?",
+        default=DEFAULT_FOLDER,
+        help="S3 folder / local subfolder to process (default: C1)",
+    )
+    parser.add_argument(
+        "--s3", action="store_true", help="Use S3 instead of local sample_data/"
+    )
+    parser.add_argument(
+        "--out", metavar="PATH", help="Write report to this JSON file path"
+    )
     args = parser.parse_args()
 
     pipeline = FolderPipeline(local_mode=not args.s3)

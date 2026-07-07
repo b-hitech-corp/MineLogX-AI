@@ -23,6 +23,20 @@ Parameters:
     Type: String
     AllowedValues: ['true', 'false']
     Default: 'false'
+  BuildCsvLayer:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: >
+      Publish the CSV deps Lambda layer. Off by default so `package`/`deploy`
+      don't fail before `fab lambda.build-layer csv` has run.
+  BuildPdfLayer:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: >
+      Publish the PDF deps Lambda layer. Off by default so `package`/`deploy`
+      don't fail before `fab lambda.build-layer pdf` has produced the tree.
 
 Resources:
   Network:
@@ -138,6 +152,8 @@ Resources:
         GuardrailId: !GetAtt Guardrails.Outputs.GuardrailId
         TelemetryBucket: !GetAtt S3.Outputs.TelemetryDataBucket
         LegislationBucket: !GetAtt S3.Outputs.LegislationDocumentsBucket
+        BuildPdfLayer: !Ref BuildPdfLayer
+        BuildCsvLayer: !Ref BuildCsvLayer
 
   StepFunctions:
     Type: AWS::CloudFormation::Stack

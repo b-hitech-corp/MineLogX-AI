@@ -20,13 +20,12 @@ Public API
 ----------
     chunk_and_serialize(file_path, schema_descriptor, ...) -> ChunkResult
 """
+
 from __future__ import annotations
 
 import io
 import json
 import logging
-import os
-import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Optional
@@ -42,36 +41,54 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Column name suffixes that indicate a cumulative total (use sum, not mean)
 # ---------------------------------------------------------------------------
-_SUM_SUFFIXES  = (
-    "_total", "_count", "_tonnes", "_km", "_litres", "_l",
-    "_kg", "_events", "_trips", "_cycles", "_loads",
+_SUM_SUFFIXES = (
+    "_total",
+    "_count",
+    "_tonnes",
+    "_km",
+    "_litres",
+    "_l",
+    "_kg",
+    "_events",
+    "_trips",
+    "_cycles",
+    "_loads",
 )
 _RATE_SUFFIXES = (
-    "_rate", "_pct", "_ratio", "_efficiency", "_utilization",
-    "_compliance", "_accuracy", "_intensity", "_score",
+    "_rate",
+    "_pct",
+    "_ratio",
+    "_efficiency",
+    "_utilization",
+    "_compliance",
+    "_accuracy",
+    "_intensity",
+    "_score",
 )
 
-MAX_ENTITY_VALUES_SHOWN = 5   # unique entity values listed in the text
-MAX_OUTLIER_EXAMPLES    = 3   # outlier instances mentioned per column
-OUTLIER_IQR_THRESHOLD   = 1.5
+MAX_ENTITY_VALUES_SHOWN = 5  # unique entity values listed in the text
+MAX_OUTLIER_EXAMPLES = 3  # outlier instances mentioned per column
+OUTLIER_IQR_THRESHOLD = 1.5
 
 
 # ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ChunkResult:
-    output_s3_key:      Optional[str]
-    chunk_count:        int   = 0
-    total_rows_chunked: int   = 0
-    strategy_used:      str   = ""
-    errors:             list[str] = field(default_factory=list)
+    output_s3_key: Optional[str]
+    chunk_count: int = 0
+    total_rows_chunked: int = 0
+    strategy_used: str = ""
+    errors: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def chunk_and_serialize(
     file_path: str,
@@ -103,7 +120,9 @@ def chunk_and_serialize(
     if not isinstance(schema_descriptor, dict):
         return ChunkResult(
             output_s3_key=None,
-            errors=[f"schema_descriptor must be a dict, got {type(schema_descriptor).__name__}"],
+            errors=[
+                f"schema_descriptor must be a dict, got {type(schema_descriptor).__name__}"
+            ],
         )
 
     errors: list[str] = []
@@ -120,10 +139,10 @@ def chunk_and_serialize(
     # ── Step 2: Resolve column roles from schema descriptor ──────────────
     col_roles = _column_roles(df.columns.tolist(), schema_descriptor)
 
-    entity_cols   = [c for c, r in col_roles.items() if r == "entity"]
-    metric_cols   = [c for c, r in col_roles.items() if r == "metric"]
+    entity_cols = [c for c, r in col_roles.items() if r == "entity"]
+    metric_cols = [c for c, r in col_roles.items() if r == "metric"]
     datetime_cols = [c for c, r in col_roles.items() if r == "datetime"]
-    cat_cols      = [c for c, r in col_roles.items() if r == "categorical"]
+    cat_cols = [c for c, r in col_roles.items() if r == "categorical"]
 
     # File-level canonical markers (same for every chunk): which canonical
     # fields are absent (domain-scoped) and which raw columns are unmapped.
@@ -138,11 +157,12 @@ def chunk_and_serialize(
     primary_date_col = datetime_cols[0] if datetime_cols else None
 
     if strategy == "time_window" and primary_date_col:
-        chunks       = _time_window_chunks(df, primary_date_col, window_days,
-                                           max_rows_per_chunk, overlap_rows)
+        chunks = _time_window_chunks(
+            df, primary_date_col, window_days, max_rows_per_chunk, overlap_rows
+        )
         strategy_used = "time_window"
     else:
-        chunks        = _row_count_chunks(df, max_rows_per_chunk, overlap_rows)
+        chunks = _row_count_chunks(df, max_rows_per_chunk, overlap_rows)
         strategy_used = "row_count"
         if strategy == "time_window" and not primary_date_col:
             logger.warning(
@@ -152,16 +172,17 @@ def chunk_and_serialize(
 
     if not chunks:
         return ChunkResult(
-            output_s3_key=None, strategy_used=strategy_used,
+            output_s3_key=None,
+            strategy_used=strategy_used,
             errors=["chunking produced zero chunks"],
         )
 
     # ── Step 4: Serialize each chunk ─────────────────────────────────────
-    p      = PurePosixPath(file_path)
+    p = PurePosixPath(file_path)
     folder = str(p.parent)
     if folder in (".", ""):
         folder = "root"
-    stem   = p.stem
+    stem = p.stem
 
     serialized: list[dict] = []
     total_rows = 0
@@ -170,48 +191,55 @@ def chunk_and_serialize(
     for idx, chunk in enumerate(chunks):
         try:
             record = _serialize_chunk(
-                chunk       = chunk,
-                chunk_index = idx,
-                row_start   = row_cursor,
-                file_path   = file_path,
-                folder      = folder,
-                stem        = stem,
-                entity_cols  = entity_cols,
-                metric_cols  = metric_cols,
-                datetime_cols = datetime_cols,
-                cat_cols     = cat_cols,
-                schema_version = schema_descriptor.get("schema_version", "1.0"),
-                markers      = markers,
+                chunk=chunk,
+                chunk_index=idx,
+                row_start=row_cursor,
+                file_path=file_path,
+                folder=folder,
+                stem=stem,
+                entity_cols=entity_cols,
+                metric_cols=metric_cols,
+                datetime_cols=datetime_cols,
+                cat_cols=cat_cols,
+                schema_version=schema_descriptor.get("schema_version", "1.0"),
+                markers=markers,
             )
             serialized.append(record)
             total_rows += len(chunk)
             row_cursor += len(chunk)
         except Exception as exc:
             errors.append(f"chunk {idx}: serialization failed: {exc}")
-            logger.warning("[chunker] Chunk %d serialization failed for '%s': %s",
-                           idx, file_path, exc)
+            logger.warning(
+                "[chunker] Chunk %d serialization failed for '%s': %s",
+                idx,
+                file_path,
+                exc,
+            )
 
     # ── Step 5: Write JSONL ───────────────────────────────────────────────
     s3_key = _s3_chunks_key(file_path)
     try:
         _write_jsonl(serialized, s3_key, file_path, local_mode)
-        logger.info("[chunker] '%s': %d chunks → %s", file_path, len(serialized), s3_key)
+        logger.info(
+            "[chunker] '%s': %d chunks → %s", file_path, len(serialized), s3_key
+        )
     except Exception as exc:
         errors.append(f"JSONL write failed: {exc}")
         s3_key = None
 
     return ChunkResult(
-        output_s3_key      = s3_key if not local_mode else None,
-        chunk_count        = len(serialized),
-        total_rows_chunked = total_rows,
-        strategy_used      = strategy_used,
-        errors             = errors,
+        output_s3_key=s3_key if not local_mode else None,
+        chunk_count=len(serialized),
+        total_rows_chunked=total_rows,
+        strategy_used=strategy_used,
+        errors=errors,
     )
 
 
 # ---------------------------------------------------------------------------
 # Chunking strategies
 # ---------------------------------------------------------------------------
+
 
 def _time_window_chunks(
     df: pd.DataFrame,
@@ -241,7 +269,7 @@ def _time_window_chunks(
 
     while window_start <= t_max:
         window_end = window_start + delta
-        mask  = (df[date_col] >= window_start) & (df[date_col] < window_end)
+        mask = (df[date_col] >= window_start) & (df[date_col] < window_end)
         chunk = df[mask].reset_index(drop=True)
 
         if len(chunk) == 0:
@@ -257,8 +285,11 @@ def _time_window_chunks(
             chunk = pd.concat([prev_tail, chunk]).reset_index(drop=True)
 
         chunks.append(chunk)
-        prev_tail = chunk.iloc[-overlap_rows:].reset_index(drop=True) \
-                    if len(chunk) >= overlap_rows else chunk.copy()
+        prev_tail = (
+            chunk.iloc[-overlap_rows:].reset_index(drop=True)
+            if len(chunk) >= overlap_rows
+            else chunk.copy()
+        )
         window_start = window_end
 
     return chunks
@@ -276,11 +307,11 @@ def _row_count_chunks(
     if chunk_size <= overlap_rows:
         overlap_rows = chunk_size // 4  # safety: avoid infinite loop
 
-    step   = max(1, chunk_size - overlap_rows)
+    step = max(1, chunk_size - overlap_rows)
     chunks = []
 
     for start in range(0, len(df), step):
-        chunk = df.iloc[start: start + chunk_size].reset_index(drop=True)
+        chunk = df.iloc[start : start + chunk_size].reset_index(drop=True)
         if not chunk.empty:
             chunks.append(chunk)
 
@@ -290,6 +321,7 @@ def _row_count_chunks(
 # ---------------------------------------------------------------------------
 # Serialization
 # ---------------------------------------------------------------------------
+
 
 def _serialize_chunk(
     chunk: pd.DataFrame,
@@ -321,7 +353,7 @@ def _serialize_chunk(
             if pd.notna(dmin) and pd.notna(dmax):
                 date_range = {
                     "start": pd.Timestamp(dmin).isoformat(),
-                    "end":   pd.Timestamp(dmax).isoformat(),
+                    "end": pd.Timestamp(dmax).isoformat(),
                 }
 
     # Entity snapshot (unique values per entity column)
@@ -332,29 +364,37 @@ def _serialize_chunk(
             entity_values[col] = [str(v) for v in uniques[:MAX_ENTITY_VALUES_SHOWN]]
 
     text = _build_text(
-        chunk, chunk_index, file_path, folder,
-        entity_cols, metric_cols, datetime_cols, cat_cols, date_range, markers,
+        chunk,
+        chunk_index,
+        file_path,
+        folder,
+        entity_cols,
+        metric_cols,
+        datetime_cols,
+        cat_cols,
+        date_range,
+        markers,
     )
 
     return {
         "chunk_id": f"{folder}/{stem}__chunk_{chunk_index:05d}",
         "text": text,
         "metadata": {
-            "source_file":    file_path,
-            "folder":         folder,
-            "chunk_index":    chunk_index,
-            "row_range":      [row_start, row_end],
-            "date_range":     date_range,
-            "entity_values":  entity_values,
+            "source_file": file_path,
+            "folder": folder,
+            "chunk_index": chunk_index,
+            "row_range": [row_start, row_end],
+            "date_range": date_range,
+            "entity_values": entity_values,
             "schema_version": schema_version,
-            "column_list":    chunk.columns.tolist(),
-            "row_count":      len(chunk),
+            "column_list": chunk.columns.tolist(),
+            "row_count": len(chunk),
             # Canonical markers (file-level): the agent can tell "value null"
             # from "field not tracked here", and which raw columns are unmapped.
-            "available_fields":         sorted(c for c in chunk.columns.tolist()),
+            "available_fields": sorted(c for c in chunk.columns.tolist()),
             "missing_canonical_fields": markers.get("missing_canonical_fields", []),
-            "unmapped_columns":         markers.get("unmapped_columns", []),
-            "active_domains":           markers.get("active_domains", []),
+            "unmapped_columns": markers.get("unmapped_columns", []),
+            "active_domains": markers.get("active_domains", []),
         },
     }
 
@@ -383,9 +423,7 @@ def _build_text(
     header_parts = [f"Mining telemetry from {file_path}"]
 
     if date_range:
-        header_parts.append(
-            f"time {date_range['start']} to {date_range['end']}"
-        )
+        header_parts.append(f"time {date_range['start']} to {date_range['end']}")
 
     entity_ctx = []
     for col in entity_cols:
@@ -416,14 +454,16 @@ def _build_text(
                 continue
             # Cast to float so boolean/integer columns yield roundable
             # aggregates (numpy 2.x bool/int scalars lack __round__).
-            series = pd.to_numeric(chunk[col], errors="coerce").dropna().astype("float64")
+            series = (
+                pd.to_numeric(chunk[col], errors="coerce").dropna().astype("float64")
+            )
             if series.empty:
                 continue
 
-            agg     = _agg_label(col)
-            mean_v  = _safe_round(series.mean())
-            min_v   = _safe_round(series.min())
-            max_v   = _safe_round(series.max())
+            agg = _agg_label(col)
+            mean_v = _safe_round(series.mean())
+            min_v = _safe_round(series.min())
+            max_v = _safe_round(series.max())
             total_v = _safe_round(series.sum())
 
             if agg == "sum":
@@ -439,8 +479,11 @@ def _build_text(
                 for row_pos, val in outliers.head(MAX_OUTLIER_EXAMPLES).items():
                     ts = ""
                     if datetime_cols and datetime_cols[0] in chunk.columns:
-                        ts_val = chunk[datetime_cols[0]].iloc[row_pos] \
-                                 if row_pos < len(chunk) else None
+                        ts_val = (
+                            chunk[datetime_cols[0]].iloc[row_pos]
+                            if row_pos < len(chunk)
+                            else None
+                        )
                         if ts_val is not None and pd.notna(ts_val):
                             ts = f" at {pd.Timestamp(ts_val).isoformat()}"
                     outlier_notes.append(f"  {col}={_safe_round(val)}{ts}")
@@ -454,7 +497,7 @@ def _build_text(
         lines.append("Categories:")
         for col in cat_present:
             counts = chunk[col].value_counts().head(5)
-            parts  = [f"{k}:{v}" for k, v in counts.items()]
+            parts = [f"{k}:{v}" for k, v in counts.items()]
             lines.append(f"  {col}: {', '.join(parts)}")
 
     # ── Outlier notes ─────────────────────────────────────────────────────
@@ -469,15 +512,14 @@ def _build_text(
     missing = markers.get("missing_canonical_fields", [])
     if missing:
         lines.append("")
-        lines.append(
-            "Fields not tracked in this dataset: " + ", ".join(missing) + "."
-        )
+        lines.append("Fields not tracked in this dataset: " + ", ".join(missing) + ".")
     unmapped = markers.get("unmapped_columns", [])
     if unmapped:
         lines.append("")
         lines.append(
             "Unmapped source columns (present but not in the canonical schema): "
-            + ", ".join(unmapped) + "."
+            + ", ".join(unmapped)
+            + "."
         )
 
     return "\n".join(lines)
@@ -486,6 +528,7 @@ def _build_text(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _column_roles(columns: list[str], schema_descriptor: dict) -> dict[str, str]:
     """
@@ -515,17 +558,21 @@ def _column_roles(columns: list[str], schema_descriptor: dict) -> dict[str, str]
 
     # Fill gaps with inferred_type from column_stats
     _type_to_role = {
-        "float":       "metric",
-        "integer":     "metric",
-        "datetime":    "datetime",
+        "float": "metric",
+        "integer": "metric",
+        "datetime": "datetime",
         "categorical": "categorical",
-        "string":      "metadata",
+        "string": "metadata",
     }
     for col in columns:
         if col in role_map:
             continue
         stats = schema_descriptor.get("column_stats", {}).get(col, {})
-        inferred = stats.get("inferred_type", "string") if isinstance(stats, dict) else "string"
+        inferred = (
+            stats.get("inferred_type", "string")
+            if isinstance(stats, dict)
+            else "string"
+        )
         # Apply ID-column heuristic for anything not yet classified
         if any(col.endswith(s) for s in ("_id", "_code", "_num", "_no")):
             role_map[col] = "entity"
@@ -560,13 +607,14 @@ def _build_canonical_markers(schema_descriptor: dict) -> dict:
     canon = schema_descriptor.get("canonical") or {}
     active = set(canon.get("active_domains", [])) or {"shared"}
     scoped_absent = [
-        f for f in canon.get("absent_fields", [])
+        f
+        for f in canon.get("absent_fields", [])
         if CANONICAL_SCHEMA.get(f, {}).get("domain", "shared") in active
     ]
     return {
         "missing_canonical_fields": sorted(scoped_absent),
-        "unmapped_columns":         list(canon.get("unknown_columns", [])),
-        "active_domains":           sorted(active),
+        "unmapped_columns": list(canon.get("unknown_columns", [])),
+        "active_domains": sorted(active),
     }
 
 
@@ -580,7 +628,7 @@ def _iqr_outliers(series: pd.Series) -> pd.Series:
     if len(series) < 4:
         return pd.Series(dtype=float)
     q1, q3 = series.quantile(0.25), series.quantile(0.75)
-    iqr    = q3 - q1
+    iqr = q3 - q1
     if iqr == 0:
         return pd.Series(dtype=float)
     bound_upper = q3 + OUTLIER_IQR_THRESHOLD * iqr
@@ -594,24 +642,26 @@ def _read_canonical(file_path: str, local_mode: bool) -> pd.DataFrame:
     Value types (int/float/bool/null) round-trip natively; datetime columns are
     stored ISO-8601 and re-parsed by the caller from the schema descriptor.
     """
-    p      = PurePosixPath(file_path)
+    p = PurePosixPath(file_path)
     folder = str(p.parent)
     if folder in (".", ""):
         folder = "root"
     canonical_key = f"{settings.s3.prefix}vectorization/{folder}/canonical/{p.stem}.canonical.ndjson"
 
     if local_mode:
-        local_path = Path(settings.local_data_path) / \
-                     f"vectorization/{folder}/canonical/{p.stem}.canonical.ndjson"
+        local_path = (
+            Path(settings.local_data_path)
+            / f"vectorization/{folder}/canonical/{p.stem}.canonical.ndjson"
+        )
         return pd.read_json(local_path, lines=True)
 
-    s3  = boto3.client("s3", region_name=settings.s3.region)
+    s3 = boto3.client("s3", region_name=settings.s3.region)
     obj = s3.get_object(Bucket=settings.s3.bucket_name, Key=canonical_key)
     return pd.read_json(io.BytesIO(obj["Body"].read()), lines=True)
 
 
 def _s3_chunks_key(file_path: str) -> str:
-    p      = PurePosixPath(file_path)
+    p = PurePosixPath(file_path)
     folder = str(p.parent)
     if folder in (".", ""):
         folder = "root"
@@ -629,12 +679,14 @@ def _write_jsonl(
     encoded = payload.encode("utf-8")
 
     if local_mode:
-        p      = PurePosixPath(file_path)
+        p = PurePosixPath(file_path)
         folder = str(p.parent)
         if folder in (".", ""):
             folder = "root"
-        local_path = Path(settings.local_data_path) / \
-                     f"vectorization/{folder}/chunks/{p.stem}.chunks.jsonl"
+        local_path = (
+            Path(settings.local_data_path)
+            / f"vectorization/{folder}/chunks/{p.stem}.chunks.jsonl"
+        )
         local_path.parent.mkdir(parents=True, exist_ok=True)
         local_path.write_bytes(encoded)
         logger.info("[chunker] Written locally → %s", local_path)
@@ -642,8 +694,8 @@ def _write_jsonl(
 
     s3 = boto3.client("s3", region_name=settings.s3.region)
     s3.put_object(
-        Bucket      = settings.s3.bucket_name,
-        Key         = s3_key,
-        Body        = encoded,
-        ContentType = "application/x-ndjson",
+        Bucket=settings.s3.bucket_name,
+        Key=s3_key,
+        Body=encoded,
+        ContentType="application/x-ndjson",
     )

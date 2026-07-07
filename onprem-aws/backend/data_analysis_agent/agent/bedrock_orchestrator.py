@@ -15,6 +15,7 @@ Usage
     print(result.summary)
     print(result.charts)
 """
+
 from __future__ import annotations
 
 import json
@@ -55,9 +56,13 @@ _TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path": {"type": "string", "description": "S3 key or local file path."},
+                "file_path": {
+                    "type": "string",
+                    "description": "S3 key or local file path.",
+                },
                 "date_columns": {
-                    "type": "array", "items": {"type": "string"},
+                    "type": "array",
+                    "items": {"type": "string"},
                     "description": "Column names to parse as dates.",
                 },
                 "use_local_fallback": {
@@ -103,11 +108,18 @@ _TOOL_SCHEMAS: list[dict] = [
             "properties": {
                 "file_path": {"type": "string"},
                 "kpi_names": {
-                    "type": "array", "items": {"type": "string"},
+                    "type": "array",
+                    "items": {"type": "string"},
                     "description": "KPI names from registry, or ['*'] for all.",
                 },
-                "group_by": {"type": "string", "description": "Column name to compute KPIs per group."},
-                "filter_expr": {"type": "string", "description": "Pandas query string applied before computing."},
+                "group_by": {
+                    "type": "string",
+                    "description": "Column name to compute KPIs per group.",
+                },
+                "filter_expr": {
+                    "type": "string",
+                    "description": "Pandas query string applied before computing.",
+                },
             },
             "required": ["file_path", "kpi_names"],
         },
@@ -120,7 +132,8 @@ _TOOL_SCHEMAS: list[dict] = [
             "properties": {
                 "file_path": {"type": "string"},
                 "columns": {
-                    "type": "array", "items": {"type": "string"},
+                    "type": "array",
+                    "items": {"type": "string"},
                     "description": "Specific columns to describe. Omit for all.",
                 },
             },
@@ -133,12 +146,15 @@ _TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path":     {"type": "string"},
+                "file_path": {"type": "string"},
                 "metric_column": {"type": "string"},
                 "entity_column": {"type": "string"},
-                "top_n":         {"type": "integer"},
-                "ascending":     {"type": "boolean"},
-                "agg_func":      {"type": "string", "enum": ["mean", "sum", "max", "min", "count"]},
+                "top_n": {"type": "integer"},
+                "ascending": {"type": "boolean"},
+                "agg_func": {
+                    "type": "string",
+                    "enum": ["mean", "sum", "max", "min", "count"],
+                },
             },
             "required": ["file_path", "metric_column", "entity_column"],
         },
@@ -153,12 +169,12 @@ _TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path":     {"type": "string"},
-                "date_column":   {"type": "string"},
+                "file_path": {"type": "string"},
+                "date_column": {"type": "string"},
                 "value_columns": {"type": "array", "items": {"type": "string"}},
-                "freq":          {"type": "string", "enum": ["D", "W", "ME", "QE"]},
-                "agg_func":      {"type": "string"},
-                "group_by":      {"type": "string"},
+                "freq": {"type": "string", "enum": ["D", "W", "ME", "QE"]},
+                "agg_func": {"type": "string"},
+                "group_by": {"type": "string"},
             },
             "required": ["file_path", "date_column", "value_columns"],
         },
@@ -170,7 +186,7 @@ _TOOL_SCHEMAS: list[dict] = [
             "type": "object",
             "properties": {
                 "file_path": {"type": "string"},
-                "columns":   {"type": "array", "items": {"type": "string"}},
+                "columns": {"type": "array", "items": {"type": "string"}},
             },
             "required": ["file_path"],
         },
@@ -184,10 +200,10 @@ _TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path":     {"type": "string"},
-                "column":        {"type": "string"},
-                "method":        {"type": "string", "enum": ["iqr", "zscore"]},
-                "threshold":     {"type": "number"},
+                "file_path": {"type": "string"},
+                "column": {"type": "string"},
+                "method": {"type": "string", "enum": ["iqr", "zscore"]},
+                "threshold": {"type": "number"},
                 "entity_column": {"type": "string"},
             },
             "required": ["file_path", "column"],
@@ -199,10 +215,10 @@ _TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path":    {"type": "string"},
-                "date_column":  {"type": "string"},
+                "file_path": {"type": "string"},
+                "date_column": {"type": "string"},
                 "value_column": {"type": "string"},
-                "freq":         {"type": "string"},
+                "freq": {"type": "string"},
             },
             "required": ["file_path", "date_column", "value_column"],
         },
@@ -222,10 +238,10 @@ _TOOL_SCHEMAS: list[dict] = [
                     "items": {
                         "type": "object",
                         "properties": {
-                            "column":   {"type": "string"},
+                            "column": {"type": "string"},
                             "operator": {"type": "string"},
-                            "value":    {"type": "number"},
-                            "label":    {"type": "string"},
+                            "value": {"type": "number"},
+                            "label": {"type": "string"},
                         },
                         "required": ["column", "operator", "value"],
                     },
@@ -240,10 +256,10 @@ _TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "file_path":     {"type": "string"},
+                "file_path": {"type": "string"},
                 "metric_column": {"type": "string"},
                 "entity_column": {"type": "string"},
-                "top_n":         {"type": "integer"},
+                "top_n": {"type": "integer"},
             },
             "required": ["file_path", "metric_column", "entity_column"],
         },
@@ -254,12 +270,12 @@ _TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "title":       {"type": "string"},
-                "data":        {"type": "array", "items": {"type": "object"}},
-                "x_key":       {"type": "string"},
-                "y_keys":      {"type": "array", "items": {"type": "string"}},
-                "y_label":     {"type": "string"},
-                "x_label":     {"type": "string"},
+                "title": {"type": "string"},
+                "data": {"type": "array", "items": {"type": "object"}},
+                "x_key": {"type": "string"},
+                "y_keys": {"type": "array", "items": {"type": "string"}},
+                "y_label": {"type": "string"},
+                "x_label": {"type": "string"},
                 "description": {"type": "string"},
             },
             "required": ["title", "data", "x_key", "y_keys"],
@@ -271,13 +287,13 @@ _TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "title":       {"type": "string"},
-                "data":        {"type": "array", "items": {"type": "object"}},
-                "x_key":       {"type": "string"},
-                "y_keys":      {"type": "array", "items": {"type": "string"}},
-                "layout":      {"type": "string", "enum": ["vertical", "horizontal"]},
-                "stacked":     {"type": "boolean"},
-                "y_label":     {"type": "string"},
+                "title": {"type": "string"},
+                "data": {"type": "array", "items": {"type": "object"}},
+                "x_key": {"type": "string"},
+                "y_keys": {"type": "array", "items": {"type": "string"}},
+                "layout": {"type": "string", "enum": ["vertical", "horizontal"]},
+                "stacked": {"type": "boolean"},
+                "y_label": {"type": "string"},
                 "description": {"type": "string"},
             },
             "required": ["title", "data", "x_key", "y_keys"],
@@ -289,8 +305,8 @@ _TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "title":       {"type": "string"},
-                "kpis":        {"type": "array", "items": {"type": "object"}},
+                "title": {"type": "string"},
+                "kpis": {"type": "array", "items": {"type": "object"}},
                 "description": {"type": "string"},
             },
             "required": ["title", "kpis"],
@@ -302,11 +318,11 @@ _TOOL_SCHEMAS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "title":       {"type": "string"},
-                "data":        {"type": "array", "items": {"type": "object"}},
-                "name_key":    {"type": "string"},
-                "value_key":   {"type": "string"},
-                "donut":       {"type": "boolean"},
+                "title": {"type": "string"},
+                "data": {"type": "array", "items": {"type": "object"}},
+                "name_key": {"type": "string"},
+                "value_key": {"type": "string"},
+                "donut": {"type": "boolean"},
                 "description": {"type": "string"},
             },
             "required": ["title", "data"],
@@ -318,6 +334,7 @@ _TOOL_SCHEMAS: list[dict] = [
 # ---------------------------------------------------------------------------
 # Tool dispatcher
 # ---------------------------------------------------------------------------
+
 
 def _dispatch(name: str, inputs: dict) -> Any:
     """Route a model tool call to the correct Python function."""
@@ -368,6 +385,7 @@ def _dispatch(name: str, inputs: dict) -> Any:
 # Agent result
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class AgentResult:
     summary: str
@@ -380,6 +398,7 @@ class AgentResult:
 # ---------------------------------------------------------------------------
 # Main agent class
 # ---------------------------------------------------------------------------
+
 
 class FleetAgent:
     """
@@ -419,7 +438,9 @@ class FleetAgent:
                 settings.bedrock.region,
             )
 
-        messages: list[dict] = [{"role": "user", "content": build_task_prompt(question)}]
+        messages: list[dict] = [
+            {"role": "user", "content": build_task_prompt(question)}
+        ]
         tool_calls_log: list[dict] = []
         summary = ""
         turns = 0
@@ -458,11 +479,13 @@ class FleetAgent:
                         result = {"error": str(exc)}
                         logger.warning("Tool %s raised: %s", block.name, exc)
                     tool_calls_log.append({"tool": block.name, "input": block.input})
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": json.dumps(result, default=str),
-                    })
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": json.dumps(result, default=str),
+                        }
+                    )
 
                 messages.append({"role": "user", "content": tool_results})
 

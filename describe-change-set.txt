@@ -1,0 +1,187 @@
+{
+    "Changes": [
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "Amplify",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "Apigw",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "Cloudwatch",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "Ec2",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "EventBridge",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "Guardrails",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "Iam",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "Lambda",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "Network",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "OpenSearch",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "S3",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "SecurityGroups",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        },
+        {
+            "Type": "Resource",
+            "ResourceChange": {
+                "Action": "Add",
+                "LogicalResourceId": "StepFunctions",
+                "ResourceType": "AWS::CloudFormation::Stack",
+                "Scope": [],
+                "Details": []
+            }
+        }
+    ],
+    "ChangeSetName": "awscli-cloudformation-package-deploy-1783350485",
+    "ChangeSetId": "arn:aws:cloudformation:us-east-1:586928288932:changeSet/awscli-cloudformation-package-deploy-1783350485/285ee509-7570-401f-b992-de65c4b67cf9",
+    "StackId": "arn:aws:cloudformation:us-east-1:586928288932:stack/minelogx-dev-cesar/2e6137a0-794a-11f1-a125-0affff490495",
+    "StackName": "minelogx-dev-cesar",
+    "Description": "Created by AWS CLI at 2026-07-06T15:08:05.094154 UTC",
+    "Parameters": [
+        {
+            "ParameterKey": "NamePrefix",
+            "ParameterValue": "minelogx-dev-cesar"
+        },
+        {
+            "ParameterKey": "ProjectApnId",
+            "ParameterValue": "pc:13uw3s8iyvze74tlcq3o0w8r6"
+        },
+        {
+            "ParameterKey": "EnableLlmFallback",
+            "ParameterValue": "false"
+        },
+        {
+            "ParameterKey": "Environment",
+            "ParameterValue": "dev-cesar"
+        }
+    ],
+    "CreationTime": "2026-07-06T15:08:06.774000+00:00",
+    "ExecutionStatus": "AVAILABLE",
+    "Status": "CREATE_COMPLETE",
+    "StatusReason": null,
+    "NotificationARNs": [],
+    "RollbackConfiguration": {},
+    "Capabilities": [
+        "CAPABILITY_NAMED_IAM"
+    ],
+    "Tags": [
+        {
+            "Key": "ManagedBy",
+            "Value": "cloudformation"
+        },
+        {
+            "Key": "Environment",
+            "Value": "dev-cesar"
+        },
+        {
+            "Key": "aws-apn-id",
+            "Value": "pc:13uw3s8iyvze74tlcq3o0w8r6"
+        }
+    ],
+    "ParentChangeSetId": null,
+    "IncludeNestedStacks": false,
+    "RootChangeSetId": null,
+    "OnStackFailure": null,
+    "ImportExistingResources": null,
+    "StackDriftStatus": null,
+    "DeploymentMode": null
+}

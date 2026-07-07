@@ -24,6 +24,9 @@ crash.log
 **/generated*.tf
 # Lambda deployment zips built by the archive_file data source
 **/modules/lambda/.build/
+**/modules/lambda_layer/.build/
+# Lambda layer python/ trees built by `fab lambda.build-layer` (pip installs)
+**/backend/.layers/
 
 # === CloudFormation ===
 **/cloudformation/params/*.local.json

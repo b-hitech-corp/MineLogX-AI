@@ -33,8 +33,40 @@ Parameters:
     Type: String
   LegislationBucket:
     Type: String
+  BuildPdfLayer:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: >
+      Publish the PDF deps layer. Off by default so `package`/`deploy` don't
+      fail before `fab lambda.build-layer pdf` has produced the python/ tree.
+  BuildCsvLayer:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: >
+      Publish the CSV deps layer. Off by default so `package`/`deploy` don't
+      fail before `fab lambda.build-layer csv` has produced the python/ tree.
+
+Conditions:
+  ShouldBuildPdfLayer: !Equals [!Ref BuildPdfLayer, 'true']
+  ShouldBuildCsvLayer: !Equals [!Ref BuildCsvLayer, 'true']
 
 Resources:
+  PdfLayer:
+    Type: AWS::Lambda::LayerVersion
+    Condition: ShouldBuildPdfLayer
+    Properties:
+      LayerName: !Sub '${NamePrefix}-pdf-deps'
+      CompatibleRuntimes: [python3.11]
+      Content: ../../../backend/.layers/pdf
+  CsvLayer:
+    Type: AWS::Lambda::LayerVersion
+    Condition: ShouldBuildCsvLayer
+    Properties:
+      LayerName: !Sub '${NamePrefix}-csv-deps'
+      CompatibleRuntimes: [python3.11]
+      Content: ../../../backend/.layers/csv
   ApiFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -61,6 +93,7 @@ Resources:
       Role: !Ref CsvRoleArn
       Timeout: 300
       MemorySize: 1024
+      Layers: !If [ShouldBuildCsvLayer, [!Ref CsvLayer], !Ref 'AWS::NoValue']
       Code: ../../../backend
       Environment:
         Variables:
@@ -81,6 +114,7 @@ Resources:
       Role: !Ref PdfRoleArn
       Timeout: 300
       MemorySize: 1024
+      Layers: !If [ShouldBuildPdfLayer, [!Ref PdfLayer], !Ref 'AWS::NoValue']
       Code: ../../../backend
       Environment:
         Variables:

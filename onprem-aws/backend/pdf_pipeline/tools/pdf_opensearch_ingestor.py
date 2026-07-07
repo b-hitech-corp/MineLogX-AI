@@ -28,16 +28,14 @@ Public API
     ingest_sections(sections_with_embeddings, config, opensearch_client, force) -> IngestResult
     build_opensearch_client(config) -> OpenSearch
 """
+
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
 
 import boto3
-from botocore.auth import SigV4Auth
-from botocore.awsrequest import AWSRequest
 from opensearchpy import AWSV4SignerAuth, OpenSearch, RequestsHttpConnection
 from opensearchpy.helpers import bulk as os_bulk
 
@@ -52,37 +50,38 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 PDF_INDEX_MAPPING = {
-    "settings": {
-        "index.knn": True
-    },
+    "settings": {"index.knn": True},
     "mappings": {
         "properties": {
-            "section_id":        {"type": "keyword"},
-            "title":             {"type": "text", "analyzer": "standard",
-                                  "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
-            "body":              {"type": "text", "analyzer": "standard"},
+            "section_id": {"type": "keyword"},
+            "title": {
+                "type": "text",
+                "analyzer": "standard",
+                "fields": {"keyword": {"type": "keyword", "ignore_above": 256}},
+            },
+            "body": {"type": "text", "analyzer": "standard"},
             # AOSS NextGen rejects an explicit engine/method ("Field parameter
             # 'engine' is not supported") and auto-selects the HNSW config — so we
             # specify only type + dimension, matching the working CSV index mapping.
             # Titan vectors are normalized (titan_normalize), so cosine vs the
             # default space gives equivalent kNN ranking.
-            "text_embedding":    {
+            "text_embedding": {
                 "type": "knn_vector",
                 "dimension": 1024,
             },
-            "source_bucket":     {"type": "keyword"},
-            "source_key":        {"type": "keyword"},
-            "doc_class":         {"type": "keyword"},
+            "source_bucket": {"type": "keyword"},
+            "source_key": {"type": "keyword"},
+            "doc_class": {"type": "keyword"},
             "extraction_method": {"type": "keyword"},
-            "page_start":        {"type": "integer"},
-            "page_end":          {"type": "integer"},
-            "batch_index":       {"type": "integer"},
-            "total_pages":       {"type": "integer"},
-            "file_size_bytes":   {"type": "long"},
-            "schema_version":    {"type": "keyword"},
-            "has_citations":     {"type": "boolean"},
-            "has_tables":        {"type": "boolean"},
-            "indexed_at":        {"type": "date"},
+            "page_start": {"type": "integer"},
+            "page_end": {"type": "integer"},
+            "batch_index": {"type": "integer"},
+            "total_pages": {"type": "integer"},
+            "file_size_bytes": {"type": "long"},
+            "schema_version": {"type": "keyword"},
+            "has_citations": {"type": "boolean"},
+            "has_tables": {"type": "boolean"},
+            "indexed_at": {"type": "date"},
         }
     },
 }
@@ -91,6 +90,7 @@ PDF_INDEX_MAPPING = {
 # ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class IngestResult:
@@ -104,6 +104,7 @@ class IngestResult:
 # ---------------------------------------------------------------------------
 # Client factory
 # ---------------------------------------------------------------------------
+
 
 def build_opensearch_client(config: PdfPipelineConfig) -> OpenSearch:
     """Build an IAM/SigV4-authenticated OpenSearch Serverless client."""
@@ -136,6 +137,7 @@ def build_opensearch_client(config: PdfPipelineConfig) -> OpenSearch:
 # Index management
 # ---------------------------------------------------------------------------
 
+
 def ensure_index_exists(
     client: OpenSearch,
     config: PdfPipelineConfig,
@@ -157,6 +159,7 @@ def ensure_index_exists(
 # ---------------------------------------------------------------------------
 # Document builder
 # ---------------------------------------------------------------------------
+
 
 def _section_to_doc(
     section: SectionRecord,
@@ -190,6 +193,7 @@ def _section_to_doc(
 # Idempotency check
 # ---------------------------------------------------------------------------
 
+
 def _delete_existing_by_source(
     client: OpenSearch,
     index_name: str,
@@ -210,7 +214,9 @@ def _delete_existing_by_source(
             )
             deleted = resp.get("deleted", 0)
             if deleted:
-                logger.info("Deleted %d existing section(s) for source_key=%s", deleted, sk)
+                logger.info(
+                    "Deleted %d existing section(s) for source_key=%s", deleted, sk
+                )
         except Exception:
             logger.debug("delete_by_query failed for %s (non-fatal)", sk, exc_info=True)
 
@@ -218,6 +224,7 @@ def _delete_existing_by_source(
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def ingest_sections(
     sections_with_embeddings: list[tuple[SectionRecord, list[float]]],
@@ -272,7 +279,7 @@ def ingest_sections(
     total_failed = 0
 
     for batch_start in range(0, len(actions), config.opensearch_bulk_batch_size):
-        batch = actions[batch_start: batch_start + config.opensearch_bulk_batch_size]
+        batch = actions[batch_start : batch_start + config.opensearch_bulk_batch_size]
         try:
             success_count, failed_items = os_bulk(
                 client,
@@ -292,7 +299,8 @@ def ingest_sections(
             logger.info(
                 "Bulk batch %d/%d: %d indexed, %d failed",
                 batch_start // config.opensearch_bulk_batch_size + 1,
-                (len(actions) + config.opensearch_bulk_batch_size - 1) // config.opensearch_bulk_batch_size,
+                (len(actions) + config.opensearch_bulk_batch_size - 1)
+                // config.opensearch_bulk_batch_size,
                 success_count,
                 len(failed_items) if failed_items else 0,
             )
@@ -304,7 +312,10 @@ def ingest_sections(
 
     logger.info(
         "Ingest complete | index=%s | indexed=%d | failed=%d | skipped=%d",
-        index, total_indexed, total_failed, skipped,
+        index,
+        total_indexed,
+        total_failed,
+        skipped,
     )
 
     return IngestResult(

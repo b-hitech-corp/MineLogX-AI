@@ -10,6 +10,7 @@ Public API
     stream_and_profile(file_path, local_mode) -> StreamProfile
     build_llm_input(profile)                  -> str
 """
+
 from __future__ import annotations
 
 import io
@@ -31,33 +32,34 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-FULL_FILE_ROW_LIMIT  = 8_000   # files ≤ this are sent to Claude in full
-STREAM_CHUNK_SIZE    = 2_000   # rows per pandas streaming chunk
-HEAD_ROWS            = 50      # rows collected from the start of the file
-TAIL_ROWS            = 20      # rows collected from the end (rolling buffer)
-MAX_ANOMALY_ROWS     = 100     # max anomalous rows passed to Claude
-MAX_SAMPLE_VALUES    = 10      # unique sample values stored per column
-CARDINALITY_CAP      = 1_000   # stop counting unique values above this
+FULL_FILE_ROW_LIMIT = 8_000  # files ≤ this are sent to Claude in full
+STREAM_CHUNK_SIZE = 2_000  # rows per pandas streaming chunk
+HEAD_ROWS = 50  # rows collected from the start of the file
+TAIL_ROWS = 20  # rows collected from the end (rolling buffer)
+MAX_ANOMALY_ROWS = 100  # max anomalous rows passed to Claude
+MAX_SAMPLE_VALUES = 10  # unique sample values stored per column
+CARDINALITY_CAP = 1_000  # stop counting unique values above this
 
-_DATE_NAME_PATTERNS  = ("date", "time", "timestamp", "_at", "_on", "created", "updated")
-_HEADER_PATTERN      = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{1,60}$")
+_DATE_NAME_PATTERNS = ("date", "time", "timestamp", "_at", "_on", "created", "updated")
+_HEADER_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{1,60}$")
 
 
 # ---------------------------------------------------------------------------
 # Output data classes
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ColumnStats:
-    name:               str
-    inferred_type:      str            # float | integer | datetime | categorical | string
-    null_count:         int   = 0
-    total_count:        int   = 0
-    min_val:            Optional[float] = None
-    max_val:            Optional[float] = None
-    mean:               Optional[float] = None
-    sample_values:      list[str] = field(default_factory=list)
-    cardinality:        int  = 0
+    name: str
+    inferred_type: str  # float | integer | datetime | categorical | string
+    null_count: int = 0
+    total_count: int = 0
+    min_val: Optional[float] = None
+    max_val: Optional[float] = None
+    mean: Optional[float] = None
+    sample_values: list[str] = field(default_factory=list)
+    cardinality: int = 0
     cardinality_capped: bool = False
 
     @property
@@ -67,51 +69,54 @@ class ColumnStats:
 
 @dataclass
 class AnomalyRecord:
-    row_index:    int
-    anomaly_type: str   # embedded_header | separator_row | type_break | column_count_shift
-    detail:       str
-    row_data:     dict
+    row_index: int
+    anomaly_type: (
+        str  # embedded_header | separator_row | type_break | column_count_shift
+    )
+    detail: str
+    row_data: dict
 
 
 @dataclass
 class StreamProfile:
-    row_count:       int
-    column_count:    int
-    column_names:    list[str]
-    column_stats:    dict[str, ColumnStats]
+    row_count: int
+    column_count: int
+    column_names: list[str]
+    column_stats: dict[str, ColumnStats]
     anomaly_records: list[AnomalyRecord]
-    send_full_file:  bool
-    head_rows:       list[dict]
-    tail_rows:       list[dict]
-    anomaly_rows:    list[dict]          # row_data of each AnomalyRecord, deduped
-    full_df:         Optional[pd.DataFrame] = None  # only set when send_full_file=True
+    send_full_file: bool
+    head_rows: list[dict]
+    tail_rows: list[dict]
+    anomaly_rows: list[dict]  # row_data of each AnomalyRecord, deduped
+    full_df: Optional[pd.DataFrame] = None  # only set when send_full_file=True
 
 
 # ---------------------------------------------------------------------------
 # Internal accumulator (not exposed)
 # ---------------------------------------------------------------------------
 
+
 class _ColAccumulator:
     """Accumulates per-column statistics using the Welford online algorithm."""
 
     def __init__(self, name: str) -> None:
-        self.name          = name
-        self.null_count    = 0
-        self.total_count   = 0
+        self.name = name
+        self.null_count = 0
+        self.total_count = 0
         # Welford
-        self._n     = 0
-        self._mean  = 0.0
-        self._M2    = 0.0
+        self._n = 0
+        self._mean = 0.0
+        self._M2 = 0.0
         self._min: Optional[float] = None
         self._max: Optional[float] = None
         # Cardinality / samples
-        self._seen:            set[str] = set()
-        self._cardinality_cap  = False
-        self._sample_values:   list[str] = []
+        self._seen: set[str] = set()
+        self._cardinality_cap = False
+        self._sample_values: list[str] = []
         # Type voting
-        self._numeric_ticks  = 0
+        self._numeric_ticks = 0
         self._datetime_ticks = 0
-        self._string_ticks   = 0
+        self._string_ticks = 0
 
     # ------------------------------------------------------------------
 
@@ -130,7 +135,10 @@ class _ColAccumulator:
                 self._cardinality_cap = True
 
         # Sample values
-        if len(self._sample_values) < MAX_SAMPLE_VALUES and sv not in self._sample_values:
+        if (
+            len(self._sample_values) < MAX_SAMPLE_VALUES
+            and sv not in self._sample_values
+        ):
             self._sample_values.append(sv)
 
         # Type tick
@@ -155,18 +163,17 @@ class _ColAccumulator:
     # ------------------------------------------------------------------
 
     def to_stats(self, inferred_type: str) -> ColumnStats:
-        non_null = self.total_count - self.null_count
         return ColumnStats(
-            name               = self.name,
-            inferred_type      = inferred_type,
-            null_count         = self.null_count,
-            total_count        = self.total_count,
-            min_val            = round(self._min, 4) if self._min is not None else None,
-            max_val            = round(self._max, 4) if self._max is not None else None,
-            mean               = round(self._mean, 4) if self._n > 0 else None,
-            sample_values      = list(self._sample_values),
-            cardinality        = len(self._seen),
-            cardinality_capped = self._cardinality_cap,
+            name=self.name,
+            inferred_type=inferred_type,
+            null_count=self.null_count,
+            total_count=self.total_count,
+            min_val=round(self._min, 4) if self._min is not None else None,
+            max_val=round(self._max, 4) if self._max is not None else None,
+            mean=round(self._mean, 4) if self._n > 0 else None,
+            sample_values=list(self._sample_values),
+            cardinality=len(self._seen),
+            cardinality_capped=self._cardinality_cap,
         )
 
     def infer_type(self, col_name: str) -> str:
@@ -192,12 +199,15 @@ class _ColAccumulator:
 # Anomaly detection helpers
 # ---------------------------------------------------------------------------
 
+
 def _is_header_like_row(row: pd.Series) -> bool:
     """True if ≥50% of values match column-name patterns."""
     non_null = [v for v in row if pd.notna(v)]
     if not non_null:
         return False
-    matches = sum(1 for v in non_null if isinstance(v, str) and _HEADER_PATTERN.match(v.strip()))
+    matches = sum(
+        1 for v in non_null if isinstance(v, str) and _HEADER_PATTERN.match(v.strip())
+    )
     return matches / len(non_null) >= 0.5
 
 
@@ -220,12 +230,14 @@ def _detect_anomalies_in_chunk(
 
     # Column count shift (whole-chunk anomaly, only after first chunk)
     if not first_chunk and len(chunk.columns) != expected_col_count:
-        records.append(AnomalyRecord(
-            row_index    = chunk_start_idx,
-            anomaly_type = "column_count_shift",
-            detail       = f"Expected {expected_col_count} columns, got {len(chunk.columns)}",
-            row_data     = chunk.iloc[0].to_dict(),
-        ))
+        records.append(
+            AnomalyRecord(
+                row_index=chunk_start_idx,
+                anomaly_type="column_count_shift",
+                detail=f"Expected {expected_col_count} columns, got {len(chunk.columns)}",
+                row_data=chunk.iloc[0].to_dict(),
+            )
+        )
         return records  # rest of detection unreliable for this chunk
 
     for local_pos, (_, row) in enumerate(chunk.iterrows()):
@@ -234,21 +246,25 @@ def _detect_anomalies_in_chunk(
             continue  # skip first data row to avoid false-positive header detection
 
         if _is_separator_row(row):
-            records.append(AnomalyRecord(
-                row_index    = global_idx,
-                anomaly_type = "separator_row",
-                detail       = "≥80% of values are null or empty",
-                row_data     = row.to_dict(),
-            ))
+            records.append(
+                AnomalyRecord(
+                    row_index=global_idx,
+                    anomaly_type="separator_row",
+                    detail="≥80% of values are null or empty",
+                    row_data=row.to_dict(),
+                )
+            )
             continue
 
         if _is_header_like_row(row):
-            records.append(AnomalyRecord(
-                row_index    = global_idx,
-                anomaly_type = "embedded_header",
-                detail       = "≥50% of values match column-name patterns",
-                row_data     = row.to_dict(),
-            ))
+            records.append(
+                AnomalyRecord(
+                    row_index=global_idx,
+                    anomaly_type="embedded_header",
+                    detail="≥50% of values match column-name patterns",
+                    row_data=row.to_dict(),
+                )
+            )
             continue
 
         # Type break — numeric column contains a non-numeric string
@@ -256,15 +272,27 @@ def _detect_anomalies_in_chunk(
             if col not in chunk.columns:
                 continue
             val = row.get(col)
-            if isinstance(val, str) and val.strip() and val.strip().lower() not in {
-                "nan", "null", "none", "na", "n/a", "",
-            }:
-                records.append(AnomalyRecord(
-                    row_index    = global_idx,
-                    anomaly_type = "type_break",
-                    detail       = f"Numeric column '{col}' contains string value '{val[:40]}'",
-                    row_data     = row.to_dict(),
-                ))
+            if (
+                isinstance(val, str)
+                and val.strip()
+                and val.strip().lower()
+                not in {
+                    "nan",
+                    "null",
+                    "none",
+                    "na",
+                    "n/a",
+                    "",
+                }
+            ):
+                records.append(
+                    AnomalyRecord(
+                        row_index=global_idx,
+                        anomaly_type="type_break",
+                        detail=f"Numeric column '{col}' contains string value '{val[:40]}'",
+                        row_data=row.to_dict(),
+                    )
+                )
                 break  # one anomaly per row is enough
 
     return records
@@ -274,11 +302,12 @@ def _detect_anomalies_in_chunk(
 # S3 / local fetch helpers
 # ---------------------------------------------------------------------------
 
+
 def _open_csv_stream(file_path: str, local_mode: bool):
     """Return a file-like object suitable for pd.read_csv(chunksize=...)."""
     if local_mode:
         full_path = Path(settings.local_data_path) / file_path
-        return open(full_path, "rb")   # caller is responsible for closing
+        return open(full_path, "rb")  # caller is responsible for closing
     s3 = boto3.client("s3", region_name=settings.s3.region)
     obj = s3.get_object(
         Bucket=settings.s3.bucket_name,
@@ -292,6 +321,7 @@ def _open_csv_stream(file_path: str, local_mode: bool):
 # ---------------------------------------------------------------------------
 # Public: stream_and_profile
 # ---------------------------------------------------------------------------
+
 
 def stream_and_profile(
     file_path: str,
@@ -313,26 +343,26 @@ def stream_and_profile(
     try:
         chunks = pd.read_csv(fh, chunksize=STREAM_CHUNK_SIZE, low_memory=False)
 
-        accumulators:       dict[str, _ColAccumulator] = {}
-        anomaly_records:    list[AnomalyRecord]        = []
-        head_rows:          list[dict]                 = []
-        tail_buffer:        deque[dict]                = deque(maxlen=TAIL_ROWS)
-        all_rows_for_full:  list[dict]                 = []  # only if small file
+        accumulators: dict[str, _ColAccumulator] = {}
+        anomaly_records: list[AnomalyRecord] = []
+        head_rows: list[dict] = []
+        tail_buffer: deque[dict] = deque(maxlen=TAIL_ROWS)
+        all_rows_for_full: list[dict] = []  # only if small file
 
-        row_count           = 0
-        column_names:       list[str] = []
-        expected_col_count  = 0
-        numeric_col_names:  set[str]  = set()
-        first_chunk         = True
+        row_count = 0
+        column_names: list[str] = []
+        expected_col_count = 0
+        numeric_col_names: set[str] = set()
+        first_chunk = True
 
         for chunk in chunks:
             # Normalise column names (same convention as csv_loader)
             chunk.columns = [c.strip().lower().replace(" ", "_") for c in chunk.columns]
-            chunk_start   = row_count
+            chunk_start = row_count
 
             if first_chunk:
-                column_names        = list(chunk.columns)
-                expected_col_count  = len(column_names)
+                column_names = list(chunk.columns)
+                expected_col_count = len(column_names)
                 for col in column_names:
                     accumulators[col] = _ColAccumulator(col)
 
@@ -343,14 +373,15 @@ def stream_and_profile(
 
             # Detect datetime columns by name
             datetime_col_set = {
-                col for col in chunk.columns
+                col
+                for col in chunk.columns
                 if any(p in col.lower() for p in _DATE_NAME_PATTERNS)
             }
 
             # Accumulate statistics row-by-row for each column
             for col in chunk.columns:
                 if col not in accumulators:
-                    continue   # column_count_shift case
+                    continue  # column_count_shift case
                 is_dt = col in datetime_col_set
                 for val in chunk[col]:
                     accumulators[col].update(val, is_dt)
@@ -358,8 +389,11 @@ def stream_and_profile(
             # Anomaly detection
             if len(anomaly_records) < MAX_ANOMALY_ROWS:
                 new_anomalies = _detect_anomalies_in_chunk(
-                    chunk, chunk_start, expected_col_count,
-                    numeric_col_names, first_chunk,
+                    chunk,
+                    chunk_start,
+                    expected_col_count,
+                    numeric_col_names,
+                    first_chunk,
                 )
                 anomaly_records.extend(new_anomalies)
 
@@ -377,7 +411,7 @@ def stream_and_profile(
             if row_count + len(chunk) <= FULL_FILE_ROW_LIMIT:
                 all_rows_for_full.extend(chunk.to_dict(orient="records"))
 
-            row_count  += len(chunk)
+            row_count += len(chunk)
             first_chunk = False
 
     finally:
@@ -390,8 +424,10 @@ def stream_and_profile(
     if not column_names:
         fh2 = _open_csv_stream(file_path, local_mode)
         try:
-            header_df  = pd.read_csv(fh2, nrows=0)
-            header_df.columns = [c.strip().lower().replace(" ", "_") for c in header_df.columns]
+            header_df = pd.read_csv(fh2, nrows=0)
+            header_df.columns = [
+                c.strip().lower().replace(" ", "_") for c in header_df.columns
+            ]
             column_names = list(header_df.columns)
         except Exception:
             pass
@@ -404,14 +440,14 @@ def stream_and_profile(
     # ------------------------------------------------------------------
     column_stats: dict[str, ColumnStats] = {}
     for col, acc in accumulators.items():
-        inferred_type      = acc.infer_type(col)
-        column_stats[col]  = acc.to_stats(inferred_type)
+        inferred_type = acc.infer_type(col)
+        column_stats[col] = acc.to_stats(inferred_type)
 
     # ------------------------------------------------------------------
     # Determine whether to send the full file to Claude
     # ------------------------------------------------------------------
     send_full_file = row_count <= FULL_FILE_ROW_LIMIT
-    full_df        = None
+    full_df = None
     if send_full_file and all_rows_for_full:
         full_df = pd.DataFrame(all_rows_for_full)
 
@@ -425,27 +461,31 @@ def stream_and_profile(
 
     logger.info(
         "[csv_sampler] '%s': %d rows, %d cols, %d anomalies, send_full=%s",
-        file_path, row_count, len(column_names),
-        len(anomaly_records), send_full_file,
+        file_path,
+        row_count,
+        len(column_names),
+        len(anomaly_records),
+        send_full_file,
     )
 
     return StreamProfile(
-        row_count       = row_count,
-        column_count    = len(column_names),
-        column_names    = column_names,
-        column_stats    = column_stats,
-        anomaly_records = anomaly_records,
-        send_full_file  = send_full_file,
-        head_rows       = head_rows,
-        tail_rows       = list(tail_buffer),
-        anomaly_rows    = deduped_anomaly_rows,
-        full_df         = full_df,
+        row_count=row_count,
+        column_count=len(column_names),
+        column_names=column_names,
+        column_stats=column_stats,
+        anomaly_records=anomaly_records,
+        send_full_file=send_full_file,
+        head_rows=head_rows,
+        tail_rows=list(tail_buffer),
+        anomaly_rows=deduped_anomaly_rows,
+        full_df=full_df,
     )
 
 
 # ---------------------------------------------------------------------------
 # Public: build_llm_input
 # ---------------------------------------------------------------------------
+
 
 def build_llm_input(profile: StreamProfile) -> str:
     """
@@ -455,7 +495,9 @@ def build_llm_input(profile: StreamProfile) -> str:
     lines: list[str] = []
 
     # ── Header ──────────────────────────────────────────────────────────
-    lines.append(f"Total rows: {profile.row_count:,}  |  Columns: {profile.column_count}")
+    lines.append(
+        f"Total rows: {profile.row_count:,}  |  Columns: {profile.column_count}"
+    )
     lines.append("")
 
     # ── Column statistics ────────────────────────────────────────────────
@@ -471,7 +513,7 @@ def build_llm_input(profile: StreamProfile) -> str:
             sample = stats.sample_values[:2] if stats.sample_values else []
             parts.append(f"sample={sample}  null={stats.null_pct}%")
         else:
-            cap  = "+" if stats.cardinality_capped else ""
+            cap = "+" if stats.cardinality_capped else ""
             samp = stats.sample_values[:5]
             parts.append(
                 f"cardinality={stats.cardinality}{cap}"
@@ -494,7 +536,9 @@ def build_llm_input(profile: StreamProfile) -> str:
 
         # Anomaly rows
         if profile.anomaly_rows:
-            lines.append(f"--- ANOMALY ROWS ({len(profile.anomaly_records)} detected) ---")
+            lines.append(
+                f"--- ANOMALY ROWS ({len(profile.anomaly_records)} detected) ---"
+            )
             for record in profile.anomaly_records[:MAX_ANOMALY_ROWS]:
                 lines.append(
                     f"  [Row {record.row_index} — {record.anomaly_type}: {record.detail}]"
@@ -512,6 +556,7 @@ def build_llm_input(profile: StreamProfile) -> str:
 # ---------------------------------------------------------------------------
 # Internal helper
 # ---------------------------------------------------------------------------
+
 
 def _rows_to_csv(rows: list[dict], column_names: list[str]) -> str:
     """Render a list of row dicts as a compact CSV string."""

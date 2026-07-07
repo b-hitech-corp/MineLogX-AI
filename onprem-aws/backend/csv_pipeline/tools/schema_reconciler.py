@@ -28,6 +28,7 @@ Out of scope here (separate follow-ups): LLM semantic fallback for unknowns,
 the intake-guard accept/reject/quarantine file verdict, EAV (_field/_value)
 pivoting, wide->long unpivots, and per-file unit extraction from headers.
 """
+
 from __future__ import annotations
 
 import re
@@ -38,6 +39,7 @@ from csv_pipeline.config.canonical_schema import CANONICAL_SCHEMA, is_ignorable
 # ---------------------------------------------------------------------------
 # Normalization + alias indices (built once at import)
 # ---------------------------------------------------------------------------
+
 
 def _norm(name: str) -> str:
     """Case / space / separator-insensitive key for alias matching."""
@@ -72,31 +74,32 @@ _build_indices()
 # Result types
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class ResolvedField:
-    source_column:  str    # raw header as it appeared in the CSV
-    canonical_name: str    # resolved canonical field
-    domain:         str
-    role:           str
-    dtype:          str
-    match_tier:     str    # "name" | "strong" | "weak"
-    expected_unit:  str | None = None  # NON-authoritative hint from the schema
+    source_column: str  # raw header as it appeared in the CSV
+    canonical_name: str  # resolved canonical field
+    domain: str
+    role: str
+    dtype: str
+    match_tier: str  # "name" | "strong" | "weak"
+    expected_unit: str | None = None  # NON-authoritative hint from the schema
 
 
 @dataclass
 class ReconcileResult:
     # source column -> ResolvedField (only confidently resolved columns)
-    resolved:          dict[str, ResolvedField] = field(default_factory=dict)
+    resolved: dict[str, ResolvedField] = field(default_factory=dict)
     # canonical field -> "present" | "absent" (covers EVERY canonical field)
-    presence_manifest: dict[str, str]           = field(default_factory=dict)
+    presence_manifest: dict[str, str] = field(default_factory=dict)
     # raw columns that matched no canonical field (flagged, excluded)
-    unknown_columns:   list[str]                = field(default_factory=list)
+    unknown_columns: list[str] = field(default_factory=list)
     # raw column -> candidate canonical fields (same-tier tie, quarantined)
-    ambiguous_columns: dict[str, list[str]]     = field(default_factory=dict)
+    ambiguous_columns: dict[str, list[str]] = field(default_factory=dict)
     # raw columns dropped as transport/query mechanics (IGNORABLE_FIELDS)
-    ignored_columns:   list[str]                = field(default_factory=list)
+    ignored_columns: list[str] = field(default_factory=list)
     # domains the file activated (via specific hits) + always "shared"
-    active_domains:    list[str]                = field(default_factory=list)
+    active_domains: list[str] = field(default_factory=list)
 
     @property
     def present_fields(self) -> list[str]:
@@ -115,27 +118,28 @@ class ReconcileResult:
             "resolved_fields": {
                 rf.canonical_name: {
                     "source_column": rf.source_column,
-                    "domain":        rf.domain,
-                    "role":          rf.role,
-                    "dtype":         rf.dtype,
-                    "match_tier":    rf.match_tier,
+                    "domain": rf.domain,
+                    "role": rf.role,
+                    "dtype": rf.dtype,
+                    "match_tier": rf.match_tier,
                     "expected_unit": rf.expected_unit,
                 }
                 for rf in self.resolved.values()
             },
             "canonical_field_presence": self.presence_manifest,
-            "present_fields":  self.present_fields,
-            "absent_fields":   self.absent_fields,
+            "present_fields": self.present_fields,
+            "absent_fields": self.absent_fields,
             "unknown_columns": self.unknown_columns,
             "ambiguous_columns": self.ambiguous_columns,
             "ignored_columns": self.ignored_columns,
-            "active_domains":  self.active_domains,
+            "active_domains": self.active_domains,
         }
 
 
 # ---------------------------------------------------------------------------
 # Reconciliation
 # ---------------------------------------------------------------------------
+
 
 def reconcile(column_names: list[str]) -> ReconcileResult:
     """Resolve raw CSV headers against the canonical schema.
@@ -157,23 +161,23 @@ def reconcile(column_names: list[str]) -> ReconcileResult:
         else:
             candidates.append(col)
 
-    resolved_field_to_src: dict[str, str] = {}   # canonical field -> source col
+    resolved_field_to_src: dict[str, str] = {}  # canonical field -> source col
     unresolved: list[str] = []
 
     # 1) + 2) Specific passes: exact canonical name, then strong alias.
     #     These establish the file's active domain set.
-    domain_hits: dict[str, int] = {}   # domain -> count of specific hits
+    domain_hits: dict[str, int] = {}  # domain -> count of specific hits
 
     def _claim(src: str, fname: str, tier: str) -> None:
         spec = CANONICAL_SCHEMA[fname]
         result.resolved[src] = ResolvedField(
-            source_column  = src,
-            canonical_name = fname,
-            domain         = spec.get("domain", "shared"),
-            role           = spec.get("role", "metric"),
-            dtype          = spec.get("dtype", "string"),
-            match_tier     = tier,
-            expected_unit  = spec.get("expected_unit"),
+            source_column=src,
+            canonical_name=fname,
+            domain=spec.get("domain", "shared"),
+            role=spec.get("role", "metric"),
+            dtype=spec.get("dtype", "string"),
+            match_tier=tier,
+            expected_unit=spec.get("expected_unit"),
         )
         resolved_field_to_src[fname] = src
 
@@ -187,8 +191,9 @@ def reconcile(column_names: list[str]) -> ReconcileResult:
         if key in _NAME_INDEX and key not in _WEAK_INDEX:
             fname = _NAME_INDEX[key]
             _claim(col, fname, "name")
-            domain_hits[CANONICAL_SCHEMA[fname].get("domain", "shared")] = \
+            domain_hits[CANONICAL_SCHEMA[fname].get("domain", "shared")] = (
                 domain_hits.get(CANONICAL_SCHEMA[fname].get("domain", "shared"), 0) + 1
+            )
             continue
         # Tier 2: strong alias
         if key in _STRONG_INDEX:

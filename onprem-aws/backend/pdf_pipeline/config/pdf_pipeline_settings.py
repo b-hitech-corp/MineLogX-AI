@@ -21,6 +21,7 @@ PDF_CLAUDE_MODEL_ID            — override Claude Sonnet model
 PDF_HAIKU_MODEL_ID             — override Claude Haiku model
 PDF_TITAN_MODEL_ID             — override Titan Embed model
 """
+
 from __future__ import annotations
 
 import os
@@ -54,19 +55,23 @@ class PdfPipelineConfig:
     # Classifier thresholds (Signal 2 — S3 metadata tag)
     # ------------------------------------------------------------------
     s3_tag_key: str = "doc-type"
-    complex_legal_tag_values: list = field(default_factory=lambda: [
-        "legal_complex",
-        "mining_regulation",
-        "environmental_act",
-        "safety_code",
-        "regulatory_document",
-    ])
-    simple_tag_values: list = field(default_factory=lambda: [
-        "simple_forms",
-        "scanned_form",
-        "standard_template",
-        "low_complexity",
-    ])
+    complex_legal_tag_values: list = field(
+        default_factory=lambda: [
+            "legal_complex",
+            "mining_regulation",
+            "environmental_act",
+            "safety_code",
+            "regulatory_document",
+        ]
+    )
+    simple_tag_values: list = field(
+        default_factory=lambda: [
+            "simple_forms",
+            "scanned_form",
+            "standard_template",
+            "low_complexity",
+        ]
+    )
 
     # ------------------------------------------------------------------
     # Classifier thresholds (Signal 3 — Claude Haiku)
@@ -115,11 +120,9 @@ class PdfPipelineConfig:
     # ------------------------------------------------------------------
     # Amazon Textract — simple path
     # ------------------------------------------------------------------
-    textract_feature_types: list = field(
-        default_factory=lambda: ["LAYOUT", "TABLES"]
-    )
+    textract_feature_types: list = field(default_factory=lambda: ["LAYOUT", "TABLES"])
     textract_poll_interval_s: float = 5.0
-    textract_max_poll_attempts: int = 120   # 10 min max
+    textract_max_poll_attempts: int = 120  # 10 min max
 
     # ------------------------------------------------------------------
     # Amazon Titan Embed v2 — embeddings
@@ -146,9 +149,9 @@ class PdfPipelineConfig:
         default_factory=lambda: os.getenv("PDF_OPENSEARCH_INDEX", "pdf_legal_vecs")
     )
     opensearch_verify_certs: bool = field(
-        default_factory=lambda: os.getenv(
-            "OPENSEARCH_VERIFY_CERTS", "true"
-        ).lower() == "true"
+        default_factory=lambda: (
+            os.getenv("OPENSEARCH_VERIFY_CERTS", "true").lower() == "true"
+        )
     )
     opensearch_bulk_batch_size: int = 50
 

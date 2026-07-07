@@ -20,6 +20,7 @@ Public API
     extract_with_textract(bucket, key, file_size_bytes, total_pages,
                           config, textract_client, s3_client) -> TextractExtractionResult
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,9 +39,10 @@ logger = logging.getLogger(__name__)
 # Result dataclass
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class TextractExtractionResult:
-    raw_sections: list[dict]   # list of dicts compatible with normalize_sections()
+    raw_sections: list[dict]  # list of dicts compatible with normalize_sections()
     job_id: str
     total_blocks: int
     errors: list[str] = field(default_factory=list)
@@ -49,6 +51,7 @@ class TextractExtractionResult:
 # ---------------------------------------------------------------------------
 # Polling
 # ---------------------------------------------------------------------------
+
 
 def _poll_textract_job(
     job_id: str,
@@ -79,14 +82,23 @@ def _poll_textract_job(
             all_blocks.extend(resp.get("Blocks", []))
             next_token = resp.get("NextToken")
             if not next_token:
-                logger.info("Textract job %s SUCCEEDED | %d blocks total", job_id, len(all_blocks))
+                logger.info(
+                    "Textract job %s SUCCEEDED | %d blocks total",
+                    job_id,
+                    len(all_blocks),
+                )
                 return all_blocks
             # More pages — continue without sleeping
             continue
 
         # IN_PROGRESS — wait before next poll
         if attempt % 6 == 0:  # log every ~30s
-            logger.info("Textract job %s IN_PROGRESS (attempt %d/%d)...", job_id, attempt + 1, config.textract_max_poll_attempts)
+            logger.info(
+                "Textract job %s IN_PROGRESS (attempt %d/%d)...",
+                job_id,
+                attempt + 1,
+                config.textract_max_poll_attempts,
+            )
         time.sleep(config.textract_poll_interval_s)
 
     raise TimeoutError(
@@ -101,14 +113,29 @@ def _poll_textract_job(
 
 _SECTION_HEADER_TYPES = {"LAYOUT_SECTION_HEADER"}
 _CONTENT_TYPES = {
-    "LAYOUT_TEXT", "LAYOUT_LIST", "LAYOUT_FIGURE",
-    "LAYOUT_HEADER", "LAYOUT_FOOTER", "LAYOUT_PAGE_NUMBER",
-    "LINE", "WORD",
+    "LAYOUT_TEXT",
+    "LAYOUT_LIST",
+    "LAYOUT_FIGURE",
+    "LAYOUT_HEADER",
+    "LAYOUT_FOOTER",
+    "LAYOUT_PAGE_NUMBER",
+    "LINE",
+    "WORD",
 }
 _TABLE_TYPES = {"TABLE"}
-_SKIP_TYPES = {"PAGE", "CELL", "WORD", "SELECTION_ELEMENT",
-               "TABLE_TITLE", "TABLE_FOOTER", "MERGED_CELL",
-               "QUERY", "QUERY_RESULT", "SIGNATURE", "KEY_VALUE_SET"}
+_SKIP_TYPES = {
+    "PAGE",
+    "CELL",
+    "WORD",
+    "SELECTION_ELEMENT",
+    "TABLE_TITLE",
+    "TABLE_FOOTER",
+    "MERGED_CELL",
+    "QUERY",
+    "QUERY_RESULT",
+    "SIGNATURE",
+    "KEY_VALUE_SET",
+}
 
 
 def _get_block_text(block: dict, id_to_block: dict[str, dict]) -> str:
@@ -145,14 +172,19 @@ def _extract_table_cells(
             continue
         for cell_id in rel.get("Ids", []):
             cell_block = id_to_block.get(cell_id)
-            if not cell_block or cell_block.get("BlockType") not in ("CELL", "MERGED_CELL"):
+            if not cell_block or cell_block.get("BlockType") not in (
+                "CELL",
+                "MERGED_CELL",
+            ):
                 continue
             cell_text = _get_block_text(cell_block, id_to_block)
-            cells.append({
-                "row_index": cell_block.get("RowIndex", 0),
-                "col_index": cell_block.get("ColumnIndex", 0),
-                "text": cell_text,
-            })
+            cells.append(
+                {
+                    "row_index": cell_block.get("RowIndex", 0),
+                    "col_index": cell_block.get("ColumnIndex", 0),
+                    "text": cell_text,
+                }
+            )
     return cells
 
 
@@ -190,14 +222,16 @@ def _reconstruct_sections(blocks: list[dict]) -> list[dict]:
 
     def _flush_section() -> None:
         body = "\n".join(current_body_parts).strip()
-        sections.append({
-            "title": current_title,
-            "body": body,
-            "page_start": current_page_start,
-            "page_end": current_page_end,
-            "tables": list(current_tables),
-            "citations": [],
-        })
+        sections.append(
+            {
+                "title": current_title,
+                "body": body,
+                "page_start": current_page_start,
+                "page_end": current_page_end,
+                "tables": list(current_tables),
+                "citations": [],
+            }
+        )
 
     for block in ordered:
         btype = block.get("BlockType", "")
@@ -240,6 +274,7 @@ def _reconstruct_sections(blocks: list[dict]) -> list[dict]:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def extract_with_textract(
     bucket: str,
     key: str,
@@ -269,26 +304,31 @@ def extract_with_textract(
     Returns:
         TextractExtractionResult with raw_sections and job provenance.
     """
-    textract = textract_client or boto3.client("textract", region_name=config.aws_region)
+    textract = textract_client or boto3.client(
+        "textract", region_name=config.aws_region
+    )
 
     logger.info(
         "Starting Textract job | s3://%s/%s | size=%.2f MB | pages≈%d",
-        bucket, key, file_size_bytes / (1024 * 1024), total_pages,
+        bucket,
+        key,
+        file_size_bytes / (1024 * 1024),
+        total_pages,
     )
 
     errors: list[str] = []
 
     try:
         start_resp = textract.start_document_analysis(
-            DocumentLocation={
-                "S3Object": {"Bucket": bucket, "Name": key}
-            },
+            DocumentLocation={"S3Object": {"Bucket": bucket, "Name": key}},
             FeatureTypes=config.textract_feature_types,
         )
         job_id = start_resp["JobId"]
         logger.info("Textract job started: %s", job_id)
     except Exception as exc:
-        raise RuntimeError(f"Failed to start Textract job for {bucket}/{key}: {exc}") from exc
+        raise RuntimeError(
+            f"Failed to start Textract job for {bucket}/{key}: {exc}"
+        ) from exc
 
     try:
         blocks = _poll_textract_job(job_id, textract, config)
@@ -304,7 +344,8 @@ def extract_with_textract(
     raw_sections = _reconstruct_sections(blocks)
     logger.info(
         "Textract reconstruction complete: %d blocks → %d sections",
-        len(blocks), len(raw_sections),
+        len(blocks),
+        len(raw_sections),
     )
 
     return TextractExtractionResult(

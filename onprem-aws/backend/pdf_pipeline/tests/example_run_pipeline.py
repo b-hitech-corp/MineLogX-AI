@@ -46,6 +46,7 @@ Prerequisites (the full run talks to real AWS services)
   - For steps 4-5: OPENSEARCH_HOST set + the role authorized on the AOSS collection
     (aoss:APIAccessAll + data access policy). The `pdf_legal_vecs` index is auto-created.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -75,6 +76,7 @@ DEFAULT_PREFIX = "docs/"
 # Listing
 # ---------------------------------------------------------------------------
 
+
 def list_pdfs(bucket: str, prefix: str, s3=None) -> list[str]:
     """Return PDF keys under the prefix (paginated; matches what batch would scan)."""
     s3 = s3 or boto3.client("s3")
@@ -99,39 +101,53 @@ def list_pdfs(bucket: str, prefix: str, s3=None) -> list[str]:
 # Step 1 only — classification (no extraction / embedding / ingest)
 # ---------------------------------------------------------------------------
 
+
 def run_classify_only(bucket: str, key: str, config: PdfPipelineConfig) -> None:
     s3 = boto3.client("s3", region_name=config.aws_region)
     bedrock = boto3.client("bedrock-runtime", region_name=config.aws_region)
-    result = classify(bucket=bucket, key=key, config=config, s3_client=s3, bedrock_client=bedrock)
+    result = classify(
+        bucket=bucket, key=key, config=config, s3_client=s3, bedrock_client=bedrock
+    )
 
     print(f"\n=== Classification: s3://{bucket}/{key} ===")
     print(f"  doc_class          : {result.doc_class}")
     print(f"  signal_used        : {result.signal_used}")
     print(f"  confidence         : {result.confidence:.2f}")
     print(f"  page_count (approx): {result.page_count}")
-    print(f"  file_size          : {result.file_size_bytes / (1024*1024):.2f} MB")
+    print(f"  file_size          : {result.file_size_bytes / (1024 * 1024):.2f} MB")
     print(f"  avg_chars_per_page : {result.avg_chars_per_page:.0f}")
     print(f"  reasoning          : {result.reasoning}")
-    print("\n-> Routing: 'simple' uses Textract; 'complex_legal' uses Claude native PDF.")
+    print(
+        "\n-> Routing: 'simple' uses Textract; 'complex_legal' uses Claude native PDF."
+    )
 
 
 # ---------------------------------------------------------------------------
 # Full run — print a per-step breakdown of the result
 # ---------------------------------------------------------------------------
 
+
 def _print_result(r: PdfPipelineResult) -> None:
     print(f"\n=== Pipeline result: {r.file_key} ===")
     print(f"  overall_success : {r.overall_success}")
-    print(f"  duration        : {r.duration_s:.1f}s   "
-          f"pages≈{r.total_pages}  size={r.file_size_bytes/(1024*1024):.2f} MB")
+    print(
+        f"  duration        : {r.duration_s:.1f}s   "
+        f"pages≈{r.total_pages}  size={r.file_size_bytes / (1024 * 1024):.2f} MB"
+    )
     print("  --- step-by-step ---")
-    print(f"  1. classify   : doc_class={r.doc_class}  signal={r.classification_signal}")
-    print(f"  2. extract    : method={r.extraction_method}  sections={r.sections_extracted}  "
-          f"batches={r.batches_used}  tokens(in/out)={r.input_tokens}/{r.output_tokens}")
+    print(
+        f"  1. classify   : doc_class={r.doc_class}  signal={r.classification_signal}"
+    )
+    print(
+        f"  2. extract    : method={r.extraction_method}  sections={r.sections_extracted}  "
+        f"batches={r.batches_used}  tokens(in/out)={r.input_tokens}/{r.output_tokens}"
+    )
     print(f"  3. normalize  : sections={r.sections_normalized}")
     print(f"  4. embed      : sections={r.sections_embedded}")
-    print(f"  5. ingest     : indexed={r.sections_indexed}  "
-          f"failed={r.sections_failed}  skipped={r.sections_skipped}")
+    print(
+        f"  5. ingest     : indexed={r.sections_indexed}  "
+        f"failed={r.sections_failed}  skipped={r.sections_skipped}"
+    )
     if r.errors:
         print("  errors:")
         for e in r.errors[:5]:
@@ -140,19 +156,29 @@ def _print_result(r: PdfPipelineResult) -> None:
             print(f"    ... and {len(r.errors) - 5} more")
 
 
-def run_one(bucket: str, key: str, config: PdfPipelineConfig, force: bool) -> PdfPipelineResult:
+def run_one(
+    bucket: str, key: str, config: PdfPipelineConfig, force: bool
+) -> PdfPipelineResult:
     result = run_pipeline(bucket=bucket, key=key, config=config, force=force)
     _print_result(result)
     return result
 
 
-def run_batch(bucket: str, prefix: str, config: PdfPipelineConfig, force: bool) -> list[PdfPipelineResult]:
-    results = batch_run_pipeline(bucket=bucket, folders=[prefix], config=config, force=force)
-    print(f"\n=== Batch summary: {len(results)} PDF(s) under s3://{bucket}/{prefix} ===")
+def run_batch(
+    bucket: str, prefix: str, config: PdfPipelineConfig, force: bool
+) -> list[PdfPipelineResult]:
+    results = batch_run_pipeline(
+        bucket=bucket, folders=[prefix], config=config, force=force
+    )
+    print(
+        f"\n=== Batch summary: {len(results)} PDF(s) under s3://{bucket}/{prefix} ==="
+    )
     for r in results:
         flag = "OK " if r.overall_success else "FAIL"
-        print(f"  [{flag}] {r.file_key}  ({r.doc_class}/{r.extraction_method}, "
-              f"{r.sections_indexed} indexed, {len(r.errors)} err)")
+        print(
+            f"  [{flag}] {r.file_key}  ({r.doc_class}/{r.extraction_method}, "
+            f"{r.sections_indexed} indexed, {len(r.errors)} err)"
+        )
     ok = sum(1 for r in results if r.overall_success)
     print(f"\nOverall: {ok}/{len(results)} succeeded")
     return results
@@ -162,24 +188,49 @@ def run_batch(bucket: str, prefix: str, config: PdfPipelineConfig, force: bool) 
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Run the PDF Vectorization Pipeline on real S3 PDFs.")
-    p.add_argument("key", nargs="?", default=None,
-                   help="S3 key of the PDF (e.g. docs/mining-act.pdf). "
-                        "If omitted, the first PDF under --prefix is used.")
-    p.add_argument("--bucket", default=DEFAULT_BUCKET, help=f"S3 bucket (default: {DEFAULT_BUCKET}).")
-    p.add_argument("--prefix", default=DEFAULT_PREFIX, help=f"S3 prefix/folder (default: {DEFAULT_PREFIX}).")
-    p.add_argument("--list", action="store_true", help="List PDFs under the prefix and exit.")
-    p.add_argument("--classify-only", action="store_true",
-                   help="Run only step 1 (classification); no extraction/embedding/ingest.")
-    p.add_argument("--batch", action="store_true", help="Process every PDF under the prefix.")
-    p.add_argument("--force", action="store_true", help="Re-index even if already indexed.")
+    p = argparse.ArgumentParser(
+        description="Run the PDF Vectorization Pipeline on real S3 PDFs."
+    )
+    p.add_argument(
+        "key",
+        nargs="?",
+        default=None,
+        help="S3 key of the PDF (e.g. docs/mining-act.pdf). "
+        "If omitted, the first PDF under --prefix is used.",
+    )
+    p.add_argument(
+        "--bucket",
+        default=DEFAULT_BUCKET,
+        help=f"S3 bucket (default: {DEFAULT_BUCKET}).",
+    )
+    p.add_argument(
+        "--prefix",
+        default=DEFAULT_PREFIX,
+        help=f"S3 prefix/folder (default: {DEFAULT_PREFIX}).",
+    )
+    p.add_argument(
+        "--list", action="store_true", help="List PDFs under the prefix and exit."
+    )
+    p.add_argument(
+        "--classify-only",
+        action="store_true",
+        help="Run only step 1 (classification); no extraction/embedding/ingest.",
+    )
+    p.add_argument(
+        "--batch", action="store_true", help="Process every PDF under the prefix."
+    )
+    p.add_argument(
+        "--force", action="store_true", help="Re-index even if already indexed."
+    )
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
-    logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)-7s %(name)s | %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s | %(message)s"
+    )
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     config = PdfPipelineConfig()
 
@@ -201,7 +252,9 @@ def main(argv: list[str] | None = None) -> int:
     if key is None:
         keys = list_pdfs(args.bucket, args.prefix)
         if not keys:
-            print(f"No PDFs found under s3://{args.bucket}/{args.prefix}", file=sys.stderr)
+            print(
+                f"No PDFs found under s3://{args.bucket}/{args.prefix}", file=sys.stderr
+            )
             return 1
         key = keys[0]
         print(f"No key given — using first PDF found: {key}")

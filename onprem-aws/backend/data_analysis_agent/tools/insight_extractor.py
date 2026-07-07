@@ -5,6 +5,7 @@ Detects anomalies, trends, and notable patterns in fleet data.
 Uses statistical and rule-based methods so results are reproducible.
 The LLM interprets the findings — it does not generate the numbers.
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -18,12 +19,13 @@ from data_analysis_agent.tools.csv_loader import get_dataframe
 # Outlier detection
 # ---------------------------------------------------------------------------
 
+
 def detect_outliers(
     file_path: str,
     column: str,
     *,
-    method: str = "iqr",      # "iqr" | "zscore"
-    threshold: float = 1.5,   # IQR multiplier or Z-score cutoff
+    method: str = "iqr",  # "iqr" | "zscore"
+    threshold: float = 1.5,  # IQR multiplier or Z-score cutoff
     entity_column: Optional[str] = None,
 ) -> dict:
     """
@@ -52,8 +54,10 @@ def detect_outliers(
     elif method == "zscore":
         z = (df[column] - df[column].mean()) / df[column].std()
         mask = z.abs() > threshold
-        lower, upper = float(df[column].mean() - threshold * df[column].std()), \
-                       float(df[column].mean() + threshold * df[column].std())
+        lower, upper = (
+            float(df[column].mean() - threshold * df[column].std()),
+            float(df[column].mean() + threshold * df[column].std()),
+        )
     else:
         return {"error": "method must be 'iqr' or 'zscore'"}
 
@@ -77,6 +81,7 @@ def detect_outliers(
 # ---------------------------------------------------------------------------
 # Trend detection
 # ---------------------------------------------------------------------------
+
 
 def detect_trend(
     file_path: str,
@@ -138,6 +143,7 @@ def detect_trend(
 # Threshold / SLA breach detection
 # ---------------------------------------------------------------------------
 
+
 def check_thresholds(
     file_path: str,
     rules: list[dict],
@@ -162,8 +168,10 @@ def check_thresholds(
     findings = []
     for rule in rules:
         col, op, val, label = (
-            rule.get("column"), rule.get("operator"),
-            rule.get("value"), rule.get("label", rule.get("column")),
+            rule.get("column"),
+            rule.get("operator"),
+            rule.get("value"),
+            rule.get("label", rule.get("column")),
         )
         if col not in df.columns:
             findings.append({"label": label, "error": f"Column '{col}' not found."})
@@ -175,15 +183,17 @@ def check_thresholds(
         method = ops[op]
         mask = getattr(pd.to_numeric(df[col], errors="coerce"), method)(val)
         count = int(mask.sum())
-        findings.append({
-            "label": label,
-            "rule": f"{col} {op} {val}",
-            "breach_count": count,
-            "breach_pct": round(mask.mean() * 100, 1),
-            "sample_values": sorted(
-                df.loc[mask, col].dropna().astype(float).round(3).tolist()
-            )[:10],
-        })
+        findings.append(
+            {
+                "label": label,
+                "rule": f"{col} {op} {val}",
+                "breach_count": count,
+                "breach_pct": round(mask.mean() * 100, 1),
+                "sample_values": sorted(
+                    df.loc[mask, col].dropna().astype(float).round(3).tolist()
+                )[:10],
+            }
+        )
 
     return {"threshold_findings": findings, "rules_checked": len(rules)}
 
@@ -191,6 +201,7 @@ def check_thresholds(
 # ---------------------------------------------------------------------------
 # Top / bottom performers
 # ---------------------------------------------------------------------------
+
 
 def fleet_performance_summary(
     file_path: str,

@@ -1,0 +1,11 @@
+# Runtime deps for the CSV telemetry Lambda ONLY (csv_pipeline/).
+# Packaged into a Lambda Layer by `fab lambda.build-layer csv`.
+# pyarrow removed: csv_pipeline now writes NDJSON instead of Parquet (PR #17).
+
+boto3==1.43.36
+botocore==1.43.36
+opensearch-py==3.2.0
+pandas==2.3.2
+numpy==2.2.6
+requests==2.34.2
+python-dotenv==1.2.2

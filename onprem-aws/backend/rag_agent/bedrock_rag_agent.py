@@ -51,6 +51,7 @@ Usage
     print(agent.chat("And for underground operations?", model="nova-pro"))            # Nova Pro
     print(agent.chat("Summarise the fuel telemetry.", model="deepseek-v3.2"))         # DeepSeek V3.2
 """
+
 from __future__ import annotations
 
 import json
@@ -71,18 +72,19 @@ logger = logging.getLogger(__name__)
 # Config (env-driven)
 # ---------------------------------------------------------------------------
 
-REGION       = os.getenv("AWS_REGION", "us-east-1")
-HOST         = os.getenv("OPENSEARCH_HOST", "")
-PDF_INDEX    = os.getenv("PDF_INDEX", "pdf_legal_vecs")
-CSV_INDEX    = os.getenv("CSV_INDEX", "minelogx-telemetry-v1")
-DIM          = 1024
+REGION = os.getenv("AWS_REGION", "us-east-1")
+HOST = os.getenv("OPENSEARCH_HOST", "")
+PDF_INDEX = os.getenv("PDF_INDEX", "pdf_legal_vecs")
+CSV_INDEX = os.getenv("CSV_INDEX", "minelogx-telemetry-v1")
+DIM = 1024
 COHERE_MODEL = os.getenv("COHERE_EMBED_MODEL_ID", "cohere.embed-v4:0")
-TITAN_MODEL  = os.getenv("TITAN_EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0")
+TITAN_MODEL = os.getenv("TITAN_EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0")
 
 
 # ---------------------------------------------------------------------------
 # Model registry — the ONLY model-dependent seam
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class ModelSpec:
@@ -92,10 +94,11 @@ class ModelSpec:
     which we honour by only ever sending temperature). `max_tokens` respects each
     model's output ceiling (DeepSeek V3.2 caps at 8K).
     """
-    key:        str
-    model_id:   str
-    family:     str          # "claude" | "nova" | "deepseek"
-    max_tokens: int = 2048   # <= every model's output ceiling (DeepSeek: 8192)
+
+    key: str
+    model_id: str
+    family: str  # "claude" | "nova" | "deepseek"
+    max_tokens: int = 2048  # <= every model's output ceiling (DeepSeek: 8192)
 
 
 MODELS: dict[str, ModelSpec] = {
@@ -117,7 +120,7 @@ MODELS: dict[str, ModelSpec] = {
     ),
 }
 
-DEFAULT_MODEL = "claude-sonnet-4.6"   # "the current implementation"
+DEFAULT_MODEL = "claude-sonnet-4.6"  # "the current implementation"
 
 
 # ---------------------------------------------------------------------------
@@ -146,17 +149,19 @@ extrapolate from outside knowledge.
 # Retrieval data structure
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class Hit:
-    index:   str
-    score:   float
-    text:    str
-    locator: str   # human-readable source reference for citations
+    index: str
+    score: float
+    text: str
+    locator: str  # human-readable source reference for citations
 
 
 # ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
+
 
 class BedrockRAGAgent:
     """Stateful, multi-model RAG agent over the shared OpenSearch vector collection.
@@ -193,18 +198,18 @@ class BedrockRAGAgent:
         bedrock_client: Any | None = None,
         opensearch_client: Any | None = None,
     ) -> None:
-        self.region            = region
-        self.opensearch_host   = opensearch_host
-        self.pdf_index         = pdf_index
-        self.csv_index         = csv_index
-        self.default_model     = default_model if default_model in MODELS else DEFAULT_MODEL
-        self.top_k             = top_k
-        self.top_n             = top_n
+        self.region = region
+        self.opensearch_host = opensearch_host
+        self.pdf_index = pdf_index
+        self.csv_index = csv_index
+        self.default_model = default_model if default_model in MODELS else DEFAULT_MODEL
+        self.top_k = top_k
+        self.top_n = top_n
         self.max_history_turns = max_history_turns
-        self.temperature       = temperature
+        self.temperature = temperature
 
         self._bedrock = bedrock_client
-        self._os      = opensearch_client
+        self._os = opensearch_client
         self._history: list[dict[str, str]] = []
 
     # ------------------------------------------------------------------
@@ -246,8 +251,11 @@ class BedrockRAGAgent:
         if model and model in MODELS:
             return MODELS[model]
         if model:
-            logger.warning("[RAGAgent] Unknown model '%s' — falling back to '%s'",
-                           model, self.default_model)
+            logger.warning(
+                "[RAGAgent] Unknown model '%s' — falling back to '%s'",
+                model,
+                self.default_model,
+            )
         return MODELS[self.default_model]
 
     # ------------------------------------------------------------------
@@ -268,13 +276,15 @@ class BedrockRAGAgent:
         """Cohere embed-v4 — matches the CSV ingestor (int8 cast to float32)."""
         resp = self._bedrock_rt().invoke_model(
             modelId=COHERE_MODEL,
-            body=json.dumps({
-                "texts": [text],
-                "input_type": "search_query",
-                "truncate": "END",
-                "output_dimension": DIM,
-                "embedding_types": ["int8"],
-            }),
+            body=json.dumps(
+                {
+                    "texts": [text],
+                    "input_type": "search_query",
+                    "truncate": "END",
+                    "output_dimension": DIM,
+                    "embedding_types": ["int8"],
+                }
+            ),
             contentType="application/json",
             accept="application/json",
         )
@@ -287,34 +297,50 @@ class BedrockRAGAgent:
     # ------------------------------------------------------------------
 
     def _knn(self, index: str, vector: list[float], k: int) -> list[dict]:
-        body = {"size": k, "query": {"knn": {"text_embedding": {"vector": vector, "k": k}}}}
-        return self._client().search(index=index, body=body).get("hits", {}).get("hits", [])
+        body = {
+            "size": k,
+            "query": {"knn": {"text_embedding": {"vector": vector, "k": k}}},
+        }
+        return (
+            self._client()
+            .search(index=index, body=body)
+            .get("hits", {})
+            .get("hits", [])
+        )
 
     def _retrieve(self, question: str) -> list[Hit]:
         """Embed with both models, kNN-search both indexes, merge and rerank."""
         hits: list[Hit] = []
 
         try:
-            for h in self._knn(self.pdf_index, self._embed_query_titan(question), self.top_k):
+            for h in self._knn(
+                self.pdf_index, self._embed_query_titan(question), self.top_k
+            ):
                 s = h.get("_source", {})
-                hits.append(Hit(
-                    index=self.pdf_index,
-                    score=h.get("_score", 0.0),
-                    text=f"{s.get('title', '')}\n{s.get('body', '')}".strip(),
-                    locator=f"{s.get('source_key', '?')} p.{s.get('page_start')}-{s.get('page_end')}",
-                ))
+                hits.append(
+                    Hit(
+                        index=self.pdf_index,
+                        score=h.get("_score", 0.0),
+                        text=f"{s.get('title', '')}\n{s.get('body', '')}".strip(),
+                        locator=f"{s.get('source_key', '?')} p.{s.get('page_start')}-{s.get('page_end')}",
+                    )
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[RAGAgent] PDF index search failed: %s", exc)
 
         try:
-            for h in self._knn(self.csv_index, self._embed_query_cohere(question), self.top_k):
+            for h in self._knn(
+                self.csv_index, self._embed_query_cohere(question), self.top_k
+            ):
                 s = h.get("_source", {})
-                hits.append(Hit(
-                    index=self.csv_index,
-                    score=h.get("_score", 0.0),
-                    text=s.get("text", ""),
-                    locator=f"{s.get('source_file', '?')} chunk {s.get('chunk_index')}",
-                ))
+                hits.append(
+                    Hit(
+                        index=self.csv_index,
+                        score=h.get("_score", 0.0),
+                        text=s.get("text", ""),
+                        locator=f"{s.get('source_file', '?')} chunk {s.get('chunk_index')}",
+                    )
+                )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[RAGAgent] CSV index search failed: %s", exc)
 
@@ -387,17 +413,23 @@ class BedrockRAGAgent:
                 max_tokens=200,
             )
             # Some models wrap reasoning in <think>...</think>; strip it defensively.
-            optimized = re.sub(r"<think>.*?</think>", "", optimized, flags=re.DOTALL).strip()
+            optimized = re.sub(
+                r"<think>.*?</think>", "", optimized, flags=re.DOTALL
+            ).strip()
             return optimized or user_message
         except Exception as exc:  # noqa: BLE001
-            logger.warning("[RAGAgent] Query optimization failed (%s); using raw message", exc)
+            logger.warning(
+                "[RAGAgent] Query optimization failed (%s); using raw message", exc
+            )
             return user_message
 
     # ------------------------------------------------------------------
     # Answer generation with the SELECTED model
     # ------------------------------------------------------------------
 
-    def _generate_answer(self, user_message: str, hits: list[Hit], spec: ModelSpec) -> str:
+    def _generate_answer(
+        self, user_message: str, hits: list[Hit], spec: ModelSpec
+    ) -> str:
         if not hits:
             return "No relevant context was retrieved from either index."
 
@@ -407,14 +439,20 @@ class BedrockRAGAgent:
         )
         # Prior turns as Converse messages, then the grounded current turn.
         messages = self._history_as_messages()
-        messages.append({
-            "role": "user",
-            "content": [{"text": (
-                "Answer the question using ONLY the context below, and cite sources as [n]. "
-                "If the context does not contain the answer, say so plainly.\n\n"
-                f"Context:\n{context}\n\nQuestion: {user_message}"
-            )}],
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "text": (
+                            "Answer the question using ONLY the context below, and cite sources as [n]. "
+                            "If the context does not contain the answer, say so plainly.\n\n"
+                            f"Context:\n{context}\n\nQuestion: {user_message}"
+                        )
+                    }
+                ],
+            }
+        )
         return self._converse_text(spec, messages)
 
     # ------------------------------------------------------------------
@@ -438,9 +476,9 @@ class BedrockRAGAgent:
 
         try:
             search_query = self._optimize_query(user_message, spec)
-            hits         = self._retrieve(search_query)
+            hits = self._retrieve(search_query)
 
-            t0     = time.perf_counter()
+            t0 = time.perf_counter()
             answer = self._generate_answer(user_message, hits, spec)
             elapsed = time.perf_counter() - t0
 
@@ -448,9 +486,9 @@ class BedrockRAGAgent:
 
             documents = [
                 {
-                    "rank":    i + 1,
-                    "index":   h.index,
-                    "score":   round(h.score, 6),
+                    "rank": i + 1,
+                    "index": h.index,
+                    "score": round(h.score, 6),
                     "locator": h.locator,
                     "text_preview": h.text[:300],
                 }
@@ -458,25 +496,27 @@ class BedrockRAGAgent:
             ]
             response_dict = {
                 "success": True,
-                "query":   {"original": user_message, "optimized": search_query},
-                "answer":  answer,
+                "query": {"original": user_message, "optimized": search_query},
+                "answer": answer,
                 "retrieval": {
-                    "indexes":        [self.pdf_index, self.csv_index],
-                    "top_k":          self.top_k,
-                    "top_n":          self.top_n,
+                    "indexes": [self.pdf_index, self.csv_index],
+                    "top_k": self.top_k,
+                    "top_n": self.top_n,
                     "document_count": len(documents),
-                    "documents":      documents,
+                    "documents": documents,
                 },
                 "model": {
-                    "selected":    spec.key,
-                    "model_id":    spec.model_id,
+                    "selected": spec.key,
+                    "model_id": spec.model_id,
                     "temperature": self.temperature,
-                    "max_tokens":  spec.max_tokens,
+                    "max_tokens": spec.max_tokens,
                 },
-                "performance":  {"generation_elapsed_s": round(elapsed, 3)},
+                "performance": {"generation_elapsed_s": round(elapsed, 3)},
                 "conversation": {
-                    "turn":          len(self._history) // 2,
-                    "history_turns": min(len(self._history) // 2, self.max_history_turns),
+                    "turn": len(self._history) // 2,
+                    "history_turns": min(
+                        len(self._history) // 2, self.max_history_turns
+                    ),
                 },
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
@@ -484,25 +524,27 @@ class BedrockRAGAgent:
             logger.error("[RAGAgent] Pipeline failed.", exc_info=True)
             response_dict = {
                 "success": False,
-                "query":   {"original": user_message, "optimized": ""},
-                "answer":  "An internal error occurred while processing your request.",
+                "query": {"original": user_message, "optimized": ""},
+                "answer": "An internal error occurred while processing your request.",
                 "retrieval": {
-                    "indexes":        [self.pdf_index, self.csv_index],
-                    "top_k":          self.top_k,
-                    "top_n":          self.top_n,
+                    "indexes": [self.pdf_index, self.csv_index],
+                    "top_k": self.top_k,
+                    "top_n": self.top_n,
                     "document_count": 0,
-                    "documents":      [],
+                    "documents": [],
                 },
                 "model": {
-                    "selected":    spec.key,
-                    "model_id":    spec.model_id,
+                    "selected": spec.key,
+                    "model_id": spec.model_id,
                     "temperature": self.temperature,
-                    "max_tokens":  spec.max_tokens,
+                    "max_tokens": spec.max_tokens,
                 },
-                "performance":  {"generation_elapsed_s": 0.0},
+                "performance": {"generation_elapsed_s": 0.0},
                 "conversation": {
-                    "turn":          len(self._history) // 2,
-                    "history_turns": min(len(self._history) // 2, self.max_history_turns),
+                    "turn": len(self._history) // 2,
+                    "history_turns": min(
+                        len(self._history) // 2, self.max_history_turns
+                    ),
                 },
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
@@ -524,7 +566,9 @@ class BedrockRAGAgent:
             )
             return True
         except Exception as exc:  # noqa: BLE001
-            logger.warning("[RAGAgent] ping failed for %s (%s): %s", spec.key, spec.model_id, exc)
+            logger.warning(
+                "[RAGAgent] ping failed for %s (%s): %s", spec.key, spec.model_id, exc
+            )
             return False
 
     def reset_history(self) -> None:
@@ -541,7 +585,7 @@ class BedrockRAGAgent:
     # ------------------------------------------------------------------
 
     def _append_to_history(self, user_message: str, assistant_answer: str) -> None:
-        self._history.append({"role": "user",      "content": user_message})
+        self._history.append({"role": "user", "content": user_message})
         self._history.append({"role": "assistant", "content": assistant_answer})
         max_messages = self.max_history_turns * 2
         if len(self._history) > max_messages:
@@ -566,8 +610,10 @@ class BedrockRAGAgent:
 # CLI — quick manual check (optional model selection)
 # ---------------------------------------------------------------------------
 
+
 def main(argv: list[str] | None = None) -> int:
     import sys
+
     argv = argv if argv is not None else sys.argv[1:]
     model = None
     if argv and argv[0] in MODELS:
@@ -576,7 +622,9 @@ def main(argv: list[str] | None = None) -> int:
     if argv:
         print(agent.chat(" ".join(argv), model=model))
         return 0
-    print(f"Multi-model RAG agent — models: {list(MODELS)} (default {DEFAULT_MODEL}). Ctrl-D to exit.")
+    print(
+        f"Multi-model RAG agent — models: {list(MODELS)} (default {DEFAULT_MODEL}). Ctrl-D to exit."
+    )
     while True:
         try:
             q = input("\n> ").strip()
