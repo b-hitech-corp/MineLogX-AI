@@ -1,6 +1,15 @@
 """
 rag_agent.py
 ============
+LEGACY / REFERENCE ONLY — superseded by bedrock_rag_agent.py.
+
+This is the original EC2/Ollama implementation (Qwen3 generation + mxbai
+embeddings via Ollama, retrieval from S3 Vectors). The production agent is now
+`rag_agent.bedrock_rag_agent.BedrockRAGAgent`, which runs on Bedrock (Claude
+Sonnet 4.6 / Nova Pro / DeepSeek V3.2, user-selectable via the Converse API) with
+OpenSearch retrieval. Kept here as a reference for the agent structure
+(conversation memory, rerank, query optimization, structured JSON response).
+
 Single-turn and multi-turn RAG chat agent.
 
 Retrieval flow:
