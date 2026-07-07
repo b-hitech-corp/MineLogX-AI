@@ -1,14 +1,17 @@
 """
 MineLogX-AI — Fabric automation.
 
-Two responsibilities:
+Three responsibilities:
 
 1. Environment orchestration (`env.*`): create / destroy / plan / list
    infrastructure environments through EITHER Terraform OR CloudFormation,
    selected with `--engine`. Supports both fixed environments (dev/qa/prod)
    and ephemeral per-developer environments (`dev-<user>`).
 
-2. Remote ops on the demo Ollama EC2 instances (`ollama.*`): health checks,
+2. Frontend deployment (`frontend.*`): build the React/Vite app from
+   shared/frontend/ and push it to the Amplify app for the target environment.
+
+3. Remote ops on the demo Ollama EC2 instances (`ollama.*`): health checks,
    restarts, model pulls, log tailing — the original Fabric use case.
 
 Conventions:
@@ -17,13 +20,21 @@ Conventions:
   - AWS profile is taken from the AWS_PROFILE env var (see AWS CLI setup).
 
 Usage (env is positional; engine via --engine, defaults to terraform):
-  uv run fab env.up   dev-cesar                # terraform (default)
-  uv run fab env.plan dev-cesar --engine cf    # cloudformation  (--engine tf|cf)
+  uv run fab env.up   dev-cesar                    # terraform (default)
+  uv run fab env.plan dev-cesar --engine cf        # cloudformation  (--engine tf|cf)
   uv run fab env.down dev-cesar --engine cf
   uv run fab env.list
+  uv run fab frontend.deploy dev                   # build + push frontend to Amplify
   uv run fab ollama.health-check
-  uv run fab lambda.pull                       # download the demo Lambda code
-  uv run fab lambda.build-layer pdf            # build the PDF deps layer (no Docker)
+  uv run fab lambda.pull                           # download the demo Lambda code
+  uv run fab lambda.build-layer pdf                # build the PDF deps layer (no Docker)
+
+Full DEV flow (first time):
+  uv run fab env.bootstrap                         # create S3 state bucket + DynamoDB lock
+  uv run fab lambda.build-layer csv
+  uv run fab lambda.build-layer pdf
+  uv run fab env.up dev                            # terraform apply (layers enabled by default in dev)
+  uv run fab frontend.deploy dev                   # build React + push to Amplify
 
 Note: use the long flag `--engine` — Fabric reserves the short `-e` for --echo.
 
@@ -646,6 +657,161 @@ def build_layer(c, fn):
 
 
 # --------------------------------------------------------------------------- #
+# frontend.* — build React/Vite app and push to Amplify (manual deployment)
+# --------------------------------------------------------------------------- #
+FRONTEND_DIR = REPO_ROOT / "shared" / "frontend"
+# Amplify branch used by all non-prod environments (prod deploys from main).
+AMPLIFY_BRANCH = os.environ.get("AMPLIFY_BRANCH", "dev")
+
+
+def _amplify_app_id(c, env):
+    """Discover the Amplify app ID for the given environment from AWS.
+
+    Looks for an app whose name matches `minelogx-<env>-frontend`, which is
+    the name the Amplify TF module creates. Falls back to TF output if the
+    app is not yet created.
+    """
+    app_name = f"{NAME_PREFIX}-{env}-frontend"
+    result = c.run(
+        f"aws amplify list-apps --region {REGION} "
+        '--query "apps[?name==`' + app_name + '`].appId" --output text',
+        hide=True,
+        warn=True,
+    )
+    app_id = result.stdout.strip() if result.ok else ""
+    if not app_id:
+        raise SystemExit(
+            f"Amplify app '{app_name}' not found in {REGION}. "
+            "Run `fab env.up <env>` first to create the infrastructure."
+        )
+    return app_id
+
+
+def _amplify_branch(c, app_id):
+    """Return the first branch of the app (Amplify only has one branch per env)."""
+    result = c.run(
+        f"aws amplify list-branches --app-id {app_id} --region {REGION} "
+        '--query "branches[0].branchName" --output text',
+        hide=True,
+    )
+    branch = result.stdout.strip()
+    if not branch or branch == "None":
+        raise SystemExit(
+            f"No branches found for Amplify app {app_id}. Run `fab env.up <env>` first."
+        )
+    return branch
+
+
+@task(
+    help={
+        "env": "Environment to deploy the frontend to (dev|qa|prod|dev-<user>).",
+        "skip_build": "Skip `pnpm build` (use existing dist/ — useful for re-deploys).",
+    },
+)
+def deploy(c, env, skip_build=False):
+    """Build the React/Vite frontend and push it to Amplify (manual deployment).
+
+    Steps:
+      1. pnpm install + pnpm build  (skippable with --skip-build)
+      2. Zip shared/frontend/dist/
+      3. Create an Amplify manual deployment job (returns a presigned S3 upload URL)
+      4. PUT the zip to the presigned URL
+      5. Start the deployment job and poll until SUCCEED/FAILED
+    """
+    _ensure_aws(c)
+    print(f"==> frontend.deploy: env={env} region={REGION}")
+
+    dist_dir = FRONTEND_DIR / "dist"
+
+    if not skip_build:
+        pnpm = shutil.which("pnpm") or "pnpm"
+        print(f"==> Building frontend in {FRONTEND_DIR}")
+        with c.cd(str(FRONTEND_DIR)):
+            c.run(f'"{pnpm}" install --frozen-lockfile')
+            c.run(f'"{pnpm}" build')
+
+    if not dist_dir.exists():
+        raise SystemExit(
+            f"{dist_dir} not found. Run `pnpm build` in shared/frontend/ first, "
+            "or omit --skip-build."
+        )
+
+    # Zip the dist directory into a temp file.
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        zip_path = tmp.name
+    try:
+        print(f"==> Zipping {dist_dir} -> {zip_path}")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in dist_dir.rglob("*"):
+                if file.is_file():
+                    zf.write(file, file.relative_to(dist_dir))
+
+        app_id = _amplify_app_id(c, env)
+        branch = _amplify_branch(c, app_id)
+        print(f"==> Amplify app={app_id} branch={branch}")
+
+        # Create a manual deployment job — Amplify returns a presigned upload URL.
+        create_result = c.run(
+            f"aws amplify create-deployment --app-id {app_id} "
+            f"--branch-name {branch} --region {REGION} --output json",
+            hide=True,
+        )
+        import json as _json
+
+        deployment = _json.loads(create_result.stdout)
+        job_id = deployment["jobId"]
+        upload_url = deployment["zipUploadUrl"]
+        print(f"==> Deployment job created: jobId={job_id}")
+
+        # Upload the zip to the presigned S3 URL.
+        print("==> Uploading dist.zip to Amplify presigned URL...")
+        urllib.request.urlopen(  # nosec B310 - URL comes from AWS API response
+            urllib.request.Request(
+                upload_url,
+                data=open(zip_path, "rb").read(),  # noqa: WPS515
+                method="PUT",
+                headers={"Content-Type": "application/zip"},
+            )
+        )
+
+        # Start the deployment.
+        c.run(
+            f"aws amplify start-deployment --app-id {app_id} "
+            f"--branch-name {branch} --job-id {job_id} --region {REGION}",
+            hide=True,
+        )
+        print("==> Deployment started. Polling for completion...")
+
+        # Poll until done (max ~5 min).
+        import time as _time
+
+        for _ in range(60):
+            status_result = c.run(
+                f"aws amplify get-job --app-id {app_id} "
+                f"--branch-name {branch} --job-id {job_id} --region {REGION} "
+                '--query "job.summary.status" --output text',
+                hide=True,
+            )
+            status = status_result.stdout.strip()
+            if status in ("SUCCEED", "FAILED", "CANCELLED"):
+                break
+            print(f"    status={status} — waiting 5s...")
+            _time.sleep(5)
+
+        if status == "SUCCEED":
+            print(
+                f"\n==> Frontend deployed! Status={status}\n"
+                f"    URL: https://{branch}.{app_id}.amplifyapp.com"
+            )
+        else:
+            raise SystemExit(
+                f"Amplify deployment {status}. Check the console for logs."
+            )
+    finally:
+        os.unlink(zip_path)
+
+
+# --------------------------------------------------------------------------- #
 # Namespaces
 # --------------------------------------------------------------------------- #
 env = Collection("env")
@@ -654,6 +820,9 @@ env.add_task(plan)
 env.add_task(down)
 env.add_task(list)
 env.add_task(bootstrap)
+
+frontend_ns = Collection("frontend")
+frontend_ns.add_task(deploy)
 
 ollama = Collection("ollama")
 ollama.add_task(health_check)
@@ -667,5 +836,6 @@ lambda_ns.add_task(build_layer, name="build-layer")
 
 ns = Collection()
 ns.add_collection(env)
+ns.add_collection(frontend_ns)
 ns.add_collection(ollama)
 ns.add_collection(lambda_ns)

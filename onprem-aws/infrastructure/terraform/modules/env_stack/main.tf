@@ -354,6 +354,10 @@ output "api_execution_arn" {
   value = module.api_gateway.execution_arn
 }
 
+output "amplify_app_id" {
+  value = module.amplify.app_id
+}
+
 output "amplify_default_domain" {
   value = module.amplify.default_domain
 }
