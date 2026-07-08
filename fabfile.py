@@ -641,7 +641,7 @@ def pull(c, pattern="demo-poc"):
 # Layer build output consumed by modules/lambda_layer (Terraform) and the
 # Lambda::LayerVersion resource (CloudFormation) — see requirements-<fn>.txt
 # for which function gets which deps and why they're split per-function.
-LAMBDA_LAYERS_DIR = TARGET_ROOT / "backend" / ".layers"
+LAMBDA_LAYERS_DIR = TARGET_ROOT / ".lambda-layers"
 
 # 250MB decompressed is the Lambda hard limit for code+layers combined; warn
 # well before it since the deployment package itself adds a few more MB.

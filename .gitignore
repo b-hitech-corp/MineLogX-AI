@@ -30,6 +30,7 @@ crash.log
 **/modules/lambda_layer/.build/
 # Lambda layer python/ trees built by `fab lambda.build-layer` (pip installs)
 **/backend/.layers/
+onprem-aws/.lambda-layers/
 
 # === CloudFormation ===
 **/cloudformation/params/*.local.json

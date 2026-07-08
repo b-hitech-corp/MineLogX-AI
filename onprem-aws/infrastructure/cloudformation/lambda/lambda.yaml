@@ -59,14 +59,14 @@ Resources:
     Properties:
       LayerName: !Sub '${NamePrefix}-pdf-deps'
       CompatibleRuntimes: [python3.11]
-      Content: ../../../backend/.layers/pdf
+      Content: ../../../.lambda-layers/pdf
   CsvLayer:
     Type: AWS::Lambda::LayerVersion
     Condition: ShouldBuildCsvLayer
     Properties:
       LayerName: !Sub '${NamePrefix}-csv-deps'
       CompatibleRuntimes: [python3.11]
-      Content: ../../../backend/.layers/csv
+      Content: ../../../.lambda-layers/csv
   ApiFunction:
     Type: AWS::Lambda::Function
     Properties:
