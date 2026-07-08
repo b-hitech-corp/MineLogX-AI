@@ -159,11 +159,11 @@ We welcome contributions! Here's how to get started:
 
 When contributing to a specific cloud implementation, please keep provider-specific code inside its `onprem-*` folder and put any reusable logic in `shared/` so other providers can benefit from it too.
 
-## 📄 License
+## 📄 Licenses
 
-This project is licensed under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](https://mit-license.org/) and [Apache License](https://www.apache.org/licenses/LICENSE-2.0)
 
 ---
 
-### 🚧 Let's build the future of intelligent mining together — with open data, AI, and freedom of cloud choice.
+### 🚧 Let's build the future of intelligent mining together — with open data, AI, and freedom of cloud choice with MLX Ai.
 ```
