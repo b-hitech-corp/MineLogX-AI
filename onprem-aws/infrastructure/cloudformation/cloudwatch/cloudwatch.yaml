@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: MineLogX Lambda log groups — parity with the Terraform cloudwatch module.
+Description: MineLogX - CloudWatch log groups for all Lambda functions (api, csv, pdf).
 
 Parameters:
   NamePrefix:

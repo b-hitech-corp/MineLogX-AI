@@ -1,8 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  MineLogX EC2 Ollama FALLBACK LLM tier — parity with the Terraform ec2_llm module.
-  Backup for when Amazon Bedrock is unavailable. Gated by EnableLlmFallback and
-  retained on stack delete/replace so it is never removed implicitly.
+  MineLogX - EC2 Ollama fallback LLM. Active only when EnableLlmFallback=true.
+  Retained on stack delete so it is never removed implicitly.
 
 Parameters:
   NamePrefix:

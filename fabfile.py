@@ -362,6 +362,15 @@ def up(c, env, engine="cloudformation", seed=False, no_rollback=False):
             else:
                 _s3_seed(c, env)
 
+        # --- 4. Endpoints summary ---
+        outputs = _endpoints_data(c, env)
+        if outputs:
+            _show_and_save_endpoints(env, outputs)
+        else:
+            print(
+                "[warn] Sin outputs de CloudFormation — omitiendo resumen de endpoints."
+            )
+
     except Exception as exc:
         msg = f"env.up failed: {exc}"
         log_path.write_text(msg, encoding="utf-8")
@@ -888,6 +897,80 @@ def deploy(c, env, skip_build=False):
 
 
 # --------------------------------------------------------------------------- #
+# env.endpoints helpers
+# --------------------------------------------------------------------------- #
+
+
+def _endpoints_data(c, env):
+    """Return CFN stack Outputs for env, or [] if the stack is not found."""
+    import json as _json
+
+    result = c.run(
+        f"aws cloudformation describe-stacks --stack-name {NAME_PREFIX}-{env} "
+        f'--region {REGION} --query "Stacks[0].Outputs" --output json',
+        hide=True,
+        warn=True,
+    )
+    if not result.ok or not result.stdout.strip() or result.stdout.strip() == "null":
+        return []
+    return _json.loads(result.stdout)
+
+
+def _show_and_save_endpoints(env, outputs):
+    """Pretty-print CFN outputs and write endpoints-<env>.md to the repo root."""
+    import datetime as _dt
+
+    width = max(len(o["OutputKey"]) for o in outputs) + 2
+    sep = "─" * 60
+    print(f"\n{sep}")
+    print(f"  Endpoints — {NAME_PREFIX}-{env}  ({REGION})")
+    print(sep)
+    for o in outputs:
+        key = o["OutputKey"]
+        val = o["OutputValue"]
+        desc = o.get("Description", "")
+        print(f"  {key:<{width}} {val}")
+        if desc:
+            print(f"  {'':>{width}} ↳ {desc}")
+    print(f"{sep}\n")
+
+    md_path = REPO_ROOT / f"endpoints-{env}.md"
+    now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    lines = [
+        f"# Endpoints — `{NAME_PREFIX}-{env}`",
+        "",
+        f"> Generado: {now} | Región: `{REGION}`",
+        "",
+        "| Key | Value | Descripción |",
+        "|---|---|---|",
+    ]
+    for o in outputs:
+        key = o["OutputKey"]
+        val = o["OutputValue"]
+        desc = o.get("Description", "—")
+        lines.append(f"| `{key}` | {val} | {desc} |")
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"  Guardado → {md_path.name}")
+
+
+@task(help={"env": "Environment name (dev|qa|prod|dev-<user>)."})
+def endpoints(c, env):
+    """Show and save all live endpoints for an environment.
+
+    Reads CloudFormation stack Outputs and prints a friendly table.
+    Also writes endpoints-<env>.md in the repo root (git-ignored).
+    """
+    _ensure_aws(c)
+    outputs = _endpoints_data(c, env)
+    if not outputs:
+        raise SystemExit(
+            f"  [!] Stack '{NAME_PREFIX}-{env}' no encontrado o sin outputs.\n"
+            "      Ejecuta `uv run fab env.up <env>` primero."
+        )
+    _show_and_save_endpoints(env, outputs)
+
+
+# --------------------------------------------------------------------------- #
 # Namespaces
 # --------------------------------------------------------------------------- #
 env = Collection("env")
@@ -896,6 +979,7 @@ env.add_task(plan)
 env.add_task(down)
 env.add_task(list)
 env.add_task(bootstrap)
+env.add_task(endpoints)
 
 frontend_ns = Collection("frontend")
 frontend_ns.add_task(deploy)

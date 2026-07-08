@@ -80,8 +80,8 @@ locals {
   telemetry_bucket   = module.s3.bucket_ids["telemetry-data"]
   legislation_bucket = module.s3.bucket_ids["legislation-documents"]
 
-  pdf_layer_build_dir = coalesce(var.pdf_layer_build_dir, "${local.backend_dir}/.layers/pdf")
-  csv_layer_build_dir = coalesce(var.csv_layer_build_dir, "${local.backend_dir}/.layers/csv")
+  pdf_layer_build_dir = coalesce(var.pdf_layer_build_dir, "${path.module}/../../../../.lambda-layers/pdf")
+  csv_layer_build_dir = coalesce(var.csv_layer_build_dir, "${path.module}/../../../../.lambda-layers/csv")
 
   # Bedrock InvokeModel — foundation models + cross-region inference profiles.
   bedrock_model_arns = [
@@ -306,7 +306,7 @@ module "lambda_layer_pdf" {
 module "lambda_pdf" {
   source        = "../lambda"
   function_name = local.fn.pdf
-  handler       = "pdf_pipeline.agent.pdf_vectorization_pipeline.lambda_handler"
+  handler       = "pdf_pipeline.lambda_function.lambda_handler"
   source_dir    = local.backend_dir
   excludes      = local.lambda_excludes
   role_arn      = module.iam.role_arns["pdf"]
