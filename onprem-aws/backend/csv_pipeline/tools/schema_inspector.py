@@ -33,7 +33,11 @@ import requests
 
 from csv_pipeline.config.settings import settings
 from csv_pipeline.tools.bedrock_client import invoke_claude
-from csv_pipeline.tools.csv_sampler import StreamProfile, build_llm_input, stream_and_profile
+from csv_pipeline.tools.csv_sampler import (
+    StreamProfile,
+    build_llm_input,
+    stream_and_profile,
+)
 from csv_pipeline.tools.schema_reconciler import reconcile
 
 logger = logging.getLogger(__name__)

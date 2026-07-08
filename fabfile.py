@@ -1,29 +1,42 @@
 """
 MineLogX-AI — Fabric automation.
 
-Two responsibilities:
+Three responsibilities:
 
 1. Environment orchestration (`env.*`): create / destroy / plan / list
-   infrastructure environments through EITHER Terraform OR CloudFormation,
-   selected with `--engine`. Supports both fixed environments (dev/qa/prod)
-   and ephemeral per-developer environments (`dev-<user>`).
+   infrastructure environments via CloudFormation (primary). Terraform is
+   available as an alternative with `--engine terraform` but CloudFormation
+   is the default — it gives full stack visibility in the AWS console.
 
-2. Remote ops on the demo Ollama EC2 instances (`ollama.*`): health checks,
+2. Frontend deployment (`frontend.*`): build the React/Vite app from
+   shared/frontend/ and push it to the Amplify app for the target environment.
+
+3. Remote ops on the demo Ollama EC2 instances (`ollama.*`): health checks,
    restarts, model pulls, log tailing — the original Fabric use case.
 
 Conventions:
   - Resource name prefix / stack prefix:  minelogx-<env>
+  - CloudFormation stack: one parent stack (minelogx-<env>) with nested children.
   - Mandatory tags on every resource: aws-apn-id, Environment, ManagedBy
   - AWS profile is taken from the AWS_PROFILE env var (see AWS CLI setup).
 
-Usage (env is positional; engine via --engine, defaults to terraform):
-  uv run fab env.up   dev-cesar                # terraform (default)
-  uv run fab env.plan dev-cesar --engine cf    # cloudformation  (--engine tf|cf)
-  uv run fab env.down dev-cesar --engine cf
+Usage (env is positional; engine defaults to cloudformation):
+  uv run fab env.up   dev                          # cloudformation deploy (default)
+  uv run fab env.plan dev                          # cloudformation change set (no apply)
+  uv run fab env.down dev
   uv run fab env.list
+  uv run fab frontend.deploy dev                   # build + push frontend to Amplify
   uv run fab ollama.health-check
-  uv run fab lambda.pull                       # download the demo Lambda code
-  uv run fab lambda.build-layer pdf            # build the PDF deps layer (no Docker)
+  uv run fab lambda.pull                           # download the demo Lambda code
+  uv run fab lambda.build-layer pdf                # build the PDF deps layer (no Docker)
+
+Full DEV flow (first time):
+  uv run fab env.bootstrap                         # create S3 bucket (for nested template uploads)
+  uv run fab lambda.build-layer csv
+  uv run fab lambda.build-layer pdf
+  uv run fab env.up dev --seed                     # cloudformation deploy + seed from demo buckets
+  uv run fab env.up dev                            # cloudformation deploy (clean buckets, no seed)
+  uv run fab frontend.deploy dev                   # build React + push to Amplify
 
 Note: use the long flag `--engine` — Fabric reserves the short `-e` for --echo.
 
@@ -31,6 +44,7 @@ Tip: prefer `uv run fab` — it finds terraform via the shell PATH regardless of
 venv activation. If terraform still isn't found, set TERRAFORM_BIN (see below).
 """
 
+import datetime
 import os
 import shutil
 import sys
@@ -58,9 +72,9 @@ NAME_PREFIX = "minelogx"
 # PATH is mangled by a venv activate script or cmd.exe vs Git Bash differences.
 TERRAFORM = os.environ.get("TERRAFORM_BIN") or shutil.which("terraform") or "terraform"
 
-# Terraform remote state (bootstrap once per account with `fab env.bootstrap`).
-STATE_BUCKET = os.environ.get("TF_STATE_BUCKET", "minelogx-poc-terraform-state")
-STATE_LOCK_TABLE = os.environ.get("TF_STATE_LOCK_TABLE", "minelogx-poc-terraform-locks")
+# S3 bucket used by `cloudformation package` to upload nested templates.
+# Also reused by Terraform state if `--engine terraform` is ever needed.
+STATE_BUCKET = os.environ.get("CFN_TEMPLATE_BUCKET", "minelogx-poc-cfn-templates")
 
 # SSO profile used to auto-refresh the token (override per dev with AWS_SSO_PROFILE).
 # NOTE: this is the SSO *hub* account (125396563242) — only an identity source.
@@ -77,6 +91,7 @@ WORK_PROFILE = os.environ.get("MINELOGX_AWS_PROFILE", "minelogx-admin")
 os.environ["AWS_PROFILE"] = WORK_PROFILE
 
 REPO_ROOT = Path(__file__).resolve().parent
+LOGS_DIR = REPO_ROOT / ".fab-logs"
 # Deployment target (framework layout). Override with MINELOGX_TARGET.
 TARGET = os.environ.get("MINELOGX_TARGET", "onprem-aws")
 TARGET_ROOT = REPO_ROOT / TARGET
@@ -103,6 +118,15 @@ CFN_LAYERS = [
 
 # Fixed environments have their own Terraform root module under environments/.
 FIXED_ENVS = {"dev", "qa", "prod"}
+
+# Demo buckets used as seed data source for DEV environments.
+# Mapping: bucket name suffix -> existing demo bucket name.
+DEMO_SEED_BUCKETS = {
+    "telemetry-data": "bhitech-minelogx-poc-telemetry-data",
+    "legislation-documents": "bhitech-minelogx-poc-legislation-documents",
+}
+# Only these environments may receive seed data; all others are always clean.
+SEED_ALLOWED_ENVS = {"dev"}
 
 # demo Ollama EC2 instances (see CLAUDE.md — demo only, to be replaced by Bedrock).
 INSTANCES = {
@@ -147,7 +171,7 @@ def _tf(c, env, *args):
             f'-backend-config="bucket={STATE_BUCKET}" '
             f'-backend-config="key={state_key}" '
             f'-backend-config="region={REGION}" '
-            f'-backend-config="dynamodb_table={STATE_LOCK_TABLE}" '
+            f'-backend-config="dynamodb_table=minelogx-poc-terraform-locks" '
             f'-backend-config="encrypt=true"'
         )
         if _is_ephemeral(env):
@@ -203,6 +227,30 @@ def _ensure_aws(c):
     print(f"==> AWS profile={WORK_PROFILE} account={account} region={REGION}")
 
 
+def _s3_seed(c, env):
+    """Sync data from demo seed buckets into the minelogx-{env}-* buckets."""
+    for suffix, src in DEMO_SEED_BUCKETS.items():
+        dst = f"{NAME_PREFIX}-{env}-{suffix}"
+        print(f"==> seeding s3://{src}/ -> s3://{dst}/")
+        c.run(f"aws s3 sync s3://{src}/ s3://{dst}/ --region {REGION}")
+
+
+def _cfn_extra_params(env):
+    """Load env-specific parameter overrides from params/<env>.json if it exists.
+
+    Returns a string of 'Key=Value' pairs ready to append to --parameter-overrides,
+    or an empty string when no file is found. Used to pass e.g. existing VPC IDs
+    when the account is at the VPC limit.
+    """
+    import json as _json
+
+    params_file = CFN_ROOT / "params" / f"{env}.json"
+    if not params_file.exists():
+        return ""
+    data = _json.loads(params_file.read_text(encoding="utf-8"))
+    return " ".join(f"{k}={v}" for k, v in data.items())
+
+
 def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
     """Package + deploy the single parent stack (nested children) as minelogx-<env>.
 
@@ -213,18 +261,24 @@ def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
     fallback = "true" if env == "prod" else "false"
     pdf_layer = "true" if build_pdf_layer else "false"
     csv_layer = "true" if build_csv_layer else "false"
+    extra = _cfn_extra_params(env)
     with c.cd(str(CFN_ROOT)):
         c.run(
             "aws cloudformation package --template-file parent.yaml "
             f"--s3-bucket {STATE_BUCKET} --s3-prefix cfn/{env} "
             f"--output-template-file packaged-parent.yaml --region {REGION}"
         )
+        overrides = (
+            f"NamePrefix={NAME_PREFIX}-{env} Environment={env} "
+            f"ProjectApnId={apn} EnableLlmFallback={fallback} "
+            f"BuildPdfLayer={pdf_layer} BuildCsvLayer={csv_layer}"
+        )
+        if extra:
+            overrides += f" {extra}"
         cmd = (
             "aws cloudformation deploy --template-file packaged-parent.yaml "
             f"--stack-name {NAME_PREFIX}-{env} "
-            f"--parameter-overrides NamePrefix={NAME_PREFIX}-{env} Environment={env} "
-            f"ProjectApnId={apn} EnableLlmFallback={fallback} "
-            f"BuildPdfLayer={pdf_layer} BuildCsvLayer={csv_layer} "
+            f"--parameter-overrides {overrides} "
             f"--tags aws-apn-id={apn} Environment={env} ManagedBy=cloudformation "
             f"--capabilities CAPABILITY_NAMED_IAM --region {REGION}"
         )
@@ -236,42 +290,89 @@ def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
 # --------------------------------------------------------------------------- #
 # env.* — environment orchestration
 # --------------------------------------------------------------------------- #
+def _up_log_path(env):
+    """Return a timestamped log file path for a failed env.up run."""
+    LOGS_DIR.mkdir(exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    return LOGS_DIR / f"up-{env}-{ts}.log"
+
+
+def _cfn_down(c, env):
+    """Delete the CFN parent stack and wait until it is gone."""
+    print(f"==> down (auto-cleanup): deleting stack {NAME_PREFIX}-{env} ...")
+    c.run(
+        f"aws cloudformation delete-stack --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        warn=True,
+    )
+    c.run(
+        f"aws cloudformation wait stack-delete-complete --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        warn=True,
+    )
+
+
 @task(
     help={
         "env": "Environment name (dev|qa|prod|dev-<user>).",
         "engine": "terraform | cloudformation",
-        "build_pdf_layer": "Attach the PDF deps layer (must run `fab lambda.build-layer pdf` first).",
-        "build_csv_layer": "Attach the CSV deps layer (must run `fab lambda.build-layer csv` first).",
+        "seed": "After deploy, sync data from demo buckets into the new buckets (dev only).",
+        "no_rollback": "Skip automatic env.down on failure (keeps stack for manual inspection).",
     },
 )
-def up(c, env, engine="terraform", build_pdf_layer=False, build_csv_layer=False):
-    """Create/update an environment (fixed or ephemeral)."""
+def up(c, env, engine="cloudformation", seed=False, no_rollback=False):
+    """Create/update an environment. Builds Lambda layers, deploys, and optionally seeds S3."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
     print(f"==> up: env={env} engine={engine} region={REGION}")
 
-    if engine == "terraform":
-        _tf(
-            c,
-            env,
-            "apply",
-            "-auto-approve",
-            f'-var="environment={env}"',
-            f'-var="aws_region={REGION}"',
-            f'-var="name_prefix={NAME_PREFIX}-{env}"',
-            f'-var="project_apn_id={_apn(env)}"',
-            f'-var="build_pdf_layer={"true" if build_pdf_layer else "false"}"',
-            f'-var="build_csv_layer={"true" if build_csv_layer else "false"}"',
-        )
-        return
+    log_path = _up_log_path(env)
 
-    _cfn(
-        c,
-        env,
-        execute=True,
-        build_pdf_layer=build_pdf_layer,
-        build_csv_layer=build_csv_layer,
-    )
+    try:
+        # --- 1. Build Lambda layers (always, so the zip is ready for CFN package) ---
+        for fn in ("csv", "pdf"):
+            reqs = TARGET_ROOT / "backend" / f"requirements-{fn}.txt"
+            if reqs.exists():
+                print(f"==> building lambda layer: {fn}")
+                build_layer(c, fn)
+            else:
+                print(f"[warn] {reqs.name} not found — skipping {fn} layer build.")
+
+        # --- 2. Deploy infrastructure ---
+        if engine == "terraform":
+            _tf(
+                c,
+                env,
+                "apply",
+                "-auto-approve",
+                f'-var="environment={env}"',
+                f'-var="aws_region={REGION}"',
+                f'-var="name_prefix={NAME_PREFIX}-{env}"',
+                f'-var="project_apn_id={_apn(env)}"',
+                '-var="build_pdf_layer=true"',
+                '-var="build_csv_layer=true"',
+            )
+        else:
+            _cfn(c, env, execute=True, build_pdf_layer=True, build_csv_layer=True)
+
+        # --- 3. Seed S3 (dev only) ---
+        if seed:
+            if env not in SEED_ALLOWED_ENVS:
+                print(
+                    f"[warn] --seed ignored for '{env}': only allowed in {SEED_ALLOWED_ENVS}."
+                )
+            else:
+                _s3_seed(c, env)
+
+    except Exception as exc:
+        msg = f"env.up failed: {exc}"
+        log_path.write_text(msg, encoding="utf-8")
+        print(f"\n[error] {msg}")
+        print(f"[error] Full error saved to: {log_path}")
+        if no_rollback:
+            print("[warn] --no-rollback set: skipping automatic cleanup.")
+        else:
+            print("==> Running automatic env.down to clean up ...")
+            _cfn_down(c, env)
+        raise SystemExit(1) from None
 
 
 @task(
@@ -282,7 +383,7 @@ def up(c, env, engine="terraform", build_pdf_layer=False, build_csv_layer=False)
         "build_csv_layer": "Attach the CSV deps layer (must run `fab lambda.build-layer csv` first).",
     },
 )
-def plan(c, env, engine="terraform", build_pdf_layer=False, build_csv_layer=False):
+def plan(c, env, engine="cloudformation", build_pdf_layer=False, build_csv_layer=False):
     """Preview changes without applying (terraform plan / CFN change set)."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
@@ -314,7 +415,7 @@ def plan(c, env, engine="terraform", build_pdf_layer=False, build_csv_layer=Fals
 @task(
     help={"env": "Environment name.", "engine": "terraform | cloudformation"},
 )
-def down(c, env, engine="terraform"):
+def down(c, env, engine="cloudformation"):
     """Destroy an environment. Guarded against fixed prod."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
@@ -367,16 +468,14 @@ def list(c):
 
 @task
 def bootstrap(c):
-    """Create the Terraform remote-state backend for the CURRENT AWS account.
+    """Create the S3 bucket used by `cloudformation package` to upload nested templates.
 
-    Run ONCE per account — dev/qa/prod share this bucket via distinct state keys.
-    Idempotent (skips what already exists). When PROD moves to its own account,
-    run this there too. OS-agnostic (no inline JSON; S3 applies AES256 by default).
+    Run ONCE per account — dev/qa/prod share the same bucket under different S3 prefixes.
+    Idempotent (skips what already exists). When PROD moves to its own account, run this
+    there too. No DynamoDB needed — CloudFormation manages stack concurrency internally.
     """
     _ensure_aws(c)
-    print(
-        f"==> bootstrap: bucket={STATE_BUCKET} table={STATE_LOCK_TABLE} region={REGION}"
-    )
+    print(f"==> bootstrap: bucket={STATE_BUCKET} region={REGION}")
 
     if c.run(f"aws s3api head-bucket --bucket {STATE_BUCKET}", hide=True, warn=True).ok:
         print(f"    bucket {STATE_BUCKET} already exists")
@@ -397,21 +496,9 @@ def bootstrap(c):
             "BlockPublicAcls=true,IgnorePublicAcls=true,"
             "BlockPublicPolicy=true,RestrictPublicBuckets=true"
         )
-
-    if c.run(
-        f"aws dynamodb describe-table --table-name {STATE_LOCK_TABLE} --region {REGION}",
-        hide=True,
-        warn=True,
-    ).ok:
-        print(f"    lock table {STATE_LOCK_TABLE} already exists")
-    else:
-        c.run(
-            f"aws dynamodb create-table --table-name {STATE_LOCK_TABLE} --region {REGION} "
-            "--attribute-definitions AttributeName=LockID,AttributeType=S "
-            "--key-schema AttributeName=LockID,KeyType=HASH "
-            "--billing-mode PAY_PER_REQUEST"
-        )
-    print("Done. Backend ready — now: uv run fab env.up dev")
+    print(
+        "Done. Next: uv run fab lambda.build-layer csv && fab lambda.build-layer pdf && fab env.up dev"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -588,7 +675,7 @@ def pull(c, pattern="demo-poc"):
 # Layer build output consumed by modules/lambda_layer (Terraform) and the
 # Lambda::LayerVersion resource (CloudFormation) — see requirements-<fn>.txt
 # for which function gets which deps and why they're split per-function.
-LAMBDA_LAYERS_DIR = TARGET_ROOT / "backend" / ".layers"
+LAMBDA_LAYERS_DIR = TARGET_ROOT / ".lambda-layers"
 
 # 250MB decompressed is the Lambda hard limit for code+layers combined; warn
 # well before it since the deployment package itself adds a few more MB.
@@ -646,6 +733,161 @@ def build_layer(c, fn):
 
 
 # --------------------------------------------------------------------------- #
+# frontend.* — build React/Vite app and push to Amplify (manual deployment)
+# --------------------------------------------------------------------------- #
+FRONTEND_DIR = REPO_ROOT / "shared" / "frontend"
+# Amplify branch used by all non-prod environments (prod deploys from main).
+AMPLIFY_BRANCH = os.environ.get("AMPLIFY_BRANCH", "dev")
+
+
+def _amplify_app_id(c, env):
+    """Discover the Amplify app ID for the given environment from AWS.
+
+    Looks for an app whose name matches `minelogx-<env>-frontend`, which is
+    the name the Amplify TF module creates. Falls back to TF output if the
+    app is not yet created.
+    """
+    app_name = f"{NAME_PREFIX}-{env}-frontend"
+    result = c.run(
+        f"aws amplify list-apps --region {REGION} "
+        '--query "apps[?name==`' + app_name + '`].appId" --output text',
+        hide=True,
+        warn=True,
+    )
+    app_id = result.stdout.strip() if result.ok else ""
+    if not app_id:
+        raise SystemExit(
+            f"Amplify app '{app_name}' not found in {REGION}. "
+            "Run `fab env.up <env>` first to create the infrastructure."
+        )
+    return app_id
+
+
+def _amplify_branch(c, app_id):
+    """Return the first branch of the app (Amplify only has one branch per env)."""
+    result = c.run(
+        f"aws amplify list-branches --app-id {app_id} --region {REGION} "
+        '--query "branches[0].branchName" --output text',
+        hide=True,
+    )
+    branch = result.stdout.strip()
+    if not branch or branch == "None":
+        raise SystemExit(
+            f"No branches found for Amplify app {app_id}. Run `fab env.up <env>` first."
+        )
+    return branch
+
+
+@task(
+    help={
+        "env": "Environment to deploy the frontend to (dev|qa|prod|dev-<user>).",
+        "skip_build": "Skip `pnpm build` (use existing dist/ — useful for re-deploys).",
+    },
+)
+def deploy(c, env, skip_build=False):
+    """Build the React/Vite frontend and push it to Amplify (manual deployment).
+
+    Steps:
+      1. pnpm install + pnpm build  (skippable with --skip-build)
+      2. Zip shared/frontend/dist/
+      3. Create an Amplify manual deployment job (returns a presigned S3 upload URL)
+      4. PUT the zip to the presigned URL
+      5. Start the deployment job and poll until SUCCEED/FAILED
+    """
+    _ensure_aws(c)
+    print(f"==> frontend.deploy: env={env} region={REGION}")
+
+    dist_dir = FRONTEND_DIR / "dist"
+
+    if not skip_build:
+        pnpm = shutil.which("pnpm") or "pnpm"
+        print(f"==> Building frontend in {FRONTEND_DIR}")
+        with c.cd(str(FRONTEND_DIR)):
+            c.run(f'"{pnpm}" install --frozen-lockfile')
+            c.run(f'"{pnpm}" build')
+
+    if not dist_dir.exists():
+        raise SystemExit(
+            f"{dist_dir} not found. Run `pnpm build` in shared/frontend/ first, "
+            "or omit --skip-build."
+        )
+
+    # Zip the dist directory into a temp file.
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        zip_path = tmp.name
+    try:
+        print(f"==> Zipping {dist_dir} -> {zip_path}")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in dist_dir.rglob("*"):
+                if file.is_file():
+                    zf.write(file, file.relative_to(dist_dir))
+
+        app_id = _amplify_app_id(c, env)
+        branch = _amplify_branch(c, app_id)
+        print(f"==> Amplify app={app_id} branch={branch}")
+
+        # Create a manual deployment job — Amplify returns a presigned upload URL.
+        create_result = c.run(
+            f"aws amplify create-deployment --app-id {app_id} "
+            f"--branch-name {branch} --region {REGION} --output json",
+            hide=True,
+        )
+        import json as _json
+
+        deployment = _json.loads(create_result.stdout)
+        job_id = deployment["jobId"]
+        upload_url = deployment["zipUploadUrl"]
+        print(f"==> Deployment job created: jobId={job_id}")
+
+        # Upload the zip to the presigned S3 URL.
+        print("==> Uploading dist.zip to Amplify presigned URL...")
+        urllib.request.urlopen(  # nosec B310 - URL comes from AWS API response
+            urllib.request.Request(
+                upload_url,
+                data=open(zip_path, "rb").read(),  # noqa: WPS515
+                method="PUT",
+                headers={"Content-Type": "application/zip"},
+            )
+        )
+
+        # Start the deployment.
+        c.run(
+            f"aws amplify start-deployment --app-id {app_id} "
+            f"--branch-name {branch} --job-id {job_id} --region {REGION}",
+            hide=True,
+        )
+        print("==> Deployment started. Polling for completion...")
+
+        # Poll until done (max ~5 min).
+        import time as _time
+
+        for _ in range(60):
+            status_result = c.run(
+                f"aws amplify get-job --app-id {app_id} "
+                f"--branch-name {branch} --job-id {job_id} --region {REGION} "
+                '--query "job.summary.status" --output text',
+                hide=True,
+            )
+            status = status_result.stdout.strip()
+            if status in ("SUCCEED", "FAILED", "CANCELLED"):
+                break
+            print(f"    status={status} — waiting 5s...")
+            _time.sleep(5)
+
+        if status == "SUCCEED":
+            print(
+                f"\n==> Frontend deployed! Status={status}\n"
+                f"    URL: https://{branch}.{app_id}.amplifyapp.com"
+            )
+        else:
+            raise SystemExit(
+                f"Amplify deployment {status}. Check the console for logs."
+            )
+    finally:
+        os.unlink(zip_path)
+
+
+# --------------------------------------------------------------------------- #
 # Namespaces
 # --------------------------------------------------------------------------- #
 env = Collection("env")
@@ -654,6 +896,9 @@ env.add_task(plan)
 env.add_task(down)
 env.add_task(list)
 env.add_task(bootstrap)
+
+frontend_ns = Collection("frontend")
+frontend_ns.add_task(deploy)
 
 ollama = Collection("ollama")
 ollama.add_task(health_check)
@@ -667,5 +912,6 @@ lambda_ns.add_task(build_layer, name="build-layer")
 
 ns = Collection()
 ns.add_collection(env)
+ns.add_collection(frontend_ns)
 ns.add_collection(ollama)
 ns.add_collection(lambda_ns)

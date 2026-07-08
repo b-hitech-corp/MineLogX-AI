@@ -53,7 +53,11 @@ Resources:
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
                 "FunctionName": "${CsvLambdaArn}",
-                "Payload.$": "States.JsonMerge($, {\"stages\": [1]}, false)"
+                "Payload": {
+                  "file_path.$": "$.file_path",
+                  "force.$": "$.force",
+                  "stages": [1]
+                }
               },
               "ResultPath": "$.stage1",
               "Next": "NormalizeAndChunk"
@@ -63,7 +67,11 @@ Resources:
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
                 "FunctionName": "${CsvLambdaArn}",
-                "Payload.$": "States.JsonMerge($, {\"stages\": [2, 3]}, false)"
+                "Payload": {
+                  "file_path.$": "$.file_path",
+                  "force.$": "$.force",
+                  "stages": [2, 3]
+                }
               },
               "ResultPath": "$.stage23",
               "Next": "OpenSearchIngest"
@@ -73,7 +81,11 @@ Resources:
               "Resource": "arn:aws:states:::lambda:invoke",
               "Parameters": {
                 "FunctionName": "${CsvLambdaArn}",
-                "Payload.$": "States.JsonMerge($, {\"stages\": [4]}, false)"
+                "Payload": {
+                  "file_path.$": "$.file_path",
+                  "force.$": "$.force",
+                  "stages": [4]
+                }
               },
               "ResultPath": "$.stage4",
               "End": true

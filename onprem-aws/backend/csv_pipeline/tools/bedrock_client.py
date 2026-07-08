@@ -25,6 +25,7 @@ Public API
         plain dict (`body["stop_reason"]`, `body["content"]`, ...) instead of
         SDK objects.
 """
+
 from __future__ import annotations
 
 import json

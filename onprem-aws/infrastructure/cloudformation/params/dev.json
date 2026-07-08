@@ -1,0 +1,7 @@
+{
+  "ExistingVpcId": "vpc-0a7b98533f5eaa246",
+  "ExistingPublicSubnet1Id": "subnet-055ac7f357e35d32e",
+  "ExistingPublicSubnet2Id": "subnet-0b2ae002ad7c5108a",
+  "ExistingPrivateSubnet1Id": "subnet-00e7da992d115c77a",
+  "ExistingPrivateSubnet2Id": "subnet-08555f7b3cf31bece"
+}
