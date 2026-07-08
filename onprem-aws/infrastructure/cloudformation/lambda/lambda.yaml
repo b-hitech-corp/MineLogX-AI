@@ -110,7 +110,7 @@ Resources:
     Properties:
       FunctionName: !Sub '${NamePrefix}-pdf'
       Runtime: python3.11
-      Handler: pdf_pipeline.agent.pdf_vectorization_pipeline.lambda_handler
+      Handler: pdf_pipeline.lambda_function.lambda_handler
       Role: !Ref PdfRoleArn
       Timeout: 300
       MemorySize: 1024
