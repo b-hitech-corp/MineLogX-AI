@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: MineLogX S3 data lakes (telemetry + legislation) — parity with the Terraform s3 module.
+Description: MineLogX - S3 buckets for telemetry CSVs and legislation PDF documents.
 
 Parameters:
   NamePrefix:
@@ -38,7 +38,7 @@ Resources:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
             BucketKeyEnabled: true
-      # Emit S3 events to EventBridge — drives the event-driven PDF pipeline.
+      # Emit S3 events to EventBridge - drives the event-driven PDF pipeline.
       NotificationConfiguration:
         EventBridgeConfiguration:
           EventBridgeEnabled: true

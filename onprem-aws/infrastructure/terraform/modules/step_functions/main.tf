@@ -62,7 +62,11 @@ resource "aws_sfn_state_machine" "csv" {
         Resource = "arn:aws:states:::lambda:invoke"
         Parameters = {
           FunctionName = var.csv_lambda_arn
-          "Payload.$"  = "States.JsonMerge($, {\"stages\": [1]}, false)"
+          Payload = {
+            "file_path.$" = "$.file_path"
+            "force.$"     = "$.force"
+            stages        = [1]
+          }
         }
         ResultPath = "$.stage1"
         Next       = "NormalizeAndChunk"
@@ -72,7 +76,11 @@ resource "aws_sfn_state_machine" "csv" {
         Resource = "arn:aws:states:::lambda:invoke"
         Parameters = {
           FunctionName = var.csv_lambda_arn
-          "Payload.$"  = "States.JsonMerge($, {\"stages\": [2, 3]}, false)"
+          Payload = {
+            "file_path.$" = "$.file_path"
+            "force.$"     = "$.force"
+            stages        = [2, 3]
+          }
         }
         ResultPath = "$.stage23"
         Next       = "OpenSearchIngest"
@@ -82,7 +90,11 @@ resource "aws_sfn_state_machine" "csv" {
         Resource = "arn:aws:states:::lambda:invoke"
         Parameters = {
           FunctionName = var.csv_lambda_arn
-          "Payload.$"  = "States.JsonMerge($, {\"stages\": [4]}, false)"
+          Payload = {
+            "file_path.$" = "$.file_path"
+            "force.$"     = "$.force"
+            stages        = [4]
+          }
         }
         ResultPath = "$.stage4"
         End        = true

@@ -1,9 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  MineLogX Lambda execution roles (api, csv, pdf) — parity with the Terraform iam
-  module + env_stack inline policies. Each role gets basic execution logging plus
-  scoped Bedrock (InvokeModel + ApplyGuardrail), AOSS (APIAccessAll), S3, and (pdf)
-  Textract permissions.
+  MineLogX - IAM execution roles for Lambda functions (api, csv, pdf). Each role
+  has scoped Bedrock, OpenSearch Serverless, S3, and (pdf) Textract permissions.
 
 Parameters:
   NamePrefix:

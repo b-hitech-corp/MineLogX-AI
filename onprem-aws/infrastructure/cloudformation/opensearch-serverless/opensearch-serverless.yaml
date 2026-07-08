@@ -1,11 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  MineLogX vector store — Amazon OpenSearch Serverless (VECTORSEARCH) collection
-  + encryption/network/data-access policies. Managed in CloudFormation (the
-  Terraform aws provider mishandles this resource — see CLAUDE.md IaC Strategy).
-  NOTE: the vector indices (csv_telemetry_vecs 1024d Cohere, pdf_legal_vecs 1536d
-  Titan) are DATA-PLANE objects created by the ingest Lambda via the OpenSearch
-  API — not by CloudFormation.
+  MineLogX - OpenSearch Serverless vector store (VECTORSEARCH collection +
+  access policies). Indices csv_telemetry_vecs and pdf_legal_vecs are created
+  at runtime by the ingest Lambdas, not by this stack.
 
 Parameters:
   NamePrefix:

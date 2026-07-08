@@ -1,9 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  MineLogX EventBridge triggers — parity with the Terraform eventbridge module.
-  CSV batch: an EventBridge Scheduler fires the CSV Step Functions on a cron.
-  PDF event-driven: a Rule on S3 "Object Created" invokes the PDF Lambda when a
-  .pdf lands in the legislation bucket (bucket must emit to EventBridge — see s3).
+  MineLogX - EventBridge triggers. Scheduler runs the CSV pipeline daily;
+  S3 Object Created rule invokes the PDF pipeline on new legislation uploads.
 
 Parameters:
   NamePrefix:

@@ -15,6 +15,9 @@ PLAN-ARCHITECTURE-GOAL.md
 # === AWS discovery dumps (contain account IDs / ARNs) ===
 **/infrastructure/discovery/
 
+# === Endpoints generados por fab env.endpoints (URLs y ARNs, no commitear) ===
+endpoints-*.md
+
 # === Terraform ===
 **/.terraform/
 *.tfstate

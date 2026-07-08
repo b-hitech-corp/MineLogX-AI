@@ -1,10 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  MineLogX Lambdas — parity with the Terraform lambda module. Thin handlers over
-  onprem-aws/backend/ code: api (Frontend & API Layer), csv (CSV pipeline, driven
-  by Step Functions), pdf (event-driven PDF pipeline). `aws cloudformation
-  package` zips + uploads each Code path. Runtime deps (pandas, pdfplumber,
-  opensearch-py, ...) come from a layer built separately — see CLAUDE.md.
+  MineLogX - Lambda functions: api (chat endpoint), csv (telemetry vectorization
+  driven by Step Functions), pdf (legislation vectorization triggered by S3 events).
 
 Metadata:
   cfn-lint:

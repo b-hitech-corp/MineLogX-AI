@@ -1,8 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  MineLogX VPC network. Creates a full VPC + subnets + NAT by default.
-  Pass ExistingVpcId (+ subnet IDs) to reuse an existing VPC instead of
-  creating a new one — required when the account is at the 5-VPC limit.
+  MineLogX - VPC network (subnets + NAT). Pass ExistingVpcId to reuse an
+  existing VPC instead of creating a new one (use when at the 5-VPC limit).
 
 Parameters:
   NamePrefix:

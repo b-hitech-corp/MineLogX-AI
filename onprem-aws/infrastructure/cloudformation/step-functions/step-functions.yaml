@@ -1,8 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  MineLogX CSV Vectorization Pipeline — Step Functions state machine (parity with
-  the Terraform step_functions module). Invokes the CSV Lambda per stage group:
-  Stage 1 (schema) → Stages 2-3 (normalize+chunk) → Stage 4 (OpenSearch ingest).
+  MineLogX - Step Functions state machine for the CSV vectorization pipeline.
+  Runs Stage 1 (schema), Stages 2-3 (normalize+chunk), Stage 4 (OpenSearch ingest).
 
 Parameters:
   NamePrefix:
