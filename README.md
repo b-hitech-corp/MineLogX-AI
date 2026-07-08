@@ -33,19 +33,58 @@ bash scripts/dev-setup.sh          # Windows PowerShell: ./scripts/dev-setup.ps1
 Then drive environments with Fabric (no venv activation needed — `uv run` handles it):
 
 ```bash
-uv run fab --list                    # list available tasks
-uv run fab env.plan dev-cesar --engine cf   # preview a CloudFormation environment
-uv run fab env.up   dev-cesar        # deploy with Terraform (default engine)
+uv run fab --list                    # list all available tasks
+uv run fab env.plan dev --engine cf  # preview a CloudFormation change set
+uv run fab env.up   dev --seed       # deploy + seed S3 from demo buckets (dev only)
 ```
 
-One-time state backend, before the first Terraform deploy:
+One-time state backend bootstrap (run once per account):
 
 ```bash
 uv run fab env.bootstrap
 ```
 
-For AWS SSO access, the demo → IaC import flow, and full conventions, see
-[`CONTRIBUTING.md`](CONTRIBUTING.md).
+For the demo → IaC import flow and full conventions, see [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+### 🔐 AWS Authentication
+
+All Fabric tasks assume an AWS CLI profile named **`minelogx-admin`** that has
+access to the POC account (`586928288932`) via SSO assume-role.
+
+**One-time SSO profile setup:**
+
+```bash
+aws configure sso --profile minelogx-admin
+# SSO start URL : https://d-9067e84741.awsapps.com/start
+# SSO region    : us-east-1
+# Account       : 586928288932
+# Role          : AvahiAdminAccess
+```
+
+**Per-session login** (token expires after ~8 h):
+
+```bash
+aws sso login --profile minelogx-admin
+```
+
+**Override the default profile** (e.g. CI or a different account):
+
+```bash
+export MINELOGX_AWS_PROFILE=my-other-profile   # overrides minelogx-admin
+export AWS_REGION=us-west-2                    # overrides us-east-1 (default)
+```
+
+All other Fabric environment variables and their defaults:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `MINELOGX_AWS_PROFILE` | `minelogx-admin` | AWS CLI profile used for all operations |
+| `AWS_REGION` | `us-east-1` | Target region |
+| `CFN_TEMPLATE_BUCKET` | `minelogx-poc-cfn-templates` | S3 bucket for nested CFN template uploads |
+| `AWS_SSO_PROFILE` | `125396563242_B_Hitech-586928288932` | SSO hub profile for auto-token refresh |
+| `MINELOGX_TARGET` | `onprem-aws` | Deployment target folder |
+| `EC2_KEY_PATH` | `~/.ssh/minelogx-demo-poc-keypair.pem` | SSH key for Ollama EC2 instances |
+| `TERRAFORM_BIN` | auto-detected | Override Terraform binary path |
 
 ### ☁️ Choosing a Deployment Target
 
@@ -99,26 +138,75 @@ we don't scaffold empty target trees.
 
 ---
 
-## 🚀 Environments (Fabric)
+## 🚀 Fabric Tasks Reference
 
-Both IaC engines deploy the same environment through Fabric. `env` is positional;
-the engine is the `--engine` flag (defaults to `terraform`; aliases `tf` / `cf`).
-Use the long `--engine` — Fabric reserves the short `-e` for `--echo`.
+All commands use `uv run fab <namespace>.<task> [args]`. Fabric reserves `-e` for
+`--echo`, so always use the long `--engine` flag.
+
+### env.* — Environment lifecycle
 
 ```bash
-uv run fab env.up   dev-cesar                # Terraform (default engine)
-uv run fab env.plan dev-cesar --engine cf    # CloudFormation (nested stack: minelogx-dev-cesar)
-uv run fab env.down dev-cesar --engine cf
-uv run fab env.list
+uv run fab env.up   dev --seed        # deploy CloudFormation + seed S3 from demo buckets
+uv run fab env.up   dev               # deploy without seeding
+uv run fab env.plan dev               # preview changes (CFN change set, no apply)
+uv run fab env.down dev               # destroy the environment
+uv run fab env.list                   # list active CFN stacks and TF workspaces
+uv run fab env.endpoints dev          # print live URLs (API Gateway, Amplify, OpenSearch)
+uv run fab env.bootstrap              # create the S3 bucket for CFN template uploads (once per account)
 ```
 
-- **Fixed** envs: `dev` / `qa` / `prod`. **Ephemeral** per-dev: `dev-<name>`
-  (isolated by Terraform workspace / CFN stack `minelogx-dev-<name>`).
-- Drop the `uv run` prefix by activating the venv
-  (`source .venv/Scripts/activate`) or `alias mlx='uv run fab'`.
-- One-time state backend bootstrap: `uv run fab env.bootstrap`.
+Engine defaults to `cloudformation`. Override with `--engine terraform` (alias `tf` / `cf`).
 
-Full dev setup and conventions: [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**Fixed** envs: `dev` / `qa` / `prod`.
+**Ephemeral** per-dev: `dev-<name>` (e.g. `dev-cesar`) — isolated by CFN stack prefix / TF workspace.
+
+### lambda.* — Pipeline invocation and layer builds
+
+```bash
+uv run fab lambda.invoke csv dev                         # trigger CSV pipeline (Step Functions)
+uv run fab lambda.invoke csv dev --wait                  # trigger + block until complete
+uv run fab lambda.invoke csv dev --file-path C1/foo.csv  # use a specific S3 key
+uv run fab lambda.invoke pdf dev                         # invoke PDF Lambda with synthetic S3 event
+uv run fab lambda.build-layer csv                        # build the CSV deps layer (no Docker)
+uv run fab lambda.build-layer pdf                        # build the PDF deps layer (no Docker)
+uv run fab lambda.pull                                   # download deployed demo Lambda code
+```
+
+### opensearch.* — Collection and index status
+
+```bash
+uv run fab opensearch.status dev      # collection status + document count per index
+```
+
+Prints collection health and doc counts for `csv_telemetry_vecs` and `pdf_legal_vecs`.
+Saves a formatted log to `.fab-logs/opensearch-status-dev-<ts>.log`.
+
+### frontend.* — Amplify deployment
+
+```bash
+uv run fab frontend.deploy dev        # build React/Vite app and push to Amplify
+uv run fab frontend.deploy dev --skip-build  # re-deploy using an existing dist/
+```
+
+### ollama.* — Demo EC2 remote ops (demo only)
+
+```bash
+uv run fab ollama.health-check        # check all Ollama instances
+uv run fab ollama.restart-ollama      # restart Ollama container on all instances
+uv run fab ollama.pull-model --host qwen3 --model qwen3:8b
+uv run fab ollama.logs --host gemma3
+```
+
+### Activity logs
+
+Fabric writes structured, human-readable logs to `.fab-logs/` (git-ignored):
+
+| File pattern | Written by |
+|---|---|
+| `invoke-csv-<env>-<ts>.log` | `lambda.invoke csv` |
+| `invoke-pdf-<env>-<ts>.log` | `lambda.invoke pdf` |
+| `opensearch-status-<env>-<ts>.log` | `opensearch.status` |
+| `up-<env>-<ts>.log` | `env.up` (on failure only) |
 
 ---
 
