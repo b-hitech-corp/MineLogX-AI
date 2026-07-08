@@ -1,0 +1,17 @@
+# Exclude pre-built Lambda layer trees — they are published as LayerVersions,
+# not bundled into the function zip. Including them would exceed the 50MB
+# direct-upload limit and the 250MB unzipped Lambda limit.
+.layers/
+
+# Python bytecode and caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+.eggs/
+
+# Local dev artifacts
+*.log
+.env
