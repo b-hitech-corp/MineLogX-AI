@@ -44,6 +44,7 @@ Tip: prefer `uv run fab` — it finds terraform via the shell PATH regardless of
 venv activation. If terraform still isn't found, set TERRAFORM_BIN (see below).
 """
 
+import datetime
 import os
 import shutil
 import sys
@@ -90,6 +91,7 @@ WORK_PROFILE = os.environ.get("MINELOGX_AWS_PROFILE", "minelogx-admin")
 os.environ["AWS_PROFILE"] = WORK_PROFILE
 
 REPO_ROOT = Path(__file__).resolve().parent
+LOGS_DIR = REPO_ROOT / ".fab-logs"
 # Deployment target (framework layout). Override with MINELOGX_TARGET.
 TARGET = os.environ.get("MINELOGX_TARGET", "onprem-aws")
 TARGET_ROOT = REPO_ROOT / TARGET
@@ -288,57 +290,89 @@ def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
 # --------------------------------------------------------------------------- #
 # env.* — environment orchestration
 # --------------------------------------------------------------------------- #
+def _up_log_path(env):
+    """Return a timestamped log file path for a failed env.up run."""
+    LOGS_DIR.mkdir(exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    return LOGS_DIR / f"up-{env}-{ts}.log"
+
+
+def _cfn_down(c, env):
+    """Delete the CFN parent stack and wait until it is gone."""
+    print(f"==> down (auto-cleanup): deleting stack {NAME_PREFIX}-{env} ...")
+    c.run(
+        f"aws cloudformation delete-stack --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        warn=True,
+    )
+    c.run(
+        f"aws cloudformation wait stack-delete-complete --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        warn=True,
+    )
+
+
 @task(
     help={
         "env": "Environment name (dev|qa|prod|dev-<user>).",
         "engine": "terraform | cloudformation",
-        "build_pdf_layer": "Attach the PDF deps layer (must run `fab lambda.build-layer pdf` first).",
-        "build_csv_layer": "Attach the CSV deps layer (must run `fab lambda.build-layer csv` first).",
         "seed": "After deploy, sync data from demo buckets into the new buckets (dev only).",
+        "no_rollback": "Skip automatic env.down on failure (keeps stack for manual inspection).",
     },
 )
-def up(
-    c,
-    env,
-    engine="cloudformation",
-    build_pdf_layer=False,
-    build_csv_layer=False,
-    seed=False,
-):
-    """Create/update an environment (fixed or ephemeral)."""
+def up(c, env, engine="cloudformation", seed=False, no_rollback=False):
+    """Create/update an environment. Builds Lambda layers, deploys, and optionally seeds S3."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
     print(f"==> up: env={env} engine={engine} region={REGION}")
 
-    if engine == "terraform":
-        _tf(
-            c,
-            env,
-            "apply",
-            "-auto-approve",
-            f'-var="environment={env}"',
-            f'-var="aws_region={REGION}"',
-            f'-var="name_prefix={NAME_PREFIX}-{env}"',
-            f'-var="project_apn_id={_apn(env)}"',
-            f'-var="build_pdf_layer={"true" if build_pdf_layer else "false"}"',
-            f'-var="build_csv_layer={"true" if build_csv_layer else "false"}"',
-        )
-    else:
-        _cfn(
-            c,
-            env,
-            execute=True,
-            build_pdf_layer=build_pdf_layer,
-            build_csv_layer=build_csv_layer,
-        )
+    log_path = _up_log_path(env)
 
-    if seed:
-        if env not in SEED_ALLOWED_ENVS:
-            print(
-                f"[warn] --seed ignored for '{env}': seeding is only allowed in {SEED_ALLOWED_ENVS}."
+    try:
+        # --- 1. Build Lambda layers (always, so the zip is ready for CFN package) ---
+        for fn in ("csv", "pdf"):
+            reqs = TARGET_ROOT / "backend" / f"requirements-{fn}.txt"
+            if reqs.exists():
+                print(f"==> building lambda layer: {fn}")
+                build_layer(c, fn)
+            else:
+                print(f"[warn] {reqs.name} not found — skipping {fn} layer build.")
+
+        # --- 2. Deploy infrastructure ---
+        if engine == "terraform":
+            _tf(
+                c,
+                env,
+                "apply",
+                "-auto-approve",
+                f'-var="environment={env}"',
+                f'-var="aws_region={REGION}"',
+                f'-var="name_prefix={NAME_PREFIX}-{env}"',
+                f'-var="project_apn_id={_apn(env)}"',
+                '-var="build_pdf_layer=true"',
+                '-var="build_csv_layer=true"',
             )
         else:
-            _s3_seed(c, env)
+            _cfn(c, env, execute=True, build_pdf_layer=True, build_csv_layer=True)
+
+        # --- 3. Seed S3 (dev only) ---
+        if seed:
+            if env not in SEED_ALLOWED_ENVS:
+                print(
+                    f"[warn] --seed ignored for '{env}': only allowed in {SEED_ALLOWED_ENVS}."
+                )
+            else:
+                _s3_seed(c, env)
+
+    except Exception as exc:
+        msg = f"env.up failed: {exc}"
+        log_path.write_text(msg, encoding="utf-8")
+        print(f"\n[error] {msg}")
+        print(f"[error] Full error saved to: {log_path}")
+        if no_rollback:
+            print("[warn] --no-rollback set: skipping automatic cleanup.")
+        else:
+            print("==> Running automatic env.down to clean up ...")
+            _cfn_down(c, env)
+        raise SystemExit(1) from None
 
 
 @task(

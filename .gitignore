@@ -42,3 +42,6 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+
+# fab env.up failure logs (auto-generated, local only)
+.fab-logs/
