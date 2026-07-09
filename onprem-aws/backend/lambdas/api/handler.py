@@ -84,18 +84,21 @@ def _get_df() -> pd.DataFrame:
         if not files:
             continue
         dfs: list[pd.DataFrame] = []
-        for fpath in files[:5]:  # cap at 5 files to avoid timeout
+        for fpath in files[
+            :1
+        ]:  # load 1 file — keeps cold-start < 60s and response < 6 MB
             try:
                 load_csv(fpath)
                 dfs.append(get_dataframe(fpath))
             except Exception:
                 logger.warning("Skipping file %s", fpath, exc_info=True)
         if dfs:
-            _telemetry_df = (
-                pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
-            )
+            df = dfs[0]
+            _telemetry_df = df.head(500)  # cap rows — Lambda response limit is 6 MB
             logger.info(
-                "Loaded telemetry: %d rows, folder=%s", len(_telemetry_df), folder
+                "Loaded telemetry: %d rows (capped), folder=%s",
+                len(_telemetry_df),
+                folder,
             )
             return _telemetry_df
 
