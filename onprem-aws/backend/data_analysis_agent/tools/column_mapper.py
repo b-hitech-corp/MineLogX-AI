@@ -25,6 +25,10 @@ from typing import Any
 
 import requests
 
+from data_analysis_agent.agent.prompts import (
+    build_column_mapping_prompt,
+    build_direct_kpi_prompt,
+)
 from data_analysis_agent.config.kpi_formulas import (
     KPI_REGISTRY,
     get_all_required_variables,
@@ -176,18 +180,7 @@ def map_columns_to_kpi_variables(
         {v: "column_name_or_null" for v in candidate_vars}, indent=2
     )
 
-    prompt = (
-        "You are a precise data column matcher. Output ONLY valid JSON, nothing else.\n\n"
-        f"CSV columns available:\n{cols_text}\n\n"
-        f"Map each variable below to the best-matching CSV column name (or null):\n{var_lines}\n\n"
-        "Rules:\n"
-        "- Use only column names listed above.\n"
-        "- Use null when no column is a good match.\n"
-        "- Each column may be assigned to at most one variable.\n"
-        "- Match by meaning, not just name "
-        "(e.g. 'fuel_volume_l' → 'fuel_litres', 'equipment_id' → 'vehicle_id').\n\n"
-        f"Respond with ONLY this JSON structure (replace values):\n{json_template}"
-    )
+    prompt = build_column_mapping_prompt(cols_text, var_lines, json_template)
 
     # ── Call the LLM ──────────────────────────────────────────────────────────
 
@@ -286,20 +279,7 @@ def map_direct_kpi_columns(
         {c["name"]: "kpi_name_or_null" for c in numeric_cols}, indent=2
     )
 
-    prompt = (
-        "You are a precise KPI identifier. Output ONLY valid JSON, nothing else.\n\n"
-        f"CSV numeric columns:\n{col_lines}\n\n"
-        f"KPI catalogue:\n{kpi_lines}\n\n"
-        "For each CSV column, decide if it directly holds a pre-computed KPI value "
-        "(no formula needed). Match by meaning, description, and units.\n"
-        "Rules:\n"
-        "- Output null when the column is a raw input variable, not a final KPI.\n"
-        "- Output the exact KPI name (from the catalogue) when it matches.\n"
-        "- A column named 'fuel_efficiency' containing km/L IS the 'fuel_efficiency' KPI.\n"
-        "- A column named 'equipment_availability_pct' (%) IS the 'fleet_availability' KPI.\n"
-        "- A column named 'MTBF' (hours) IS the 'mean_time_between_failures' KPI.\n\n"
-        f"Respond with ONLY this JSON structure (replace values):\n{json_template}"
-    )
+    prompt = build_direct_kpi_prompt(col_lines, kpi_lines, json_template)
 
     # ── Call the LLM ──────────────────────────────────────────────────────────
 
@@ -340,235 +320,6 @@ def map_direct_kpi_columns(
         ", ".join(matched) if matched else "none",
     )
     return result
-
-
-# ---------------------------------------------------------------------------
-# Stage 1 — Schema inspection via tool_choice (CSV Vectorization Pipeline)
-# ---------------------------------------------------------------------------
-
-_INSPECT_TOOL: dict = {
-    "name": "describe_csv_structure",
-    "description": (
-        "Analyse the structure of a CSV file sample and produce a transformation "
-        "recipe that normalises it into a clean, flat, consistently-typed table."
-    ),
-    "input_schema": {
-        "type": "object",
-        "required": ["column_classifications", "transformation_steps", "reasoning"],
-        "properties": {
-            "column_classifications": {
-                "type": "array",
-                "description": "One entry per column in the file.",
-                "items": {
-                    "type": "object",
-                    "required": ["name", "role", "kpi_variable", "confidence"],
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "Exact column name as it appears in the file.",
-                        },
-                        "role": {
-                            "type": "string",
-                            "enum": [
-                                "entity",
-                                "metric",
-                                "datetime",
-                                "categorical",
-                                "segment_marker",
-                                "metadata",
-                                "unknown",
-                            ],
-                            "description": (
-                                "entity=ID/identifier, metric=numeric measurement, "
-                                "datetime=temporal, categorical=low-cardinality label, "
-                                "segment_marker=divides file into logical segments, "
-                                "metadata=admin/system field, unknown=cannot determine."
-                            ),
-                        },
-                        "kpi_variable": {
-                            "type": ["string", "null"],
-                            "description": (
-                                "If this column maps to a KPI input variable "
-                                "(e.g. 'fuel_volume_l' -> 'fuel_litres'), provide the "
-                                "variable name. Otherwise null."
-                            ),
-                        },
-                        "confidence": {
-                            "type": "string",
-                            "enum": ["high", "medium", "low"],
-                        },
-                    },
-                },
-            },
-            "transformation_steps": {
-                "type": "array",
-                "description": (
-                    "Ordered list of pandas-executable operations needed to normalise "
-                    "this file. Empty array means the file is already a clean flat table. "
-                    "Supported operations: skip_rows, set_header_row, combine_header_rows, "
-                    "transpose, pivot_segments, melt, filter_rows, rename_columns, "
-                    "fill_forward, drop_columns."
-                ),
-                "items": {
-                    "type": "object",
-                    "required": ["operation", "params"],
-                    "properties": {
-                        "operation": {
-                            "type": "string",
-                            "description": "Name of the normalisation operation.",
-                        },
-                        "params": {
-                            "type": "object",
-                            "description": "Operation-specific parameters.",
-                        },
-                    },
-                },
-            },
-            "has_structural_anomalies": {
-                "type": "boolean",
-                "description": "True if embedded headers, separator rows, or type breaks were observed.",
-            },
-            "anomaly_description": {
-                "type": ["string", "null"],
-                "description": "Brief description of anomalies found, or null.",
-            },
-            "reasoning": {
-                "type": "string",
-                "description": (
-                    "Explain what you observed in the statistics and sample rows "
-                    "that led to your column classifications and transformation recipe."
-                ),
-            },
-        },
-    },
-}
-
-_INSPECT_SYSTEM_PROMPT = """You are a CSV structure analyst for mining fleet telemetry data.
-
-You will receive:
-1. Per-column statistics (type, range, null rate, sample values) computed from the full file via streaming.
-2. A structural sample: the first rows, any anomalous rows (with their type and index), and the last rows.
-
-Your task is to call describe_csv_structure to provide:
-
-**column_classifications** — For each column determine its role:
-- entity: vehicle/driver/equipment identifiers (e.g. truck_id, driver_code)
-- metric: numeric measurements (e.g. fuel_consumption_rate, payload_tonnes)
-- datetime: temporal columns (e.g. shift_date, event_timestamp)
-- categorical: low-cardinality labels (e.g. shift_type, location_code, status)
-- segment_marker: column whose distinct values divide the file into logical segments
-- metadata: administrative/system fields (record_id, source_system, created_at)
-- unknown: cannot determine from available evidence
-
-For kpi_variable: if a column directly represents a KPI input variable used in mining
-fleet formulas (e.g. 'fuel_volume_l' -> 'fuel_litres', 'equip_avail_pct' -> 'available_hours'),
-provide the canonical variable name. Otherwise null.
-
-**transformation_steps** — Ordered operations to produce a clean flat table:
-- skip_rows: {"n": int} — remove leading metadata rows
-- set_header_row: {"row": int} — promote a non-first row to be the header
-- combine_header_rows: {"rows": [int, ...]} — merge multi-level headers into one
-- transpose: {} — swap rows and columns
-- pivot_segments: {"segment_col": str, "value_col": str} — long to wide on a segment column
-- melt: {"id_vars": [...], "value_vars": [...]} — wide to long
-- filter_rows: {"exclude_expr": str} — pandas query string to remove summary/total rows
-- rename_columns: {"mapping": {"old_name": "new_name", ...}} — rename columns
-- fill_forward: {"column": str} — forward-fill sparse segment headers
-- drop_columns: {"names": [...]} — remove columns by name
-
-If the file is already a clean flat table, output an empty transformation_steps array.
-
-**reasoning** — Explain what you observed that led to your decisions. Be specific about
-which rows or statistics informed each transformation step."""
-
-
-def inspect_schema_with_tool_use(llm_input: str, backend: str = "bedrock") -> dict:
-    """
-    Send the compact CSV profile to Claude using tool_choice, receiving a
-    guaranteed-schema-conformant transformation recipe and column classifications.
-
-    Parameters
-    ----------
-    llm_input : str   Output of csv_sampler.build_llm_input().
-    backend   : str   "bedrock" (default) or "ollama".
-
-    Returns
-    -------
-    The tool input dict from Claude (keys: column_classifications,
-    transformation_steps, has_structural_anomalies, anomaly_description, reasoning).
-    On failure, returns a safe empty-recipe dict with error details.
-    """
-    user_message = (
-        "Analyse this CSV file and call describe_csv_structure with your findings.\n\n"
-        f"{llm_input}"
-    )
-
-    if backend == "bedrock":
-        try:
-            body = invoke_claude(
-                [{"role": "user", "content": user_message}],
-                system=_INSPECT_SYSTEM_PROMPT,
-                tools=[_INSPECT_TOOL],
-                tool_choice={"type": "tool", "name": "describe_csv_structure"},
-                max_tokens=4096,
-                model_id=settings.bedrock.model_id,
-            )
-            content = body.get("content", [])
-            # tool_choice should guarantee a tool_use block, but guard defensively
-            # in case Bedrock prepends a text block under throttling or refusal.
-            tool_block = next((b for b in content if b.get("type") == "tool_use"), None)
-            if tool_block is None:
-                raise RuntimeError(
-                    f"No tool_use block in response (stop_reason={body.get('stop_reason')}). "
-                    f"Content types: {[b.get('type') for b in content]}"
-                )
-            logger.info(
-                "inspect_schema_with_tool_use: %d classifications, %d steps",
-                len(tool_block["input"].get("column_classifications", [])),
-                len(tool_block["input"].get("transformation_steps", [])),
-            )
-            return tool_block["input"]
-        except Exception as exc:
-            logger.error("inspect_schema_with_tool_use (bedrock) failed: %s", exc)
-            return _empty_inspect_result(str(exc))
-
-    if backend == "ollama":
-        # Ollama does not support tool_choice — fall back to text generation + parse
-        logger.warning(
-            "inspect_schema_with_tool_use: ollama does not support tool_choice; "
-            "results may be less reliable."
-        )
-        raw = _llm_complete(
-            f"{_INSPECT_SYSTEM_PROMPT}\n\n{user_message}\n\n"
-            "Respond with ONLY a JSON object matching the describe_csv_structure schema.",
-            backend="ollama",
-            max_tokens=4096,
-        )
-        if raw is None:
-            return _empty_inspect_result("ollama call returned None")
-        clean = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
-        parsed = _extract_json(clean)
-        if parsed is None:
-            return _empty_inspect_result("could not parse JSON from ollama response")
-        return parsed
-
-    raise ValueError(f"Unknown backend '{backend}'. Choose 'bedrock' or 'ollama'.")
-
-
-def _empty_inspect_result(error: str) -> dict:
-    """Safe fallback when the LLM call fails — empty recipe, error captured."""
-    return {
-        "column_classifications": [],
-        "transformation_steps": [],
-        "has_structural_anomalies": False,
-        "anomaly_description": None,
-        "reasoning": f"LLM call failed: {error}",
-    }
-
-
-# ---------------------------------------------------------------------------
-# (existing _extract_json below — unchanged)
-# ---------------------------------------------------------------------------
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:

@@ -32,6 +32,8 @@ import boto3
 import fitz  # PyMuPDF — used only for the first-page text sample
 
 from pdf_pipeline.config.pdf_pipeline_settings import PdfPipelineConfig
+from pdf_pipeline.tools.prompts import CLASSIFY_PROMPT
+from pdf_pipeline.tools.tool_schemas import CLASSIFY_TOOL
 
 logger = logging.getLogger(__name__)
 
@@ -52,56 +54,8 @@ class ClassificationResult:
     reasoning: str
 
 
-# ---------------------------------------------------------------------------
-# Claude Haiku tool definition
-# ---------------------------------------------------------------------------
-
-_CLASSIFY_TOOL = {
-    "name": "classify_document",
-    "description": (
-        "Classify a regulatory PDF document based on its first page text. "
-        "Use 'high' for dense legal/regulatory documents with numbered clauses, "
-        "cross-references, definitions sections, or legislative language. "
-        "Use 'low' or 'medium' for standard forms, templates, or lightly formatted documents."
-    ),
-    "inputSchema": {
-        # Converse requires the schema wrapped under a "json" key (ToolInputSchema union).
-        "json": {
-            "type": "object",
-            "properties": {
-                "complexity": {
-                    "type": "string",
-                    "enum": ["high", "medium", "low"],
-                    "description": (
-                        "high → dense regulatory/legal structure (mining acts, safety codes, "
-                        "environmental regulations with numbered clauses); "
-                        "medium → moderately structured document; "
-                        "low → simple form, template, or administrative document"
-                    ),
-                },
-                "confidence": {
-                    "type": "number",
-                    "description": "Confidence in this classification, 0.0–1.0",
-                },
-                "reasoning": {
-                    "type": "string",
-                    "description": "One sentence explaining the classification decision",
-                },
-            },
-            "required": ["complexity", "confidence", "reasoning"],
-        },
-    },
-}
-
-_CLASSIFY_PROMPT = (
-    "You are classifying a PDF document for a mining regulatory RAG system.\n\n"
-    "First page text:\n"
-    "---\n"
-    "{first_page_text}\n"
-    "---\n\n"
-    "Classify this document's structural complexity. "
-    "Call the classify_document tool with your assessment."
-)
+# CLASSIFY_PROMPT (prose) lives in prompts.py; CLASSIFY_TOOL (schema) lives in
+# tool_schemas.py. Both are imported above.
 
 
 # ---------------------------------------------------------------------------
@@ -205,13 +159,13 @@ def _classify_with_haiku(
             reasoning="Empty first-page text; defaulting to complex_legal for safety",
         )
 
-    prompt = _CLASSIFY_PROMPT.format(first_page_text=first_page_text)
+    prompt = CLASSIFY_PROMPT.format(first_page_text=first_page_text)
 
     response = bedrock_client.converse(
         modelId=config.claude_haiku_model_id,
         messages=[{"role": "user", "content": [{"text": prompt}]}],
         toolConfig={
-            "tools": [{"toolSpec": _CLASSIFY_TOOL}],
+            "tools": [{"toolSpec": CLASSIFY_TOOL}],
             "toolChoice": {"tool": {"name": "classify_document"}},
         },
         inferenceConfig={"maxTokens": config.haiku_max_tokens, "temperature": 0.0},

@@ -79,3 +79,51 @@ def build_chart_intent_prompt(analysis_summary: str) -> str:
         "Then call chart_spec_builder tools to build the specifications. "
         "Choose 2–4 charts that together tell a complete story."
     )
+
+
+def build_column_mapping_prompt(
+    cols_text: str, var_lines: str, json_template: str
+) -> str:
+    """Prompt for matching actual CSV columns to KPI input variable names.
+
+    Consumed by tools/column_mapper.map_columns_to_kpi_variables. The three
+    arguments are assembled by the caller (column list, candidate variables,
+    JSON response template).
+    """
+    return (
+        "You are a precise data column matcher. Output ONLY valid JSON, nothing else.\n\n"
+        f"CSV columns available:\n{cols_text}\n\n"
+        f"Map each variable below to the best-matching CSV column name (or null):\n{var_lines}\n\n"
+        "Rules:\n"
+        "- Use only column names listed above.\n"
+        "- Use null when no column is a good match.\n"
+        "- Each column may be assigned to at most one variable.\n"
+        "- Match by meaning, not just name "
+        "(e.g. 'fuel_volume_l' → 'fuel_litres', 'equipment_id' → 'vehicle_id').\n\n"
+        f"Respond with ONLY this JSON structure (replace values):\n{json_template}"
+    )
+
+
+def build_direct_kpi_prompt(
+    col_lines: str, kpi_lines: str, json_template: str
+) -> str:
+    """Prompt for detecting CSV columns that already hold a pre-computed KPI value.
+
+    Consumed by tools/column_mapper.map_direct_kpi_columns. The three arguments
+    are assembled by the caller (numeric column list, KPI catalogue, JSON
+    response template).
+    """
+    return (
+        "You are a precise KPI identifier. Output ONLY valid JSON, nothing else.\n\n"
+        f"CSV numeric columns:\n{col_lines}\n\n"
+        f"KPI catalogue:\n{kpi_lines}\n\n"
+        "For each CSV column, decide if it directly holds a pre-computed KPI value "
+        "(no formula needed). Match by meaning, description, and units.\n"
+        "Rules:\n"
+        "- Output null when the column is a raw input variable, not a final KPI.\n"
+        "- Output the exact KPI name (from the catalogue) when it matches.\n"
+        "- A column named 'fuel_efficiency' containing km/L IS the 'fuel_efficiency' KPI.\n"
+        "- A column named 'equipment_availability_pct' (%) IS the 'fleet_availability' KPI.\n"
+        "- A column named 'MTBF' (hours) IS the 'mean_time_between_failures' KPI.\n\n"
+        f"Respond with ONLY this JSON structure (replace values):\n{json_template}"
+    )
