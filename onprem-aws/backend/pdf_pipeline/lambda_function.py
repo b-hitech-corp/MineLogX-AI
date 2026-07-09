@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import urllib.parse
 from dataclasses import asdict
 from typing import Any
@@ -50,7 +51,16 @@ def lambda_handler(event: dict, context: Any) -> dict:
             artifact_bucket=os.environ.get("PDF_ARTIFACT_BUCKET", bucket),
         )
 
-        result = run_pipeline(bucket=bucket, key=key, config=cfg)
+        deadline_ts = None
+        remaining_ms_fn = getattr(context, "get_remaining_time_in_millis", None)
+        if callable(remaining_ms_fn):
+            deadline_ts = time.time() + remaining_ms_fn() / 1000.0
+
+        result = run_pipeline(bucket=bucket, key=key, config=cfg, deadline_ts=deadline_ts)
+
+        # Async/EventBridge invocations never see the return body — this is the
+        # only way pdf_async_status (fabfile.py) can see sections_indexed/errors.
+        logger.info("PDF_PIPELINE_RESULT %s", json.dumps(asdict(result), default=str))
 
         status_code = 200 if result.overall_success else 207
         return {
