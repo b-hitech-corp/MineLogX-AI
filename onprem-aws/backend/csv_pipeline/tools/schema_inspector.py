@@ -34,121 +34,11 @@ import requests
 from csv_pipeline.config.settings import settings
 from csv_pipeline.tools.bedrock_client import invoke_claude
 from csv_pipeline.tools.csv_sampler import StreamProfile, build_llm_input, stream_and_profile
+from csv_pipeline.tools.prompts import INSPECT_SYSTEM_PROMPT
 from csv_pipeline.tools.schema_reconciler import reconcile
+from csv_pipeline.tools.tool_schemas import INSPECT_TOOL
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# LLM tool definition + system prompt (Claude tool_choice)
-# ---------------------------------------------------------------------------
-
-_INSPECT_TOOL: dict = {
-    "name": "describe_csv_structure",
-    "description": (
-        "Analyse the structure of a CSV file sample and produce a transformation "
-        "recipe that normalises it into a clean, flat, consistently-typed table."
-    ),
-    "input_schema": {
-        "type": "object",
-        "required": ["column_classifications", "transformation_steps", "reasoning"],
-        "properties": {
-            "column_classifications": {
-                "type": "array",
-                "description": "One entry per column in the file.",
-                "items": {
-                    "type": "object",
-                    "required": ["name", "role", "kpi_variable", "confidence"],
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "Exact column name as it appears in the file.",
-                        },
-                        "role": {
-                            "type": "string",
-                            "enum": [
-                                "entity",
-                                "metric",
-                                "datetime",
-                                "categorical",
-                                "segment_marker",
-                                "metadata",
-                                "unknown",
-                            ],
-                        },
-                        "kpi_variable": {
-                            "type": ["string", "null"],
-                            "description": (
-                                "If this column maps to a KPI input variable "
-                                "(e.g. 'fuel_volume_l' -> 'fuel_litres'), provide the "
-                                "variable name. Otherwise null."
-                            ),
-                        },
-                        "confidence": {
-                            "type": "string",
-                            "enum": ["high", "medium", "low"],
-                        },
-                    },
-                },
-            },
-            "transformation_steps": {
-                "type": "array",
-                "description": (
-                    "Ordered list of pandas-executable operations needed to normalise "
-                    "this file. Empty array means the file is already a clean flat table."
-                ),
-                "items": {
-                    "type": "object",
-                    "required": ["operation", "params"],
-                    "properties": {
-                        "operation": {"type": "string"},
-                        "params": {"type": "object"},
-                    },
-                },
-            },
-            "has_structural_anomalies": {
-                "type": "boolean",
-                "description": "True if embedded headers, separator rows, or type breaks were observed.",
-            },
-            "anomaly_description": {
-                "type": ["string", "null"],
-            },
-            "reasoning": {
-                "type": "string",
-                "description": "Explain what you observed that led to your decisions.",
-            },
-        },
-    },
-}
-
-_INSPECT_SYSTEM_PROMPT = """You are a CSV structure analyst for mining fleet telemetry data.
-
-You will receive:
-1. Per-column statistics (type, range, null rate, sample values) computed from the full file via streaming.
-2. A structural sample: the first rows, any anomalous rows (with their type and index), and the last rows.
-
-Your task is to call describe_csv_structure to provide:
-
-**column_classifications** — For each column determine its role:
-- entity: vehicle/driver/equipment identifiers (e.g. truck_id, driver_code)
-- metric: numeric measurements (e.g. fuel_consumption_rate, payload_tonnes)
-- datetime: temporal columns (e.g. shift_date, event_timestamp)
-- categorical: low-cardinality labels (e.g. shift_type, location_code, status)
-- segment_marker: column whose distinct values divide the file into logical segments
-- metadata: administrative/system fields (record_id, source_system, created_at)
-- unknown: cannot determine from available evidence
-
-For kpi_variable: if a column directly represents a KPI input variable used in mining
-fleet formulas (e.g. 'fuel_volume_l' -> 'fuel_litres'), provide the canonical variable
-name. Otherwise null.
-
-**transformation_steps** — Ordered operations to produce a clean flat table:
-- skip_rows, set_header_row, combine_header_rows, transpose, pivot_segments, melt,
-  filter_rows, rename_columns, fill_forward, drop_columns.
-
-If the file is already a clean flat table, output an empty transformation_steps array.
-
-**reasoning** — Explain what you observed that led to your decisions."""
 
 
 # ---------------------------------------------------------------------------
@@ -240,8 +130,8 @@ def inspect_schema_with_tool_use(llm_input: str, backend: str = "bedrock") -> di
         try:
             body = invoke_claude(
                 [{"role": "user", "content": user_message}],
-                system=_INSPECT_SYSTEM_PROMPT,
-                tools=[_INSPECT_TOOL],
+                system=INSPECT_SYSTEM_PROMPT,
+                tools=[INSPECT_TOOL],
                 tool_choice={"type": "tool", "name": "describe_csv_structure"},
                 max_tokens=4096,
                 model_id=settings.bedrock.model_id,
@@ -269,7 +159,7 @@ def inspect_schema_with_tool_use(llm_input: str, backend: str = "bedrock") -> di
             "results may be less reliable."
         )
         raw = _llm_complete(
-            f"{_INSPECT_SYSTEM_PROMPT}\n\n{user_message}\n\n"
+            f"{INSPECT_SYSTEM_PROMPT}\n\n{user_message}\n\n"
             "Respond with ONLY a JSON object matching the describe_csv_structure schema.",
             backend="ollama",
             max_tokens=4096,
