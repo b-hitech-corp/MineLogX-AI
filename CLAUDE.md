@@ -194,7 +194,7 @@ uv run fab opensearch.status dev                      # collection health + doc 
 uv run fab frontend.deploy dev                        # build React/Vite + push to Amplify (standalone)
 uv run fab env.up dev                                 # full-stack: infra + frontend en un solo comando
 uv run fab env.up dev --skip-frontend                 # solo infra, sin rebuild del frontend
-# VITE_API_BASE_URL se inyecta dinámicamente desde los outputs del stack (no hardcodeada)
+# VITE_API_BASE_URL is injected dynamically from the stack outputs (never hardcoded)
 
 # --- Ollama demo remote ops (ollama.*) ---
 uv run fab ollama.health-check                        # check all instances
