@@ -148,7 +148,7 @@ co2_per_km          = SUM(co2_grams) / SUM(distance_km)                [g/km]
 
 **Purpose:** Answer natural language compliance questions grounded in regulatory documents across multiple jurisdictions (Senegal, United States, Chile).
 
-**Service:** Amazon Bedrock Claude (Converse API) with hybrid search over OpenSearch Serverless. Selectable model: `claude-sonnet-4.6` (default), `nova-pro`, or `deepseek-v3.2`.
+**Service:** Amazon Bedrock Claude (Converse API) with hybrid search over OpenSearch Serverless. Selectable model: `us.anthropic.claude-sonnet-4-6` (default), `us.amazon.nova-pro-v1:0`, or `deepseek.v3.2`.
 
 **Allowed actions:**
 - Query Amazon OpenSearch index `pdf_legal_vecs` via hybrid search (kNN + BM25)

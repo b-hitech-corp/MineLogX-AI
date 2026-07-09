@@ -152,7 +152,7 @@ The fabfile uses `invoke.Collection` namespaces so tasks are grouped as `<ns>.<t
 
 ```
 env_ns      → env.*        (up, plan, down, list, bootstrap, endpoints)
-lambda_ns   → lambda.*     (invoke, set-env, logs, status, build-layer, pull)
+lambda_ns   → lambda.*     (invoke, invoke-all, set-env, logs, status, build-layer, pull, pdf-async-status)
 bedrock_ns  → bedrock.*    (model-access)
 opensearch_ns → opensearch.* (status)
 frontend_ns → frontend.*   (deploy)
@@ -176,7 +176,11 @@ uv run fab env.endpoints dev                          # print live URLs
 # --- Lambda pipeline ops (lambda.*) ---
 uv run fab lambda.invoke csv dev --wait               # trigger CSV Step Functions pipeline
 uv run fab lambda.invoke pdf dev                      # invoke PDF Lambda with S3 synthetic event
-uv run fab lambda.set-env pdf dev --key PDF_HAIKU_MODEL_ID --value us.anthropic.claude-sonnet-4-6
+uv run fab lambda.invoke pdf dev --async              # fire-and-forget (InvocationType=Event)
+uv run fab lambda.invoke-all csv dev --parallel       # process all S3 CSVs in parallel
+uv run fab lambda.invoke-all pdf dev --async          # queue all PDFs asynchronously
+uv run fab lambda.pdf-async-status dev                # CloudWatch Logs Insights: per-PDF status table
+uv run fab lambda.set-env pdf dev --key PDF_HAIKU_MODEL_ID --value us.anthropic.claude-haiku-4-5-20251001-v1:0
 uv run fab lambda.logs api dev --follow               # tail CloudWatch logs
 uv run fab lambda.status dev                          # state + env vars for api/csv/pdf
 

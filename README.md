@@ -176,6 +176,10 @@ uv run fab lambda.invoke csv dev                         # trigger CSV pipeline 
 uv run fab lambda.invoke csv dev --wait                  # trigger + block until complete
 uv run fab lambda.invoke csv dev --file-path C1/foo.csv  # use a specific S3 key
 uv run fab lambda.invoke pdf dev                         # invoke PDF Lambda with synthetic S3 event
+uv run fab lambda.invoke pdf dev --async                 # fire-and-forget (InvocationType=Event)
+uv run fab lambda.invoke-all csv dev --parallel          # process every S3 CSV in parallel
+uv run fab lambda.invoke-all pdf dev --async             # queue every S3 PDF asynchronously
+uv run fab lambda.pdf-async-status dev                   # CloudWatch Logs Insights status table
 uv run fab lambda.build-layer csv                        # build the CSV deps layer (no Docker)
 uv run fab lambda.build-layer pdf                        # build the PDF deps layer (no Docker)
 uv run fab lambda.pull                                   # download deployed demo Lambda code
@@ -212,8 +216,9 @@ Fabric writes structured, human-readable logs to `.fab-logs/` (git-ignored):
 
 | File pattern | Written by |
 |---|---|
-| `invoke-csv-<env>-<ts>.log` | `lambda.invoke csv` |
-| `invoke-pdf-<env>-<ts>.log` | `lambda.invoke pdf` |
+| `invoke-csv-<env>-<ts>.log` | `lambda.invoke csv` / `lambda.invoke-all csv` |
+| `invoke-pdf-<env>-<ts>.log` | `lambda.invoke pdf` / `lambda.invoke-all pdf` |
+| `pdf-async-status-<env>-<ts>.log` | `lambda.pdf-async-status` |
 | `opensearch-status-<env>-<ts>.log` | `opensearch.status` |
 | `up-<env>-<ts>.log` | `env.up` (on failure only) |
 
