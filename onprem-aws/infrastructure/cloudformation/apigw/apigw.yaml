@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: MineLogX REST API — parity with the Terraform api_gateway module.
+Description: MineLogX - REST API Gateway that exposes the chat and query endpoints to the frontend.
 
 Parameters:
   NamePrefix:

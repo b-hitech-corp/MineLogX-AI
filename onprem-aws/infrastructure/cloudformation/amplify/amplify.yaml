@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: MineLogX Amplify hosting (app + branch) — parity with the Terraform amplify module.
+Description: MineLogX - Amplify frontend hosting (app + branch) for the React UI.
 
 Parameters:
   NamePrefix:

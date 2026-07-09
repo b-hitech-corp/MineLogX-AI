@@ -1,9 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  MineLogX Bedrock Guardrail (per AGENTS.md: iot-mining-poc-guardrail-v1).
-  Applied at every AI touchpoint: user queries, chunks before embedding, and
-  final agent responses. Blocks prompt attacks/jailbreaks, denies off-scope
-  topics, and filters PII / mining operational identifiers.
+  MineLogX - Bedrock Guardrail applied at every AI touchpoint (user queries,
+  embeddings, agent responses). Blocks jailbreaks, off-scope topics, and PII.
 
 Parameters:
   NamePrefix:
@@ -19,7 +17,7 @@ Resources:
     Type: AWS::Bedrock::Guardrail
     Properties:
       Name: !Sub '${NamePrefix}-guardrail'
-      Description: MineLogX guardrail — prompt-attack, topic denial, PII filtering.
+      Description: MineLogX guardrail - prompt-attack, topic denial, PII filtering.
       BlockedInputMessaging: 'This request cannot be processed.'
       BlockedOutputsMessaging: 'This response was blocked by policy.'
 
@@ -62,7 +60,7 @@ Resources:
           - Type: ADDRESS
             Action: ANONYMIZE
         RegexesConfig:
-          # Mining operational identifiers — tune patterns to real formats.
+          # Mining operational identifiers - tune patterns to real formats.
           - Name: EmployeeId
             Pattern: '\bEMP-\d{4,6}\b'
             Action: ANONYMIZE

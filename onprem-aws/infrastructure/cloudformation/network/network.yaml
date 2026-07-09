@@ -1,5 +1,7 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: MineLogX VPC network — parity with the Terraform network module.
+Description: >
+  MineLogX - VPC network (subnets + NAT). Pass ExistingVpcId to reuse an
+  existing VPC instead of creating a new one (use when at the 5-VPC limit).
 
 Parameters:
   NamePrefix:
@@ -9,6 +11,28 @@ Parameters:
   ProjectApnId:
     Type: String
     Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+
+  # --- Bring-your-own-VPC (leave empty to create a new VPC) ---
+  ExistingVpcId:
+    Type: String
+    Default: ''
+    Description: >
+      ID of an existing VPC to reuse. When set, all Existing*Subnet* params
+      must also be provided and no new network resources are created.
+  ExistingPublicSubnet1Id:
+    Type: String
+    Default: ''
+  ExistingPublicSubnet2Id:
+    Type: String
+    Default: ''
+  ExistingPrivateSubnet1Id:
+    Type: String
+    Default: ''
+  ExistingPrivateSubnet2Id:
+    Type: String
+    Default: ''
+
+  # --- New-VPC sizing (ignored when ExistingVpcId is set) ---
   VpcCidr:
     Type: String
     Default: 10.0.0.0/16
@@ -30,11 +54,15 @@ Parameters:
     Default: 'true'
 
 Conditions:
-  WithNat: !Equals [!Ref EnableNat, 'true']
+  CreateVpc: !Equals [!Ref ExistingVpcId, '']
+  WithNat: !And
+    - !Condition CreateVpc
+    - !Equals [!Ref EnableNat, 'true']
 
 Resources:
   Vpc:
     Type: AWS::EC2::VPC
+    Condition: CreateVpc
     Properties:
       CidrBlock: !Ref VpcCidr
       EnableDnsHostnames: true
@@ -46,16 +74,19 @@ Resources:
 
   Igw:
     Type: AWS::EC2::InternetGateway
+    Condition: CreateVpc
     Properties:
       Tags:
         - { Key: Name, Value: !Sub '${NamePrefix}-igw' }
         - { Key: aws-apn-id, Value: !Ref ProjectApnId }
   IgwAttach:
     Type: AWS::EC2::VPCGatewayAttachment
+    Condition: CreateVpc
     Properties: { VpcId: !Ref Vpc, InternetGatewayId: !Ref Igw }
 
   PublicSubnet1:
     Type: AWS::EC2::Subnet
+    Condition: CreateVpc
     Properties:
       VpcId: !Ref Vpc
       CidrBlock: !Ref PublicSubnet1Cidr
@@ -64,6 +95,7 @@ Resources:
       Tags: [{ Key: Name, Value: !Sub '${NamePrefix}-public-1' }, { Key: aws-apn-id, Value: !Ref ProjectApnId }]
   PublicSubnet2:
     Type: AWS::EC2::Subnet
+    Condition: CreateVpc
     Properties:
       VpcId: !Ref Vpc
       CidrBlock: !Ref PublicSubnet2Cidr
@@ -72,6 +104,7 @@ Resources:
       Tags: [{ Key: Name, Value: !Sub '${NamePrefix}-public-2' }, { Key: aws-apn-id, Value: !Ref ProjectApnId }]
   PrivateSubnet1:
     Type: AWS::EC2::Subnet
+    Condition: CreateVpc
     Properties:
       VpcId: !Ref Vpc
       CidrBlock: !Ref PrivateSubnet1Cidr
@@ -79,6 +112,7 @@ Resources:
       Tags: [{ Key: Name, Value: !Sub '${NamePrefix}-private-1' }, { Key: aws-apn-id, Value: !Ref ProjectApnId }]
   PrivateSubnet2:
     Type: AWS::EC2::Subnet
+    Condition: CreateVpc
     Properties:
       VpcId: !Ref Vpc
       CidrBlock: !Ref PrivateSubnet2Cidr
@@ -87,11 +121,13 @@ Resources:
 
   PublicRouteTable:
     Type: AWS::EC2::RouteTable
+    Condition: CreateVpc
     Properties:
       VpcId: !Ref Vpc
       Tags: [{ Key: Name, Value: !Sub '${NamePrefix}-rtb-public' }]
   PublicRoute:
     Type: AWS::EC2::Route
+    Condition: CreateVpc
     DependsOn: IgwAttach
     Properties:
       RouteTableId: !Ref PublicRouteTable
@@ -99,9 +135,11 @@ Resources:
       GatewayId: !Ref Igw
   PublicAssoc1:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVpc
     Properties: { SubnetId: !Ref PublicSubnet1, RouteTableId: !Ref PublicRouteTable }
   PublicAssoc2:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVpc
     Properties: { SubnetId: !Ref PublicSubnet2, RouteTableId: !Ref PublicRouteTable }
 
   NatEip:
@@ -118,9 +156,11 @@ Resources:
 
   PrivateRouteTable1:
     Type: AWS::EC2::RouteTable
+    Condition: CreateVpc
     Properties: { VpcId: !Ref Vpc, Tags: [{ Key: Name, Value: !Sub '${NamePrefix}-rtb-private-1' }] }
   PrivateRouteTable2:
     Type: AWS::EC2::RouteTable
+    Condition: CreateVpc
     Properties: { VpcId: !Ref Vpc, Tags: [{ Key: Name, Value: !Sub '${NamePrefix}-rtb-private-2' }] }
   PrivateRoute1:
     Type: AWS::EC2::Route
@@ -138,13 +178,16 @@ Resources:
       NatGatewayId: !Ref Nat
   PrivateAssoc1:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVpc
     Properties: { SubnetId: !Ref PrivateSubnet1, RouteTableId: !Ref PrivateRouteTable1 }
   PrivateAssoc2:
     Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateVpc
     Properties: { SubnetId: !Ref PrivateSubnet2, RouteTableId: !Ref PrivateRouteTable2 }
 
   S3Endpoint:
     Type: AWS::EC2::VPCEndpoint
+    Condition: CreateVpc
     Properties:
       VpcId: !Ref Vpc
       ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
@@ -153,10 +196,16 @@ Resources:
 
 Outputs:
   VpcId:
-    Value: !Ref Vpc
+    Value: !If [CreateVpc, !Ref Vpc, !Ref ExistingVpcId]
   PrivateSubnet1Id:
-    Value: !Ref PrivateSubnet1
+    Value: !If [CreateVpc, !Ref PrivateSubnet1, !Ref ExistingPrivateSubnet1Id]
   PublicSubnetIds:
-    Value: !Join [',', [!Ref PublicSubnet1, !Ref PublicSubnet2]]
+    Value: !If
+      - CreateVpc
+      - !Join [',', [!Ref PublicSubnet1, !Ref PublicSubnet2]]
+      - !Join [',', [!Ref ExistingPublicSubnet1Id, !Ref ExistingPublicSubnet2Id]]
   PrivateSubnetIds:
-    Value: !Join [',', [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
+    Value: !If
+      - CreateVpc
+      - !Join [',', [!Ref PrivateSubnet1, !Ref PrivateSubnet2]]
+      - !Join [',', [!Ref ExistingPrivateSubnet1Id, !Ref ExistingPrivateSubnet2Id]]

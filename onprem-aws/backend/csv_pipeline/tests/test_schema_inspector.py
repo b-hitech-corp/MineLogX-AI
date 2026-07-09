@@ -5,8 +5,10 @@ API calls required.
 
 Run with: pytest csv_pipeline/tests/test_schema_inspector.py -v
 """
+
 import os
 import sys
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from unittest.mock import patch
@@ -27,6 +29,7 @@ from csv_pipeline.tools.schema_inspector import (
 # (the parsed Bedrock invoke_model body: {"stop_reason": ..., "content": [...]})
 # ---------------------------------------------------------------------------
 
+
 def _text_response(text: str) -> dict:
     return {"stop_reason": "end_turn", "content": [{"type": "text", "text": text}]}
 
@@ -42,12 +45,18 @@ def _tool_use_response(name: str, tool_id: str, inputs: dict) -> dict:
 # inspect_schema_with_tool_use — the LIVE call path (forced tool_choice)
 # ---------------------------------------------------------------------------
 
-class TestInspectSchemaWithToolUse:
 
+class TestInspectSchemaWithToolUse:
     def test_happy_path_returns_tool_input(self):
         expected = {
-            "column_classifications": [{"name": "truck_id", "role": "entity",
-                                         "kpi_variable": None, "confidence": "high"}],
+            "column_classifications": [
+                {
+                    "name": "truck_id",
+                    "role": "entity",
+                    "kpi_variable": None,
+                    "confidence": "high",
+                }
+            ],
             "transformation_steps": [],
             "has_structural_anomalies": False,
             "anomaly_description": None,
@@ -57,17 +66,24 @@ class TestInspectSchemaWithToolUse:
             mock_invoke.return_value = _tool_use_response(
                 "describe_csv_structure", "tool_1", expected
             )
-            result = inspect_schema_with_tool_use("compact profile text", backend="bedrock")
+            result = inspect_schema_with_tool_use(
+                "compact profile text", backend="bedrock"
+            )
 
         assert result == expected
 
     def test_passes_model_id_system_tools_and_forced_tool_choice(self):
         with patch("csv_pipeline.tools.schema_inspector.invoke_claude") as mock_invoke:
             mock_invoke.return_value = _tool_use_response(
-                "describe_csv_structure", "tool_1",
-                {"column_classifications": [], "transformation_steps": [],
-                 "has_structural_anomalies": False, "anomaly_description": None,
-                 "reasoning": "ok"},
+                "describe_csv_structure",
+                "tool_1",
+                {
+                    "column_classifications": [],
+                    "transformation_steps": [],
+                    "has_structural_anomalies": False,
+                    "anomaly_description": None,
+                    "reasoning": "ok",
+                },
             )
             inspect_schema_with_tool_use("compact profile text", backend="bedrock")
 
@@ -75,28 +91,39 @@ class TestInspectSchemaWithToolUse:
         assert kwargs["model_id"] == settings.bedrock.model_id
         assert isinstance(kwargs["system"], str) and len(kwargs["system"]) > 0
         assert kwargs["tools"][0]["name"] == "describe_csv_structure"
-        assert kwargs["tool_choice"] == {"type": "tool", "name": "describe_csv_structure"}
+        assert kwargs["tool_choice"] == {
+            "type": "tool",
+            "name": "describe_csv_structure",
+        }
 
     def test_missing_tool_use_block_falls_back_to_empty_result(self):
         """tool_choice should guarantee a tool_use block; guard defensively anyway."""
         with patch("csv_pipeline.tools.schema_inspector.invoke_claude") as mock_invoke:
             mock_invoke.return_value = _text_response("I decided not to call a tool.")
-            result = inspect_schema_with_tool_use("compact profile text", backend="bedrock")
+            result = inspect_schema_with_tool_use(
+                "compact profile text", backend="bedrock"
+            )
 
         assert result["column_classifications"] == []
         assert result["transformation_steps"] == []
         assert "LLM call failed" in result["reasoning"]
 
     def test_invoke_claude_exception_falls_back_to_empty_result(self):
-        with patch("csv_pipeline.tools.schema_inspector.invoke_claude",
-                   side_effect=RuntimeError("ThrottlingException")):
-            result = inspect_schema_with_tool_use("compact profile text", backend="bedrock")
+        with patch(
+            "csv_pipeline.tools.schema_inspector.invoke_claude",
+            side_effect=RuntimeError("ThrottlingException"),
+        ):
+            result = inspect_schema_with_tool_use(
+                "compact profile text", backend="bedrock"
+            )
 
         assert result == _empty_inspect_result("ThrottlingException")
 
     def test_unknown_backend_raises(self):
         with pytest.raises(ValueError, match="Unknown backend"):
-            inspect_schema_with_tool_use("compact profile text", backend="not-a-backend")
+            inspect_schema_with_tool_use(
+                "compact profile text", backend="not-a-backend"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -104,8 +131,8 @@ class TestInspectSchemaWithToolUse:
 # called with backend="ollama" today) but is migrated for behavior parity.
 # ---------------------------------------------------------------------------
 
-class TestLlmCompleteBedrockBranch:
 
+class TestLlmCompleteBedrockBranch:
     def test_returns_stripped_text_on_success(self):
         with patch("csv_pipeline.tools.schema_inspector.invoke_claude") as mock_invoke:
             mock_invoke.return_value = _text_response("  hello world  \n")
@@ -123,8 +150,10 @@ class TestLlmCompleteBedrockBranch:
         assert kwargs["max_tokens"] == 256
 
     def test_returns_none_on_exception(self):
-        with patch("csv_pipeline.tools.schema_inspector.invoke_claude",
-                   side_effect=RuntimeError("boom")):
+        with patch(
+            "csv_pipeline.tools.schema_inspector.invoke_claude",
+            side_effect=RuntimeError("boom"),
+        ):
             result = _llm_complete("a prompt", backend="bedrock")
 
         assert result is None
@@ -134,8 +163,8 @@ class TestLlmCompleteBedrockBranch:
 # _extract_json — pure/deterministic, previously had zero coverage
 # ---------------------------------------------------------------------------
 
-class TestExtractJson:
 
+class TestExtractJson:
     def test_fenced_json_code_block(self):
         text = 'Here is the result:\n```json\n{"a": 1, "b": 2}\n```\nDone.'
         assert _extract_json(text) == {"a": 1, "b": 2}

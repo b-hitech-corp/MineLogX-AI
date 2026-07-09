@@ -2,6 +2,9 @@
 
 build/
 
+# === Local session plan (never commit) ===
+PLAN-ARCHITECTURE-GOAL.md
+
 # === Secrets / credentials (never commit) ===
 .env
 .env.*
@@ -11,6 +14,9 @@ build/
 
 # === AWS discovery dumps (contain account IDs / ARNs) ===
 **/infrastructure/discovery/
+
+# === Endpoints generados por fab env.endpoints (URLs y ARNs, no commitear) ===
+endpoints-*.md
 
 # === Terraform ===
 **/.terraform/
@@ -27,6 +33,7 @@ crash.log
 **/modules/lambda_layer/.build/
 # Lambda layer python/ trees built by `fab lambda.build-layer` (pip installs)
 **/backend/.layers/
+onprem-aws/.lambda-layers/
 
 # === CloudFormation ===
 **/cloudformation/params/*.local.json
@@ -38,3 +45,6 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+
+# fab env.up failure logs (auto-generated, local only)
+.fab-logs/

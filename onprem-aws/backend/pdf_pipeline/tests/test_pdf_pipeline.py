@@ -56,8 +56,8 @@ from pdf_pipeline.tools.pdf_opensearch_ingestor import (
 from pdf_pipeline.agent.pdf_vectorization_pipeline import (
     PdfPipelineResult,
     run_pipeline,
-    lambda_handler,
 )
+from pdf_pipeline.lambda_function import lambda_handler
 
 
 # ---------------------------------------------------------------------------

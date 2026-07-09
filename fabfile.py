@@ -1,29 +1,44 @@
 """
 MineLogX-AI — Fabric automation.
 
-Two responsibilities:
+Three responsibilities:
 
 1. Environment orchestration (`env.*`): create / destroy / plan / list
-   infrastructure environments through EITHER Terraform OR CloudFormation,
-   selected with `--engine`. Supports both fixed environments (dev/qa/prod)
-   and ephemeral per-developer environments (`dev-<user>`).
+   infrastructure environments via CloudFormation (primary). Terraform is
+   available as an alternative with `--engine terraform` but CloudFormation
+   is the default — it gives full stack visibility in the AWS console.
 
-2. Remote ops on the demo Ollama EC2 instances (`ollama.*`): health checks,
+2. Frontend deployment (`frontend.*`): build the React/Vite app from
+   shared/frontend/ and push it to the Amplify app for the target environment.
+
+3. Remote ops on the demo Ollama EC2 instances (`ollama.*`): health checks,
    restarts, model pulls, log tailing — the original Fabric use case.
 
 Conventions:
   - Resource name prefix / stack prefix:  minelogx-<env>
+  - CloudFormation stack: one parent stack (minelogx-<env>) with nested children.
   - Mandatory tags on every resource: aws-apn-id, Environment, ManagedBy
   - AWS profile is taken from the AWS_PROFILE env var (see AWS CLI setup).
 
-Usage (env is positional; engine via --engine, defaults to terraform):
-  uv run fab env.up   dev-cesar                # terraform (default)
-  uv run fab env.plan dev-cesar --engine cf    # cloudformation  (--engine tf|cf)
-  uv run fab env.down dev-cesar --engine cf
+Usage (env is positional; engine defaults to cloudformation):
+  uv run fab env.up   dev                          # cloudformation deploy (default)
+  uv run fab env.plan dev                          # cloudformation change set (no apply)
+  uv run fab env.down dev
   uv run fab env.list
+  uv run fab frontend.deploy dev                   # build + push frontend to Amplify
   uv run fab ollama.health-check
-  uv run fab lambda.pull                       # download the demo Lambda code
-  uv run fab lambda.build-layer pdf            # build the PDF deps layer (no Docker)
+  uv run fab lambda.pull                           # download the demo Lambda code
+  uv run fab lambda.build-layer pdf                # build the PDF deps layer (no Docker)
+  uv run fab lambda.invoke csv dev --wait          # trigger CSV pipeline (Step Functions)
+  uv run fab lambda.invoke pdf dev                 # trigger PDF pipeline (Lambda direct)
+
+Full DEV flow (first time):
+  uv run fab env.bootstrap                         # create S3 bucket (for nested template uploads)
+  uv run fab lambda.build-layer csv
+  uv run fab lambda.build-layer pdf
+  uv run fab env.up dev --seed                     # cloudformation deploy + seed from demo buckets
+  uv run fab env.up dev                            # cloudformation deploy (clean buckets, no seed)
+  uv run fab frontend.deploy dev                   # build React + push to Amplify
 
 Note: use the long flag `--engine` — Fabric reserves the short `-e` for --echo.
 
@@ -31,6 +46,8 @@ Tip: prefer `uv run fab` — it finds terraform via the shell PATH regardless of
 venv activation. If terraform still isn't found, set TERRAFORM_BIN (see below).
 """
 
+import datetime
+import json
 import os
 import shutil
 import sys
@@ -58,9 +75,9 @@ NAME_PREFIX = "minelogx"
 # PATH is mangled by a venv activate script or cmd.exe vs Git Bash differences.
 TERRAFORM = os.environ.get("TERRAFORM_BIN") or shutil.which("terraform") or "terraform"
 
-# Terraform remote state (bootstrap once per account with `fab env.bootstrap`).
-STATE_BUCKET = os.environ.get("TF_STATE_BUCKET", "minelogx-poc-terraform-state")
-STATE_LOCK_TABLE = os.environ.get("TF_STATE_LOCK_TABLE", "minelogx-poc-terraform-locks")
+# S3 bucket used by `cloudformation package` to upload nested templates.
+# Also reused by Terraform state if `--engine terraform` is ever needed.
+STATE_BUCKET = os.environ.get("CFN_TEMPLATE_BUCKET", "minelogx-poc-cfn-templates")
 
 # SSO profile used to auto-refresh the token (override per dev with AWS_SSO_PROFILE).
 # NOTE: this is the SSO *hub* account (125396563242) — only an identity source.
@@ -77,6 +94,7 @@ WORK_PROFILE = os.environ.get("MINELOGX_AWS_PROFILE", "minelogx-admin")
 os.environ["AWS_PROFILE"] = WORK_PROFILE
 
 REPO_ROOT = Path(__file__).resolve().parent
+LOGS_DIR = REPO_ROOT / ".fab-logs"
 # Deployment target (framework layout). Override with MINELOGX_TARGET.
 TARGET = os.environ.get("MINELOGX_TARGET", "onprem-aws")
 TARGET_ROOT = REPO_ROOT / TARGET
@@ -103,6 +121,15 @@ CFN_LAYERS = [
 
 # Fixed environments have their own Terraform root module under environments/.
 FIXED_ENVS = {"dev", "qa", "prod"}
+
+# Demo buckets used as seed data source for DEV environments.
+# Mapping: bucket name suffix -> existing demo bucket name.
+DEMO_SEED_BUCKETS = {
+    "telemetry-data": "bhitech-minelogx-poc-telemetry-data",
+    "legislation-documents": "bhitech-minelogx-poc-legislation-documents",
+}
+# Only these environments may receive seed data; all others are always clean.
+SEED_ALLOWED_ENVS = {"dev"}
 
 # demo Ollama EC2 instances (see CLAUDE.md — demo only, to be replaced by Bedrock).
 INSTANCES = {
@@ -147,7 +174,7 @@ def _tf(c, env, *args):
             f'-backend-config="bucket={STATE_BUCKET}" '
             f'-backend-config="key={state_key}" '
             f'-backend-config="region={REGION}" '
-            f'-backend-config="dynamodb_table={STATE_LOCK_TABLE}" '
+            f'-backend-config="dynamodb_table=minelogx-poc-terraform-locks" '
             f'-backend-config="encrypt=true"'
         )
         if _is_ephemeral(env):
@@ -203,6 +230,30 @@ def _ensure_aws(c):
     print(f"==> AWS profile={WORK_PROFILE} account={account} region={REGION}")
 
 
+def _s3_seed(c, env):
+    """Sync data from demo seed buckets into the minelogx-{env}-* buckets."""
+    for suffix, src in DEMO_SEED_BUCKETS.items():
+        dst = f"{NAME_PREFIX}-{env}-{suffix}"
+        print(f"==> seeding s3://{src}/ -> s3://{dst}/")
+        c.run(f"aws s3 sync s3://{src}/ s3://{dst}/ --region {REGION}")
+
+
+def _cfn_extra_params(env):
+    """Load env-specific parameter overrides from params/<env>.json if it exists.
+
+    Returns a string of 'Key=Value' pairs ready to append to --parameter-overrides,
+    or an empty string when no file is found. Used to pass e.g. existing VPC IDs
+    when the account is at the VPC limit.
+    """
+    import json as _json
+
+    params_file = CFN_ROOT / "params" / f"{env}.json"
+    if not params_file.exists():
+        return ""
+    data = _json.loads(params_file.read_text(encoding="utf-8"))
+    return " ".join(f"{k}={v}" for k, v in data.items())
+
+
 def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
     """Package + deploy the single parent stack (nested children) as minelogx-<env>.
 
@@ -213,18 +264,24 @@ def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
     fallback = "true" if env == "prod" else "false"
     pdf_layer = "true" if build_pdf_layer else "false"
     csv_layer = "true" if build_csv_layer else "false"
+    extra = _cfn_extra_params(env)
     with c.cd(str(CFN_ROOT)):
         c.run(
             "aws cloudformation package --template-file parent.yaml "
             f"--s3-bucket {STATE_BUCKET} --s3-prefix cfn/{env} "
             f"--output-template-file packaged-parent.yaml --region {REGION}"
         )
+        overrides = (
+            f"NamePrefix={NAME_PREFIX}-{env} Environment={env} "
+            f"ProjectApnId={apn} EnableLlmFallback={fallback} "
+            f"BuildPdfLayer={pdf_layer} BuildCsvLayer={csv_layer}"
+        )
+        if extra:
+            overrides += f" {extra}"
         cmd = (
             "aws cloudformation deploy --template-file packaged-parent.yaml "
             f"--stack-name {NAME_PREFIX}-{env} "
-            f"--parameter-overrides NamePrefix={NAME_PREFIX}-{env} Environment={env} "
-            f"ProjectApnId={apn} EnableLlmFallback={fallback} "
-            f"BuildPdfLayer={pdf_layer} BuildCsvLayer={csv_layer} "
+            f"--parameter-overrides {overrides} "
             f"--tags aws-apn-id={apn} Environment={env} ManagedBy=cloudformation "
             f"--capabilities CAPABILITY_NAMED_IAM --region {REGION}"
         )
@@ -236,42 +293,98 @@ def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
 # --------------------------------------------------------------------------- #
 # env.* — environment orchestration
 # --------------------------------------------------------------------------- #
+def _up_log_path(env):
+    """Return a timestamped log file path for a failed env.up run."""
+    LOGS_DIR.mkdir(exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    return LOGS_DIR / f"up-{env}-{ts}.log"
+
+
+def _cfn_down(c, env):
+    """Delete the CFN parent stack and wait until it is gone."""
+    print(f"==> down (auto-cleanup): deleting stack {NAME_PREFIX}-{env} ...")
+    c.run(
+        f"aws cloudformation delete-stack --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        warn=True,
+    )
+    c.run(
+        f"aws cloudformation wait stack-delete-complete --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        warn=True,
+    )
+
+
 @task(
     help={
         "env": "Environment name (dev|qa|prod|dev-<user>).",
         "engine": "terraform | cloudformation",
-        "build_pdf_layer": "Attach the PDF deps layer (must run `fab lambda.build-layer pdf` first).",
-        "build_csv_layer": "Attach the CSV deps layer (must run `fab lambda.build-layer csv` first).",
+        "seed": "After deploy, sync data from demo buckets into the new buckets (dev only).",
+        "no_rollback": "Skip automatic env.down on failure (keeps stack for manual inspection).",
     },
 )
-def up(c, env, engine="terraform", build_pdf_layer=False, build_csv_layer=False):
-    """Create/update an environment (fixed or ephemeral)."""
+def up(c, env, engine="cloudformation", seed=False, no_rollback=False):
+    """Create/update an environment. Builds Lambda layers, deploys, and optionally seeds S3."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
     print(f"==> up: env={env} engine={engine} region={REGION}")
 
-    if engine == "terraform":
-        _tf(
-            c,
-            env,
-            "apply",
-            "-auto-approve",
-            f'-var="environment={env}"',
-            f'-var="aws_region={REGION}"',
-            f'-var="name_prefix={NAME_PREFIX}-{env}"',
-            f'-var="project_apn_id={_apn(env)}"',
-            f'-var="build_pdf_layer={"true" if build_pdf_layer else "false"}"',
-            f'-var="build_csv_layer={"true" if build_csv_layer else "false"}"',
-        )
-        return
+    log_path = _up_log_path(env)
 
-    _cfn(
-        c,
-        env,
-        execute=True,
-        build_pdf_layer=build_pdf_layer,
-        build_csv_layer=build_csv_layer,
-    )
+    try:
+        # --- 1. Build Lambda layers (always, so the zip is ready for CFN package) ---
+        for fn in ("csv", "pdf"):
+            reqs = TARGET_ROOT / "backend" / f"requirements-{fn}.txt"
+            if reqs.exists():
+                print(f"==> building lambda layer: {fn}")
+                build_layer(c, fn)
+            else:
+                print(f"[warn] {reqs.name} not found — skipping {fn} layer build.")
+
+        # --- 2. Deploy infrastructure ---
+        if engine == "terraform":
+            _tf(
+                c,
+                env,
+                "apply",
+                "-auto-approve",
+                f'-var="environment={env}"',
+                f'-var="aws_region={REGION}"',
+                f'-var="name_prefix={NAME_PREFIX}-{env}"',
+                f'-var="project_apn_id={_apn(env)}"',
+                '-var="build_pdf_layer=true"',
+                '-var="build_csv_layer=true"',
+            )
+        else:
+            _cfn(c, env, execute=True, build_pdf_layer=True, build_csv_layer=True)
+
+        # --- 3. Seed S3 (dev only) ---
+        if seed:
+            if env not in SEED_ALLOWED_ENVS:
+                print(
+                    f"[warn] --seed ignored for '{env}': only allowed in {SEED_ALLOWED_ENVS}."
+                )
+            else:
+                _s3_seed(c, env)
+
+        # --- 4. Endpoints summary ---
+        outputs = _endpoints_data(c, env)
+        if outputs:
+            _show_and_save_endpoints(env, outputs)
+        else:
+            print(
+                "[warn] Sin outputs de CloudFormation — omitiendo resumen de endpoints."
+            )
+
+    except Exception as exc:
+        msg = f"env.up failed: {exc}"
+        log_path.write_text(msg, encoding="utf-8")
+        print(f"\n[error] {msg}")
+        print(f"[error] Full error saved to: {log_path}")
+        if no_rollback:
+            print("[warn] --no-rollback set: skipping automatic cleanup.")
+        else:
+            print("==> Running automatic env.down to clean up ...")
+            _cfn_down(c, env)
+        raise SystemExit(1) from None
 
 
 @task(
@@ -282,7 +395,7 @@ def up(c, env, engine="terraform", build_pdf_layer=False, build_csv_layer=False)
         "build_csv_layer": "Attach the CSV deps layer (must run `fab lambda.build-layer csv` first).",
     },
 )
-def plan(c, env, engine="terraform", build_pdf_layer=False, build_csv_layer=False):
+def plan(c, env, engine="cloudformation", build_pdf_layer=False, build_csv_layer=False):
     """Preview changes without applying (terraform plan / CFN change set)."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
@@ -314,7 +427,7 @@ def plan(c, env, engine="terraform", build_pdf_layer=False, build_csv_layer=Fals
 @task(
     help={"env": "Environment name.", "engine": "terraform | cloudformation"},
 )
-def down(c, env, engine="terraform"):
+def down(c, env, engine="cloudformation"):
     """Destroy an environment. Guarded against fixed prod."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
@@ -367,16 +480,14 @@ def list(c):
 
 @task
 def bootstrap(c):
-    """Create the Terraform remote-state backend for the CURRENT AWS account.
+    """Create the S3 bucket used by `cloudformation package` to upload nested templates.
 
-    Run ONCE per account — dev/qa/prod share this bucket via distinct state keys.
-    Idempotent (skips what already exists). When PROD moves to its own account,
-    run this there too. OS-agnostic (no inline JSON; S3 applies AES256 by default).
+    Run ONCE per account — dev/qa/prod share the same bucket under different S3 prefixes.
+    Idempotent (skips what already exists). When PROD moves to its own account, run this
+    there too. No DynamoDB needed — CloudFormation manages stack concurrency internally.
     """
     _ensure_aws(c)
-    print(
-        f"==> bootstrap: bucket={STATE_BUCKET} table={STATE_LOCK_TABLE} region={REGION}"
-    )
+    print(f"==> bootstrap: bucket={STATE_BUCKET} region={REGION}")
 
     if c.run(f"aws s3api head-bucket --bucket {STATE_BUCKET}", hide=True, warn=True).ok:
         print(f"    bucket {STATE_BUCKET} already exists")
@@ -397,21 +508,9 @@ def bootstrap(c):
             "BlockPublicAcls=true,IgnorePublicAcls=true,"
             "BlockPublicPolicy=true,RestrictPublicBuckets=true"
         )
-
-    if c.run(
-        f"aws dynamodb describe-table --table-name {STATE_LOCK_TABLE} --region {REGION}",
-        hide=True,
-        warn=True,
-    ).ok:
-        print(f"    lock table {STATE_LOCK_TABLE} already exists")
-    else:
-        c.run(
-            f"aws dynamodb create-table --table-name {STATE_LOCK_TABLE} --region {REGION} "
-            "--attribute-definitions AttributeName=LockID,AttributeType=S "
-            "--key-schema AttributeName=LockID,KeyType=HASH "
-            "--billing-mode PAY_PER_REQUEST"
-        )
-    print("Done. Backend ready — now: uv run fab env.up dev")
+    print(
+        "Done. Next: uv run fab lambda.build-layer csv && fab lambda.build-layer pdf && fab env.up dev"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -588,7 +687,7 @@ def pull(c, pattern="demo-poc"):
 # Layer build output consumed by modules/lambda_layer (Terraform) and the
 # Lambda::LayerVersion resource (CloudFormation) — see requirements-<fn>.txt
 # for which function gets which deps and why they're split per-function.
-LAMBDA_LAYERS_DIR = TARGET_ROOT / "backend" / ".layers"
+LAMBDA_LAYERS_DIR = TARGET_ROOT / ".lambda-layers"
 
 # 250MB decompressed is the Lambda hard limit for code+layers combined; warn
 # well before it since the deployment package itself adds a few more MB.
@@ -646,6 +745,847 @@ def build_layer(c, fn):
 
 
 # --------------------------------------------------------------------------- #
+# frontend.* — build React/Vite app and push to Amplify (manual deployment)
+# --------------------------------------------------------------------------- #
+FRONTEND_DIR = REPO_ROOT / "shared" / "frontend"
+# Amplify branch used by all non-prod environments (prod deploys from main).
+AMPLIFY_BRANCH = os.environ.get("AMPLIFY_BRANCH", "dev")
+
+
+def _amplify_app_id(c, env):
+    """Discover the Amplify app ID for the given environment from AWS.
+
+    Looks for an app whose name matches `minelogx-<env>-frontend`, which is
+    the name the Amplify TF module creates. Falls back to TF output if the
+    app is not yet created.
+    """
+    app_name = f"{NAME_PREFIX}-{env}-frontend"
+    result = c.run(
+        f"aws amplify list-apps --region {REGION} "
+        '--query "apps[?name==`' + app_name + '`].appId" --output text',
+        hide=True,
+        warn=True,
+    )
+    app_id = result.stdout.strip() if result.ok else ""
+    if not app_id:
+        raise SystemExit(
+            f"Amplify app '{app_name}' not found in {REGION}. "
+            "Run `fab env.up <env>` first to create the infrastructure."
+        )
+    return app_id
+
+
+def _amplify_branch(c, app_id):
+    """Return the first branch of the app (Amplify only has one branch per env)."""
+    result = c.run(
+        f"aws amplify list-branches --app-id {app_id} --region {REGION} "
+        '--query "branches[0].branchName" --output text',
+        hide=True,
+    )
+    branch = result.stdout.strip()
+    if not branch or branch == "None":
+        raise SystemExit(
+            f"No branches found for Amplify app {app_id}. Run `fab env.up <env>` first."
+        )
+    return branch
+
+
+@task(
+    help={
+        "env": "Environment to deploy the frontend to (dev|qa|prod|dev-<user>).",
+        "skip_build": "Skip `pnpm build` (use existing dist/ — useful for re-deploys).",
+    },
+)
+def deploy(c, env, skip_build=False):
+    """Build the React/Vite frontend and push it to Amplify (manual deployment).
+
+    Steps:
+      1. pnpm install + pnpm build  (skippable with --skip-build)
+      2. Zip shared/frontend/dist/
+      3. Create an Amplify manual deployment job (returns a presigned S3 upload URL)
+      4. PUT the zip to the presigned URL
+      5. Start the deployment job and poll until SUCCEED/FAILED
+    """
+    _ensure_aws(c)
+    print(f"==> frontend.deploy: env={env} region={REGION}")
+
+    dist_dir = FRONTEND_DIR / "dist"
+
+    if not skip_build:
+        pnpm = shutil.which("pnpm") or "pnpm"
+        print(f"==> Building frontend in {FRONTEND_DIR}")
+        with c.cd(str(FRONTEND_DIR)):
+            c.run(f'"{pnpm}" install --frozen-lockfile')
+            c.run(f'"{pnpm}" build')
+
+    if not dist_dir.exists():
+        raise SystemExit(
+            f"{dist_dir} not found. Run `pnpm build` in shared/frontend/ first, "
+            "or omit --skip-build."
+        )
+
+    # Zip the dist directory into a temp file.
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        zip_path = tmp.name
+    try:
+        print(f"==> Zipping {dist_dir} -> {zip_path}")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for file in dist_dir.rglob("*"):
+                if file.is_file():
+                    zf.write(file, file.relative_to(dist_dir))
+
+        app_id = _amplify_app_id(c, env)
+        branch = _amplify_branch(c, app_id)
+        print(f"==> Amplify app={app_id} branch={branch}")
+
+        # Create a manual deployment job — Amplify returns a presigned upload URL.
+        create_result = c.run(
+            f"aws amplify create-deployment --app-id {app_id} "
+            f"--branch-name {branch} --region {REGION} --output json",
+            hide=True,
+        )
+        import json as _json
+
+        deployment = _json.loads(create_result.stdout)
+        job_id = deployment["jobId"]
+        upload_url = deployment["zipUploadUrl"]
+        print(f"==> Deployment job created: jobId={job_id}")
+
+        # Upload the zip to the presigned S3 URL.
+        print("==> Uploading dist.zip to Amplify presigned URL...")
+        urllib.request.urlopen(  # nosec B310 - URL comes from AWS API response
+            urllib.request.Request(
+                upload_url,
+                data=open(zip_path, "rb").read(),  # noqa: WPS515
+                method="PUT",
+                headers={"Content-Type": "application/zip"},
+            )
+        )
+
+        # Start the deployment.
+        c.run(
+            f"aws amplify start-deployment --app-id {app_id} "
+            f"--branch-name {branch} --job-id {job_id} --region {REGION}",
+            hide=True,
+        )
+        print("==> Deployment started. Polling for completion...")
+
+        # Poll until done (max ~5 min).
+        import time as _time
+
+        for _ in range(60):
+            status_result = c.run(
+                f"aws amplify get-job --app-id {app_id} "
+                f"--branch-name {branch} --job-id {job_id} --region {REGION} "
+                '--query "job.summary.status" --output text',
+                hide=True,
+            )
+            status = status_result.stdout.strip()
+            if status in ("SUCCEED", "FAILED", "CANCELLED"):
+                break
+            print(f"    status={status} — waiting 5s...")
+            _time.sleep(5)
+
+        if status == "SUCCEED":
+            print(
+                f"\n==> Frontend deployed! Status={status}\n"
+                f"    URL: https://{branch}.{app_id}.amplifyapp.com"
+            )
+        else:
+            raise SystemExit(
+                f"Amplify deployment {status}. Check the console for logs."
+            )
+    finally:
+        os.unlink(zip_path)
+
+
+# --------------------------------------------------------------------------- #
+# env.endpoints helpers
+# --------------------------------------------------------------------------- #
+
+
+def _endpoints_data(c, env):
+    """Return CFN stack Outputs for env, or [] if the stack is not found."""
+    import json as _json
+
+    result = c.run(
+        f"aws cloudformation describe-stacks --stack-name {NAME_PREFIX}-{env} "
+        f'--region {REGION} --query "Stacks[0].Outputs" --output json',
+        hide=True,
+        warn=True,
+    )
+    if not result.ok or not result.stdout.strip() or result.stdout.strip() == "null":
+        return []
+    return _json.loads(result.stdout)
+
+
+def _show_and_save_endpoints(env, outputs):
+    """Pretty-print CFN outputs and write endpoints-<env>.md to the repo root."""
+    import datetime as _dt
+
+    width = max(len(o["OutputKey"]) for o in outputs) + 2
+    sep = "─" * 60
+    print(f"\n{sep}")
+    print(f"  Endpoints — {NAME_PREFIX}-{env}  ({REGION})")
+    print(sep)
+    for o in outputs:
+        key = o["OutputKey"]
+        val = o["OutputValue"]
+        desc = o.get("Description", "")
+        print(f"  {key:<{width}} {val}")
+        if desc:
+            print(f"  {'':>{width}} ↳ {desc}")
+    print(f"{sep}\n")
+
+    md_path = REPO_ROOT / f"endpoints-{env}.md"
+    now = _dt.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    lines = [
+        f"# Endpoints — `{NAME_PREFIX}-{env}`",
+        "",
+        f"> Generado: {now} | Región: `{REGION}`",
+        "",
+        "| Key | Value | Descripción |",
+        "|---|---|---|",
+    ]
+    for o in outputs:
+        key = o["OutputKey"]
+        val = o["OutputValue"]
+        desc = o.get("Description", "—")
+        lines.append(f"| `{key}` | {val} | {desc} |")
+    md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"  Guardado → {md_path.name}")
+
+
+@task(help={"env": "Environment name (dev|qa|prod|dev-<user>)."})
+def endpoints(c, env):
+    """Show and save all live endpoints for an environment.
+
+    Reads CloudFormation stack Outputs and prints a friendly table.
+    Also writes endpoints-<env>.md in the repo root (git-ignored).
+    """
+    _ensure_aws(c)
+    outputs = _endpoints_data(c, env)
+    if not outputs:
+        raise SystemExit(
+            f"  [!] Stack '{NAME_PREFIX}-{env}' no encontrado o sin outputs.\n"
+            "      Ejecuta `uv run fab env.up <env>` primero."
+        )
+    _show_and_save_endpoints(env, outputs)
+
+
+# --------------------------------------------------------------------------- #
+# lambda.* — pipeline operations
+# --------------------------------------------------------------------------- #
+ACCOUNT_ID = os.environ.get("AWS_ACCOUNT_ID", "586928288932")
+
+# Logical names → Lambda function suffixes (minelogx-<env>-<suffix>)
+LAMBDA_NAMES = ("api", "csv", "pdf")
+
+
+def _lambda_fn(env, name):
+    return f"{NAME_PREFIX}-{env}-{name}"
+
+
+def _lambda_get_env(c, fn_name):
+    """Return the current Lambda environment variables as a dict."""
+    res = c.run(
+        f"aws lambda get-function-configuration --function-name {fn_name} "
+        f'--query "Environment.Variables" --output json --region {REGION}',
+        hide=True,
+        warn=True,
+    )
+    if not res.ok or res.stdout.strip() in ("", "null"):
+        return {}
+    return json.loads(res.stdout)
+
+
+@task(
+    help={
+        "name": "Lambda suffix: api | csv | pdf.",
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
+        "key": "Environment variable name to set.",
+        "value": "New value for the variable.",
+    },
+)
+def set_env(c, name, env, key, value):
+    """Update a single environment variable on a deployed Lambda (non-destructive merge).
+
+    Reads the current variables first, merges the new key=value, then writes
+    back — existing variables are preserved. Use this to override model IDs,
+    endpoints, or feature flags without a full env.up redeploy.
+
+    Examples:
+      uv run fab lambda.set-env pdf dev --key PDF_HAIKU_MODEL_ID --value us.anthropic.claude-3-haiku-20240307-v1:0
+      uv run fab lambda.set-env api dev --key LOG_LEVEL --value DEBUG
+    """
+    _ensure_aws(c)
+    fn_name = _lambda_fn(env, name)
+    current = _lambda_get_env(c, fn_name)
+    old_val = current.get(key, "<not set>")
+    current[key] = value
+
+    print("==> Updating Lambda env var")
+    print(f"    function : {fn_name}")
+    print(f"    {key}  {old_val}  →  {value}")
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, encoding="utf-8"
+    ) as tmp:
+        json.dump({"Variables": current}, tmp)
+        tmp_path = tmp.name
+
+    try:
+        c.run(
+            f"aws lambda update-function-configuration "
+            f"--function-name {fn_name} "
+            f"--environment file://{tmp_path} "
+            f"--region {REGION} --output json",
+            hide=True,
+        )
+    finally:
+        os.unlink(tmp_path)
+
+    print(f"==> Done. Lambda {fn_name} updated (change is live in ~5 s).")
+
+
+@task(
+    help={
+        "name": "Lambda suffix: api | csv | pdf. Omit to show all three.",
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
+        "follow": "Keep tailing (Ctrl-C to stop). Default: last 50 lines and exit.",
+    },
+)
+def lambda_logs(c, name, env, follow=False):
+    """Tail CloudWatch logs for a Lambda function.
+
+    Examples:
+      uv run fab lambda.logs pdf dev
+      uv run fab lambda.logs pdf dev --follow
+    """
+    _ensure_aws(c)
+    fn_name = _lambda_fn(env, name)
+    log_group = f"/aws/lambda/{fn_name}"
+    follow_flag = "--follow" if follow else ""
+    print(f"==> Logs for {fn_name}  ({log_group})")
+    c.run(
+        f"aws logs tail {log_group} --since 1h {follow_flag} --region {REGION}",
+        warn=True,
+    )
+
+
+@task(
+    help={"env": "Environment name (dev|qa|prod|dev-<user>)."},
+)
+def lambda_status(c, env):
+    """Show runtime config for all three Lambda functions in an environment.
+
+    Displays function state, runtime, memory, timeout, last modified, and
+    every environment variable currently set on each function.
+    """
+    _ensure_aws(c)
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        "",
+        _SEP,
+        f"  Lambda Status — {NAME_PREFIX}-{env}  ({ts})",
+        _SEP,
+    ]
+    for name in LAMBDA_NAMES:
+        fn_name = _lambda_fn(env, name)
+        res = c.run(
+            f"aws lambda get-function-configuration --function-name {fn_name} "
+            f"--region {REGION} --output json",
+            hide=True,
+            warn=True,
+        )
+        if not res.ok:
+            lines.append(f"\n  [{fn_name}]  NOT FOUND")
+            continue
+        cfg = json.loads(res.stdout)
+        state = cfg.get("State", "?")
+        runtime = cfg.get("Runtime", "?")
+        memory = cfg.get("MemorySize", "?")
+        timeout = cfg.get("Timeout", "?")
+        modified = cfg.get("LastModified", "?")[:19].replace("T", " ")
+        env_vars = cfg.get("Environment", {}).get("Variables", {})
+
+        lines += [
+            f"\n  [{fn_name}]",
+            f"  State        : {state}",
+            f"  Runtime      : {runtime}    Memory: {memory} MB    Timeout: {timeout} s",
+            f"  Last deploy  : {modified}",
+            f"  Env vars ({len(env_vars)}):",
+        ]
+        for k, v in sorted(env_vars.items()):
+            # Truncate long values (e.g. ARNs) for readability
+            display = v if len(v) <= 60 else v[:57] + "..."
+            lines.append(f"    {k:<35} {display}")
+
+    lines.append(f"\n{_SEP}\n")
+    print("\n".join(lines))
+    log_path = _log_write(f"lambda-status-{env}", lines)
+    print(f"  Log saved → {log_path.relative_to(REPO_ROOT)}")
+
+
+@task(
+    help={
+        "pipeline": "Pipeline to invoke: csv | pdf.",
+        "env": "Environment name (dev|qa|prod|dev-<user>). Default: dev.",
+        "file_path": (
+            "For csv: S3 key relative to the telemetry bucket "
+            "(e.g. C1/fuel_management_events.csv). "
+            "For pdf: S3 key relative to the legislation bucket "
+            "(e.g. docs/test.pdf)."
+        ),
+        "force": "For csv: re-ingest even if the file was already processed.",
+        "wait": "Block until the execution completes and print the final status.",
+    },
+)
+def invoke(c, pipeline, env, file_path=None, force=False, wait=False):
+    """Invoke the csv or pdf pipeline manually without waiting for the scheduler.
+
+    csv — starts a Step Functions execution with the given S3 key from the
+          telemetry bucket.  Lists available files and picks the first one
+          when --file-path is omitted.
+
+    pdf — invokes Lambda PDF directly with a synthetic EventBridge S3 event
+          built from the given key in the legislation bucket.  Lists available
+          PDFs and picks the first one when --file-path is omitted.
+    """
+    import json as _json
+    import time as _time
+
+    _ensure_aws(c)
+
+    if pipeline == "csv":
+        telemetry_bucket = f"{NAME_PREFIX}-{env}-telemetry-data"
+
+        if not file_path:
+            res = c.run(
+                f"aws s3 ls s3://{telemetry_bucket}/ --recursive "
+                '--query "Contents[].Key" --output text',
+                hide=True,
+                warn=True,
+            )
+            keys = (
+                [k for k in res.stdout.split() if k.endswith(".csv")] if res.ok else []
+            )
+            if not keys:
+                raise SystemExit(
+                    f"No CSV files found in s3://{telemetry_bucket}/. "
+                    "Run `uv run fab env.up dev --seed` first."
+                )
+            file_path = keys[0]
+            print(f"==> No --file-path given — using first CSV found: {file_path}")
+
+        sm_arn = (
+            f"arn:aws:states:{REGION}:{ACCOUNT_ID}:stateMachine:"
+            f"{NAME_PREFIX}-{env}-csv-pipeline"
+        )
+        payload = _json.dumps({"file_path": file_path, "force": force})
+        print("==> Starting Step Functions execution")
+        print(f"    state machine : {sm_arn}")
+        print(f"    input         : {payload}")
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write(payload)
+            tmp_path = tmp.name
+
+        try:
+            res = c.run(
+                f"aws stepfunctions start-execution "
+                f"--state-machine-arn {sm_arn} "
+                f"--input file://{tmp_path} "
+                f"--region {REGION} --output json",
+            )
+        finally:
+            os.unlink(tmp_path)
+
+        execution = _json.loads(res.stdout)
+        exec_arn = execution["executionArn"]
+        print(f"==> Execution started: {exec_arn}")
+
+        t_start = _time.monotonic()
+        if wait:
+            print("==> Waiting for execution to complete (polling every 15 s)...")
+            for _ in range(80):  # up to 20 min
+                status_res = c.run(
+                    f"aws stepfunctions describe-execution "
+                    f"--execution-arn {exec_arn} "
+                    f'--query "status" --output text --region {REGION}',
+                    hide=True,
+                )
+                status = status_res.stdout.strip()
+                if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
+                    break
+                print(f"    status={status} — waiting 15 s...")
+                _time.sleep(15)
+            elapsed = _time.monotonic() - t_start
+            print(f"==> Final status: {status}")
+            _log_invoke_csv(env, file_path, exec_arn, status, elapsed)
+            if status != "SUCCEEDED":
+                raise SystemExit(
+                    f"Execution {status}. Check CloudWatch logs for details:\n"
+                    f"  aws logs tail /aws/states/{NAME_PREFIX}-{env}-csv-pipeline "
+                    f"--follow --region {REGION}"
+                )
+        else:
+            _log_invoke_csv(env, file_path, exec_arn, "RUNNING (background)", 0)
+            print(
+                "==> Execution running in background. To check status:\n"
+                f"    aws stepfunctions describe-execution "
+                f"--execution-arn {exec_arn} "
+                f"--query status --output text --region {REGION}"
+            )
+
+    elif pipeline == "pdf":
+        legislation_bucket = f"{NAME_PREFIX}-{env}-legislation-documents"
+        lambda_name = f"{NAME_PREFIX}-{env}-pdf"
+
+        if not file_path:
+            res = c.run(
+                f"aws s3 ls s3://{legislation_bucket}/ --recursive "
+                '--query "Contents[].Key" --output text',
+                hide=True,
+                warn=True,
+            )
+            keys = (
+                [k for k in res.stdout.split() if k.lower().endswith(".pdf")]
+                if res.ok
+                else []
+            )
+            if not keys:
+                raise SystemExit(
+                    f"No PDF files found in s3://{legislation_bucket}/. "
+                    "Upload a PDF or run `uv run fab env.up dev --seed` first."
+                )
+            file_path = keys[0]
+            print(f"==> No --file-path given — using first PDF found: {file_path}")
+
+        import urllib.parse as _urlparse
+
+        event = {
+            "detail": {
+                "bucket": {"name": legislation_bucket},
+                "object": {"key": _urlparse.quote(file_path, safe="")},
+            }
+        }
+        payload = _json.dumps(event)
+        print("==> Invoking Lambda PDF directly")
+        print(f"    function : {lambda_name}")
+        print(f"    bucket   : {legislation_bucket}")
+        print(f"    key      : {file_path}")
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write(payload)
+            payload_path = tmp.name
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as out:
+            out_path = out.name
+
+        try:
+            res = c.run(
+                f"aws lambda invoke "
+                f"--function-name {lambda_name} "
+                f"--payload file://{payload_path} "
+                f"--cli-binary-format raw-in-base64-out "
+                f"--region {REGION} "
+                f"--log-type Tail "
+                f"{out_path}",
+                warn=True,
+            )
+            response = Path(out_path).read_text(encoding="utf-8")
+            print(f"==> Response: {response}")
+        finally:
+            os.unlink(payload_path)
+            os.unlink(out_path)
+
+        status_code = "200" if res.ok else "ERROR"
+        _log_invoke_pdf(env, file_path, lambda_name, status_code)
+        if res.ok:
+            print(
+                "==> Check OpenSearch index pdf_legal_vecs or CloudWatch logs:\n"
+                f"    aws logs tail /aws/lambda/{lambda_name} --follow --region {REGION}"
+            )
+        else:
+            raise SystemExit("Lambda invoke failed. See output above for details.")
+
+    else:
+        raise SystemExit(f"Unknown pipeline '{pipeline}'. Use: csv | pdf")
+
+
+# --------------------------------------------------------------------------- #
+# Activity logging helpers
+# --------------------------------------------------------------------------- #
+_SEP = "─" * 64
+
+
+def _log_write(name: str, lines: "list[str]") -> Path:
+    """Write formatted activity lines to .fab-logs/<name>-<ts>.log and return the path."""
+    LOGS_DIR.mkdir(exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    path = LOGS_DIR / f"{name}-{ts}.log"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _log_invoke_csv(env, file_path, exec_arn, status, elapsed_s):
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        _SEP,
+        f"  lambda.invoke csv  —  {ts}",
+        _SEP,
+        f"  env          : {env}",
+        f"  file_path    : {file_path}",
+        f"  execution    : {exec_arn}",
+        f"  status       : {status}",
+        f"  elapsed      : {elapsed_s:.0f} s",
+        _SEP,
+    ]
+    path = _log_write(f"invoke-csv-{env}", lines)
+    print("\n".join(lines))
+    print(f"  Log saved → {path.relative_to(REPO_ROOT)}")
+
+
+def _log_invoke_pdf(env, file_path, lambda_name, status_code):
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        _SEP,
+        f"  lambda.invoke pdf  —  {ts}",
+        _SEP,
+        f"  env          : {env}",
+        f"  file_path    : {file_path}",
+        f"  lambda       : {lambda_name}",
+        f"  status_code  : {status_code}",
+        _SEP,
+    ]
+    path = _log_write(f"invoke-pdf-{env}", lines)
+    print("\n".join(lines))
+    print(f"  Log saved → {path.relative_to(REPO_ROOT)}")
+
+
+# --------------------------------------------------------------------------- #
+# bedrock.* — model access status
+# --------------------------------------------------------------------------- #
+
+# Models the project uses, grouped by pipeline.
+_BEDROCK_MODELS = {
+    # RAG Agent + CSV pipeline — user-selectable via UI (key → env var → model id)
+    "Lambda API / RAG Agent (selectable)": [
+        "us.anthropic.claude-sonnet-4-6",  # RAG_CLAUDE_MODEL_ID  (default)
+        "us.amazon.nova-pro-v1:0",  # RAG_NOVA_MODEL_ID
+        "deepseek.v3.2",  # RAG_DEEPSEEK_MODEL_ID
+    ],
+    # CSV pipeline annotation
+    "Lambda CSV (annotation + chunking)": [
+        "us.anthropic.claude-sonnet-4-6",  # BEDROCK_MODEL_ID
+    ],
+    # CSV pipeline embeddings
+    "Lambda CSV (embeddings 1024d)": [
+        "cohere.embed-multilingual-v3",  # BEDROCK_EMBED_MODEL_ID
+    ],
+    # PDF pipeline classification
+    "Lambda PDF (classification — Haiku fallback: Sonnet)": [
+        "us.anthropic.claude-sonnet-4-6",  # PDF_HAIKU_MODEL_ID (Haiku 4.5 pending Marketplace sub)
+    ],
+    # PDF pipeline extraction
+    "Lambda PDF (extraction — Sonnet)": [
+        "us.anthropic.claude-sonnet-4-6",  # PDF_CLAUDE_MODEL_ID
+    ],
+    # PDF pipeline embeddings
+    "Lambda PDF (embeddings 1536d — Titan)": [
+        "amazon.titan-embed-text-v2:0",  # PDF_TITAN_MODEL_ID
+    ],
+}
+
+# Minimal converse payload to probe text-generation models.
+_PROBE_CONVERSE_MESSAGES = [{"role": "user", "content": [{"text": "hi"}]}]
+
+# Minimal embed payload to probe embedding models.
+_PROBE_EMBED_COHERE = {"texts": ["hi"], "input_type": "search_query"}
+_PROBE_EMBED_TITAN = {"inputText": "hi"}
+
+
+def _bedrock_probe(model_id: str) -> tuple[bool, str]:
+    """Try a minimal invoke against a Bedrock model. Returns (ok, message)."""
+    import boto3
+    import botocore.exceptions
+
+    client = boto3.client("bedrock-runtime", region_name=REGION)
+    try:
+        if "embed" in model_id:
+            body = _PROBE_EMBED_TITAN if "titan" in model_id else _PROBE_EMBED_COHERE
+            client.invoke_model(
+                modelId=model_id,
+                body=json.dumps(body),
+                contentType="application/json",
+                accept="application/json",
+            )
+        else:
+            client.converse(
+                modelId=model_id,
+                messages=_PROBE_CONVERSE_MESSAGES,
+                inferenceConfig={"maxTokens": 1},
+            )
+        return True, "GRANTED"
+    except botocore.exceptions.ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("AccessDeniedException",):
+            return False, "DENIED — not subscribed in Marketplace"
+        if code in ("ValidationException",):
+            return False, f"DENIED — {exc.response['Error']['Message'][:60]}"
+        return False, f"ERROR ({code})"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"ERROR — {exc}"
+
+
+@task
+def model_access(c):
+    """Check Bedrock model access for every model this project uses.
+
+    Probes each model with a minimal invoke to confirm real runtime access,
+    not just IAM permissions. Models listed in CLAUDE.md under 'Bedrock Models'.
+    If a model shows DENIED, enable it in the AWS Console:
+      Bedrock -> Model access -> Manage model access -> select -> Save changes.
+    """
+    _ensure_aws(c)
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        "",
+        _SEP,
+        f"  Bedrock Model Access — account 586928288932  ({ts})",
+        _SEP,
+    ]
+    col_w = 52
+    lines.append(f"  {'Model':<{col_w}} {'Access'}")
+    lines.append(f"  {'─' * col_w} {'─' * 30}")
+
+    all_ok = True
+    cache: dict[str, tuple[bool, str]] = {}
+    for pipeline, models in _BEDROCK_MODELS.items():
+        lines.append(f"\n  [{pipeline}]")
+        for model_id in models:
+            if model_id not in cache:
+                cache[model_id] = _bedrock_probe(model_id)
+            ok, msg = cache[model_id]
+            if not ok:
+                all_ok = False
+            icon = "✓" if ok else "✗"
+            lines.append(f"  {icon} {model_id:<{col_w - 2}} {msg}")
+
+    lines += [
+        "",
+        "  To enable a denied model:",
+        "    AWS Console → Bedrock → Model access → Manage model access",
+        _SEP,
+        "",
+    ]
+    print("\n".join(lines))
+    log_path = _log_write("bedrock-model-access", lines)
+    print(f"  Log saved → {log_path.relative_to(REPO_ROOT)}")
+    if not all_ok:
+        raise SystemExit(1)
+
+
+# --------------------------------------------------------------------------- #
+# opensearch.* — collection status and index doc counts
+# --------------------------------------------------------------------------- #
+OPENSEARCH_INDICES = ["csv_telemetry_vecs", "pdf_legal_vecs"]
+
+
+def _aoss_get(endpoint: str, path: str) -> dict:
+    """SigV4-signed GET against an AOSS endpoint. Requires boto3 in the venv."""
+    import boto3
+    from botocore.auth import SigV4Auth
+    from botocore.awsrequest import AWSRequest
+    from botocore.credentials import Credentials
+
+    session = boto3.Session()
+    creds: Credentials = session.get_credentials().get_frozen_credentials()
+    url = endpoint.rstrip("/") + path
+    aws_req = AWSRequest(method="GET", url=url)
+    SigV4Auth(creds, "aoss", REGION).add_auth(aws_req)
+    req = urllib.request.Request(url, headers=dict(aws_req.headers), method="GET")
+    with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310
+        return json.loads(resp.read())
+
+
+@task(help={"env": "Environment name (dev|qa|prod|dev-<user>)."})
+def opensearch_status(c, env):
+    """Show OpenSearch Serverless collection status and document count per index.
+
+    Reads the collection endpoint from CloudFormation outputs and queries each
+    index via a SigV4-signed HTTP request (requires boto3 in the venv).
+    """
+    _ensure_aws(c)
+
+    # --- 1. Collection info from AWS CLI ---
+    col_name = f"{NAME_PREFIX}-{env}-vectors"
+    res = c.run(
+        f"aws opensearchserverless list-collections --region {REGION} "
+        f"--collection-filters name={col_name} --output json",
+        hide=True,
+        warn=True,
+    )
+    collections = (
+        json.loads(res.stdout).get("collectionSummaries", []) if res.ok else []
+    )
+
+    # --- 2. Endpoint from CFN outputs (already in endpoints-dev.md) ---
+    outputs = _endpoints_data(c, env)
+    endpoint = next(
+        (o["OutputValue"] for o in outputs if o["OutputKey"] == "OpenSearchEndpoint"),
+        None,
+    )
+
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        "",
+        _SEP,
+        f"  OpenSearch Serverless — {NAME_PREFIX}-{env}  ({ts})",
+        _SEP,
+    ]
+
+    if collections:
+        col = collections[0]
+        lines += [
+            f"  Collection   : {col.get('name')}",
+            f"  Status       : {col.get('status')}",
+            f"  Type         : {col.get('type')}",
+            f"  ARN          : {col.get('arn')}",
+            f"  Endpoint     : {endpoint or '—'}",
+            "",
+        ]
+    else:
+        lines += [f"  Collection '{col_name}' not found or no access.", ""]
+
+    # --- 3. Doc counts per index (SigV4 to AOSS HTTP API) ---
+    if endpoint:
+        lines.append(f"  {'Index':<30} {'Docs':>10}  {'Status'}")
+        lines.append(f"  {'─' * 30} {'─' * 10}  {'─' * 10}")
+        for idx in OPENSEARCH_INDICES:
+            try:
+                data = _aoss_get(endpoint, f"/{idx}/_count")
+                count = data.get("count", "?")
+                lines.append(f"  {idx:<30} {count:>10,}  OK")
+            except Exception as exc:  # noqa: BLE001
+                lines.append(f"  {idx:<30} {'—':>10}  ERROR: {exc}")
+    else:
+        lines.append("  (endpoint not available — run `fab env.up dev` first)")
+
+    lines.append(_SEP)
+    lines.append("")
+    print("\n".join(lines))
+
+    log_path = _log_write(f"opensearch-status-{env}", lines)
+    print(f"  Log saved → {log_path.relative_to(REPO_ROOT)}")
+
+
+# --------------------------------------------------------------------------- #
 # Namespaces
 # --------------------------------------------------------------------------- #
 env = Collection("env")
@@ -654,6 +1594,10 @@ env.add_task(plan)
 env.add_task(down)
 env.add_task(list)
 env.add_task(bootstrap)
+env.add_task(endpoints)
+
+frontend_ns = Collection("frontend")
+frontend_ns.add_task(deploy)
 
 ollama = Collection("ollama")
 ollama.add_task(health_check)
@@ -664,8 +1608,21 @@ ollama.add_task(logs)
 lambda_ns = Collection("lambda")
 lambda_ns.add_task(pull)
 lambda_ns.add_task(build_layer, name="build-layer")
+lambda_ns.add_task(invoke)
+lambda_ns.add_task(set_env, name="set-env")
+lambda_ns.add_task(lambda_logs, name="logs")
+lambda_ns.add_task(lambda_status, name="status")
+
+bedrock_ns = Collection("bedrock")
+bedrock_ns.add_task(model_access, name="model-access")
+
+opensearch_ns = Collection("opensearch")
+opensearch_ns.add_task(opensearch_status, name="status")
 
 ns = Collection()
 ns.add_collection(env)
+ns.add_collection(frontend_ns)
 ns.add_collection(ollama)
 ns.add_collection(lambda_ns)
+ns.add_collection(bedrock_ns)
+ns.add_collection(opensearch_ns)

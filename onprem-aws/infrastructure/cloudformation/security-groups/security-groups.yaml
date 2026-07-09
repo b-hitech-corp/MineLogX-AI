@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: MineLogX LLM security group — parity with the Terraform security_groups module.
+Description: MineLogX - Security group for the EC2 Ollama fallback LLM instance.
 
 Parameters:
   NamePrefix:

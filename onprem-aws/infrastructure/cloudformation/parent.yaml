@@ -1,9 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  MineLogX environment — single parent stack that composes all layers as nested
-  stacks. Cross-layer values are passed parent-side (Outputs -> Parameters), so
-  there are no account-global Exports. Deploy with `aws cloudformation package`
-  (uploads children to S3) then `deploy` — one stack: minelogx-<env>.
+  MineLogX - Parent stack that composes all nested stacks for an environment.
+  Cross-layer values flow via Outputs->Parameters (no account-global Exports).
+  Deploy with: uv run fab env.up <env>
 
 Metadata:
   cfn-lint:
@@ -23,6 +22,25 @@ Parameters:
     Type: String
     AllowedValues: ['true', 'false']
     Default: 'false'
+
+  # Bring-your-own-VPC - pass when account is at the 5-VPC limit.
+  # Leave empty to create a fresh VPC (default for new accounts).
+  ExistingVpcId:
+    Type: String
+    Default: ''
+  ExistingPublicSubnet1Id:
+    Type: String
+    Default: ''
+  ExistingPublicSubnet2Id:
+    Type: String
+    Default: ''
+  ExistingPrivateSubnet1Id:
+    Type: String
+    Default: ''
+  ExistingPrivateSubnet2Id:
+    Type: String
+    Default: ''
+
   BuildCsvLayer:
     Type: String
     AllowedValues: ['true', 'false']
@@ -47,6 +65,11 @@ Resources:
         NamePrefix: !Ref NamePrefix
         Environment: !Ref Environment
         ProjectApnId: !Ref ProjectApnId
+        ExistingVpcId: !Ref ExistingVpcId
+        ExistingPublicSubnet1Id: !Ref ExistingPublicSubnet1Id
+        ExistingPublicSubnet2Id: !Ref ExistingPublicSubnet2Id
+        ExistingPrivateSubnet1Id: !Ref ExistingPrivateSubnet1Id
+        ExistingPrivateSubnet2Id: !Ref ExistingPrivateSubnet2Id
 
   SecurityGroups:
     Type: AWS::CloudFormation::Stack
@@ -147,7 +170,7 @@ Resources:
         ApiRoleArn: !GetAtt Iam.Outputs.ApiRoleArn
         CsvRoleArn: !GetAtt Iam.Outputs.CsvRoleArn
         PdfRoleArn: !GetAtt Iam.Outputs.PdfRoleArn
-        # Strip the scheme — the pipeline OPENSEARCH_HOST wants host only.
+        # Strip the scheme - the pipeline OPENSEARCH_HOST wants host only.
         OpenSearchHost: !Select [1, !Split ['https://', !GetAtt OpenSearch.Outputs.CollectionEndpoint]]
         GuardrailId: !GetAtt Guardrails.Outputs.GuardrailId
         TelemetryBucket: !GetAtt S3.Outputs.TelemetryDataBucket
@@ -183,6 +206,8 @@ Outputs:
     Value: !GetAtt Network.Outputs.VpcId
   ApiId:
     Value: !GetAtt Apigw.Outputs.RestApiId
+  AmplifyAppId:
+    Value: !GetAtt Amplify.Outputs.AppId
   AmplifyDomain:
     Value: !GetAtt Amplify.Outputs.DefaultDomain
   OpenSearchEndpoint:

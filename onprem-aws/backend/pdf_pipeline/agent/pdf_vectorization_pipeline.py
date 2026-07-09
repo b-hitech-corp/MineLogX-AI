@@ -4,8 +4,8 @@ pdf_vectorization_pipeline.py
 Top-level orchestrator for the PDF Vectorization Pipeline.
 
 Coordinates all pipeline modules into a single run_pipeline(bucket, key) call.
-Also exports lambda_handler() for deployment as an EventBridge-triggered Lambda
-(S3 PutObject → EventBridge Rule → Lambda).
+The Lambda entrypoint lives in pdf_pipeline/lambda_function.py, which parses
+the EventBridge event and delegates here via run_pipeline().
 
 Full orchestration flow
 -----------------------
@@ -26,15 +26,13 @@ Full orchestration flow
 
 5. Return PdfPipelineResult
 
-Lambda entrypoint
------------------
-lambda_handler(event, context)
-  event: EventBridge event from S3 PutObject rule
-    event["detail"]["bucket"]["name"] → bucket
-    event["detail"]["object"]["key"]  → key (URL-encoded)
+Public API
+----------
+run_pipeline(bucket, key, config) → PdfPipelineResult
+batch_run_pipeline(items, config) → list[PdfPipelineResult]
 
-Environment variables consumed by lambda_handler
--------------------------------------------------
+Environment variables (read by lambda_function.py and forwarded via PdfPipelineConfig)
+---------------------------------------------------------------------------------------
 AWS_REGION            — default "us-east-1"
 OPENSEARCH_HOST       — required: AOSS collection endpoint
 PDF_OPENSEARCH_INDEX  — default "pdf_legal_vecs"
@@ -46,12 +44,9 @@ PDF_TITAN_MODEL_ID    — optional: override Titan Embed model ID
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import time
-import urllib.parse
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any
 
 import boto3
@@ -629,61 +624,3 @@ def batch_run_pipeline(
         len(all_results),
     )
     return all_results
-
-
-# ---------------------------------------------------------------------------
-# Lambda handler
-# ---------------------------------------------------------------------------
-
-
-def lambda_handler(event: dict, context: Any) -> dict:
-    """AWS Lambda entrypoint for EventBridge S3 PutObject events.
-
-    EventBridge rule must be configured to forward S3 PutObject events
-    with detail-type "Object Created" from the target S3 bucket.
-
-    Expected event structure:
-        {
-            "detail": {
-                "bucket": {"name": "<bucket>"},
-                "object": {"key": "<url-encoded-key>"}
-            }
-        }
-    """
-    try:
-        detail = event.get("detail", {})
-        bucket = detail.get("bucket", {}).get("name", "")
-        raw_key = detail.get("object", {}).get("key", "")
-        key = urllib.parse.unquote_plus(raw_key)
-
-        if not bucket or not key:
-            logger.error(
-                "Invalid event: missing bucket or key. Event: %s", json.dumps(event)
-            )
-            return {"statusCode": 400, "body": "Invalid event structure"}
-
-        if not key.lower().endswith(".pdf"):
-            logger.info("Skipping non-PDF object: %s", key)
-            return {"statusCode": 200, "body": "Not a PDF — skipped"}
-
-        cfg = PdfPipelineConfig(
-            aws_region=os.environ.get("AWS_REGION", "us-east-1"),
-            opensearch_host=os.environ.get("OPENSEARCH_HOST", ""),
-            opensearch_index=os.environ.get("PDF_OPENSEARCH_INDEX", "pdf_legal_vecs"),
-            artifact_bucket=os.environ.get("PDF_ARTIFACT_BUCKET", bucket),
-        )
-
-        result = run_pipeline(bucket=bucket, key=key, config=cfg)
-
-        status_code = 200 if result.overall_success else 207
-        return {
-            "statusCode": status_code,
-            "body": json.dumps(asdict(result), default=str),
-        }
-
-    except Exception as exc:
-        logger.error("Lambda handler unhandled exception: %s", exc, exc_info=True)
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"error": str(exc)}),
-        }
