@@ -101,8 +101,43 @@ class PdfPipelineConfig:
             "us.anthropic.claude-sonnet-4-6",
         )
     )
-    claude_max_tokens: int = 8192
+    # Ceiling is 65000 (Converse inferenceConfig.maxTokens); raised from 8192,
+    # which was truncating dense multi-column legal pages mid-tool-call.
+    claude_max_tokens: int = 16000
     citations_enabled: bool = True
+
+    # ------------------------------------------------------------------
+    # Bedrock client — Claude extraction (dedicated client, separate from
+    # the shared client used for Haiku classification and Titan embedding)
+    # ------------------------------------------------------------------
+    bedrock_connect_timeout_s: float = 10.0
+    # Default botocore read_timeout is 60s; a single legitimate long Converse
+    # call was being retried ~5x by botocore into a ~300s failure. Raised here
+    # and paired with max_attempts=1 so retries only happen in app code (below).
+    bedrock_read_timeout_s: float = 300.0
+    bedrock_max_pool_connections: int = 10
+    # How much of the Lambda's remaining time to hold back as a buffer when
+    # bounding a call's read timeout by the invocation deadline (Fix 4).
+    bedrock_deadline_safety_margin_s: float = 10.0
+
+    # ------------------------------------------------------------------
+    # Claude extraction call — typed retry (app-level; see bedrock_read_timeout_s)
+    # ------------------------------------------------------------------
+    claude_call_max_retries: int = 3
+    claude_call_retry_base_s: float = 2.0
+    claude_retryable_error_codes: list = field(
+        default_factory=lambda: [
+            "ThrottlingException",
+            "ServiceUnavailableException",
+            "InternalServerException",
+            "ModelTimeoutException",
+        ]
+    )
+    # Substrings (case-insensitive) identifying a ValidationException as a
+    # max_tokens truncation rather than a genuine validation failure.
+    claude_truncation_error_markers: list = field(
+        default_factory=lambda: ["the model returned the following"]
+    )
 
     # ------------------------------------------------------------------
     # Claude Haiku — classifier model (Signal 3)

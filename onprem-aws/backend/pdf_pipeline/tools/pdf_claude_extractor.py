@@ -30,17 +30,33 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 import boto3
+from botocore.config import Config as BotoConfig
+from botocore.exceptions import (
+    ClientError,
+    ConnectTimeoutError,
+    EndpointConnectionError,
+    ReadTimeoutError,
+)
 
 from pdf_pipeline.config.pdf_pipeline_settings import PdfPipelineConfig
 from pdf_pipeline.tools.prompts import BASE_EXTRACTION_PROMPT, CARRY_OVER_TEMPLATE
 from pdf_pipeline.tools.tool_schemas import EXTRACT_TOOL
 
 logger = logging.getLogger(__name__)
+
+
+class MaxTokensTruncationError(Exception):
+    """Claude's tool response was truncated at the max_tokens ceiling.
+
+    Not retried — an identical request would truncate again the same way.
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -174,12 +190,30 @@ def _extract_response_text_and_citations(
 # ---------------------------------------------------------------------------
 
 
+def _effective_read_timeout(
+    config: PdfPipelineConfig, deadline_ts: float | None
+) -> float | None:
+    """Bound the Bedrock read timeout by the Lambda invocation deadline.
+
+    Returns None when there is no deadline to respect (the static
+    config.bedrock_read_timeout_s applies unchanged in that case).
+    """
+    if deadline_ts is None:
+        return None
+    remaining = deadline_ts - time.time()
+    return max(
+        1.0,
+        min(config.bedrock_read_timeout_s, remaining - config.bedrock_deadline_safety_margin_s),
+    )
+
+
 def _call_claude(
     pdf_bytes: bytes,
     doc_name: str,
     context_note: str,
     config: PdfPipelineConfig,
     bedrock_client: Any,
+    deadline_ts: float | None = None,
 ) -> tuple[list[dict], int, int]:
     """Single Bedrock Converse call using forced tool use.
 
@@ -189,6 +223,11 @@ def _call_claude(
     (Citations are not used on this path: forcing a tool suppresses text generation, and
     citations are a property of generated text, so the two cannot combine. Page-level
     provenance is retained via each section's page_start/page_end.)
+
+    If deadline_ts is set and less time remains than bedrock_read_timeout_s + the
+    configured safety margin, this call is issued on a fresh client whose read
+    timeout is tightened to what's actually left — so a call that can't finish
+    in time fails cleanly instead of running until the Lambda is hard-killed.
     """
     prompt = _build_extraction_prompt(context_note)
 
@@ -203,7 +242,24 @@ def _call_claude(
         {"text": prompt},
     ]
 
-    response = bedrock_client.converse(
+    call_client = bedrock_client
+    effective_timeout = _effective_read_timeout(config, deadline_ts)
+    if effective_timeout is not None and effective_timeout < config.bedrock_read_timeout_s:
+        logger.info(
+            "Deadline-bounded Bedrock read timeout for this call: %.1fs", effective_timeout
+        )
+        call_client = boto3.client(
+            "bedrock-runtime",
+            region_name=config.aws_region,
+            config=BotoConfig(
+                connect_timeout=config.bedrock_connect_timeout_s,
+                read_timeout=effective_timeout,
+                retries={"max_attempts": 1},
+                max_pool_connections=config.bedrock_max_pool_connections,
+            ),
+        )
+
+    response = call_client.converse(
         modelId=config.claude_model_id,
         messages=[{"role": "user", "content": content_blocks}],
         toolConfig={
@@ -228,6 +284,81 @@ def _call_claude(
         output_tokens,
     )
     return raw_sections, input_tokens, output_tokens
+
+
+def _classify_error(exc: Exception, config: PdfPipelineConfig) -> str:
+    """Classify an exception from a Claude call for the retry wrapper.
+
+    Returns "truncation" (max_tokens truncation — raise MaxTokensTruncationError,
+    never retry), "retryable" (transient — backoff and retry), or "fatal"
+    (anything else — propagate on the first attempt).
+    """
+    if isinstance(exc, ClientError):
+        error = exc.response.get("Error", {})
+        code = error.get("Code", "")
+        message = error.get("Message", "").lower()
+        if code == "ValidationException" and any(
+            marker in message for marker in config.claude_truncation_error_markers
+        ):
+            return "truncation"
+        if code in config.claude_retryable_error_codes:
+            return "retryable"
+        return "fatal"
+    if isinstance(exc, (ReadTimeoutError, ConnectTimeoutError, EndpointConnectionError)):
+        return "retryable"
+    return "fatal"
+
+
+def _call_claude_with_retry(
+    pdf_bytes: bytes,
+    doc_name: str,
+    context_note: str,
+    config: PdfPipelineConfig,
+    bedrock_client: Any,
+    deadline_ts: float | None = None,
+) -> tuple[list[dict], int, int]:
+    """Wrap _call_claude with typed retry/backoff (mirrors pdf_titan_embedder.py).
+
+    Retryable errors (throttling, transient service errors, connection/read
+    timeouts) get exponential backoff with jitter, up to
+    config.claude_call_max_retries attempts. A max_tokens truncation raises
+    MaxTokensTruncationError immediately — retrying an identical request would
+    truncate again. Any other error propagates on the first attempt.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(config.claude_call_max_retries):
+        try:
+            return _call_claude(
+                pdf_bytes=pdf_bytes,
+                doc_name=doc_name,
+                context_note=context_note,
+                config=config,
+                bedrock_client=bedrock_client,
+                deadline_ts=deadline_ts,
+            )
+        except Exception as exc:
+            kind = _classify_error(exc, config)
+            if kind == "truncation":
+                raise MaxTokensTruncationError(str(exc)) from exc
+            if kind != "retryable":
+                raise
+            wait = config.claude_call_retry_base_s * (2**attempt) + random.uniform(
+                0, config.claude_call_retry_base_s
+            )
+            logger.warning(
+                "Claude call retryable error (attempt %d/%d, type=%s): %s — retrying in %.1fs",
+                attempt + 1,
+                config.claude_call_max_retries,
+                type(exc).__name__,
+                exc,
+                wait,
+            )
+            time.sleep(wait)
+            last_exc = exc
+
+    raise RuntimeError(
+        f"Claude call failed after {config.claude_call_max_retries} retries"
+    ) from last_exc
 
 
 def _extract_tool_sections(response: dict) -> list[dict]:
@@ -306,6 +437,7 @@ def extract_with_claude(
     page_start_offset: int = 1,
     batch_index: int = 0,
     context_note: str = "",
+    deadline_ts: float | None = None,
 ) -> ClaudeExtractionResult:
     """Extract semantically structured sections using Claude Sonnet 4 native PDF.
 
@@ -325,9 +457,15 @@ def extract_with_claude(
             within the original document. Used to adjust page numbers in output.
         batch_index: Mini-batch index (0 for single-call path).
         context_note: Carry-over context from the previous batch (empty for batch 0).
+        deadline_ts: Optional Lambda invocation deadline (time.time()-based) used
+            to bound this call's effective read timeout. None disables bounding.
 
     Returns:
         ClaudeExtractionResult with raw_sections and token usage.
+
+    Raises:
+        MaxTokensTruncationError: propagates unhandled — the caller must decide
+            how to handle a truncated batch (e.g. skip vs. abort vs. re-split).
     """
     bedrock = bedrock_client or boto3.client(
         "bedrock-runtime", region_name=config.aws_region
@@ -349,13 +487,16 @@ def extract_with_claude(
     output_tokens = 0
 
     try:
-        raw_sections, input_tokens, output_tokens = _call_claude(
+        raw_sections, input_tokens, output_tokens = _call_claude_with_retry(
             pdf_bytes=pdf_bytes,
             doc_name=doc_name,
             context_note=context_note,
             config=config,
             bedrock_client=bedrock,
+            deadline_ts=deadline_ts,
         )
+    except MaxTokensTruncationError:
+        raise
     except Exception as exc:
         error_msg = f"Claude call failed for batch {batch_index}: {exc}"
         logger.error(error_msg, exc_info=True)
