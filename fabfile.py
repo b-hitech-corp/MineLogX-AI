@@ -144,6 +144,57 @@ SSH_USER = "ubuntu"
 
 
 # --------------------------------------------------------------------------- #
+# Terminal color helpers (ANSI — supported by Git Bash, macOS, Linux terminals)
+# --------------------------------------------------------------------------- #
+_ANSI_RESET = "\033[0m"
+_ANSI_GREEN = "\033[32m"
+_ANSI_YELLOW = "\033[33m"
+_ANSI_RED = "\033[31m"
+_ANSI_BOLD = "\033[1m"
+_ANSI_DIM = "\033[2m"
+_ANSI_CYAN = "\033[36m"
+
+# Detect if the terminal supports color (disable in CI or when piped).
+_COLOR = os.environ.get("NO_COLOR") is None and os.environ.get("TERM") != "dumb"
+
+
+def _green(s):
+    return f"{_ANSI_GREEN}{s}{_ANSI_RESET}" if _COLOR else s
+
+
+def _yellow(s):
+    return f"{_ANSI_YELLOW}{s}{_ANSI_RESET}" if _COLOR else s
+
+
+def _red(s):
+    return f"{_ANSI_RED}{s}{_ANSI_RESET}" if _COLOR else s
+
+
+def _bold(s):
+    return f"{_ANSI_BOLD}{s}{_ANSI_RESET}" if _COLOR else s
+
+
+def _dim(s):
+    return f"{_ANSI_DIM}{s}{_ANSI_RESET}" if _COLOR else s
+
+
+def _cyan(s):
+    return f"{_ANSI_CYAN}{s}{_ANSI_RESET}" if _COLOR else s
+
+
+def _ok(label=""):
+    return _green(f"OK  {label}".strip())
+
+
+def _warn(label=""):
+    return _yellow(f"WARN {label}".strip())
+
+
+def _err(label=""):
+    return _red(f"ERR  {label}".strip())
+
+
+# --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
 def _is_ephemeral(env):
@@ -1051,19 +1102,26 @@ def _endpoints_data(c, env):
 def _show_and_save_endpoints(env, outputs):
     """Pretty-print CFN outputs and write endpoints-<env>.md to the repo root."""
     import datetime as _dt
+    from tabulate import tabulate as _tabulate
 
-    width = max(len(o["OutputKey"]) for o in outputs) + 2
+    rows = []
+    for o in outputs:
+        key = o["OutputKey"]
+        val = o["OutputValue"]
+        # Color URLs cyan
+        display_val = _cyan(val) if val.startswith("http") else val
+        rows.append([key, display_val])
+
+    table = _tabulate(
+        rows, headers=["Resource", "Value"], tablefmt="simple", disable_numparse=True
+    )
+
     sep = "─" * 60
     print(f"\n{sep}")
     print(f"  Endpoints — {NAME_PREFIX}-{env}  ({REGION})")
     print(sep)
-    for o in outputs:
-        key = o["OutputKey"]
-        val = o["OutputValue"]
-        desc = o.get("Description", "")
-        print(f"  {key:<{width}} {val}")
-        if desc:
-            print(f"  {'':>{width}} ↳ {desc}")
+    for line in table.splitlines():
+        print(f"  {line}")
     print(f"{sep}\n")
 
     md_path = REPO_ROOT / f"endpoints-{env}.md"
@@ -1268,9 +1326,10 @@ def lambda_status(c, env):
         ),
         "force": "For csv: re-ingest even if the file was already processed.",
         "wait": "Block until the execution completes and print the final status.",
+        "async_": "For pdf: fire-and-forget (InvocationType=Event). Returns 202 immediately; Lambda processes in background. Use for large PDFs that exceed the CLI read timeout.",
     },
 )
-def invoke(c, pipeline, env, file_path=None, force=False, wait=False):
+def invoke(c, pipeline, env, file_path=None, force=False, wait=False, async_=False):
     """Invoke the csv or pdf pipeline manually without waiting for the scheduler.
 
     csv — starts a Step Functions execution with the given S3 key from the
@@ -1402,10 +1461,12 @@ def invoke(c, pipeline, env, file_path=None, force=False, wait=False):
             }
         }
         payload = _json.dumps(event)
+        invocation_type = "Event" if async_ else "RequestResponse"
         print("==> Invoking Lambda PDF directly")
-        print(f"    function : {lambda_name}")
-        print(f"    bucket   : {legislation_bucket}")
-        print(f"    key      : {file_path}")
+        print(f"    function         : {lambda_name}")
+        print(f"    bucket           : {legislation_bucket}")
+        print(f"    key              : {file_path}")
+        print(f"    invocation_type  : {invocation_type}")
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"
@@ -1417,23 +1478,27 @@ def invoke(c, pipeline, env, file_path=None, force=False, wait=False):
             out_path = out.name
 
         try:
+            extra = "--log-type Tail" if not async_ else "--invocation-type Event"
             res = c.run(
                 f"aws lambda invoke "
                 f"--function-name {lambda_name} "
                 f"--payload file://{payload_path} "
                 f"--cli-binary-format raw-in-base64-out "
                 f"--region {REGION} "
-                f"--log-type Tail "
+                f"{extra} "
                 f"{out_path}",
                 warn=True,
             )
-            response = Path(out_path).read_text(encoding="utf-8")
-            print(f"==> Response: {response}")
+            if not async_:
+                response = Path(out_path).read_text(encoding="utf-8")
+                print(f"==> Response: {response}")
+            else:
+                print("==> Fired async (202). Lambda processing in background.")
         finally:
             os.unlink(payload_path)
             os.unlink(out_path)
 
-        status_code = "200" if res.ok else "ERROR"
+        status_code = "202" if async_ else ("200" if res.ok else "ERROR")
         _log_invoke_pdf(env, file_path, lambda_name, status_code)
         if res.ok:
             print(
@@ -1454,16 +1519,20 @@ def invoke(c, pipeline, env, file_path=None, force=False, wait=False):
         "env": "Deployment environment (e.g. dev).",
         "force": "For csv: re-ingest even if already processed.",
         "parallel": "Launch all executions concurrently instead of waiting for each one (csv only).",
+        "async_": "For pdf: fire-and-forget all files (InvocationType=Event). Returns 202 immediately per file. Use for large PDFs that exceed the CLI read timeout.",
+        "verbose": "Print the full JSON response for each PDF invocation (pdf pipeline only).",
     },
 )
-def invoke_all(c, pipeline, env, force=False, parallel=False):
+def invoke_all(
+    c, pipeline, env, force=False, parallel=False, async_=False, verbose=False
+):
     """Invoke the csv or pdf pipeline for EVERY file in the S3 bucket.
 
     csv — starts one Step Functions execution per CSV key found in the
           telemetry bucket and waits for each to complete (unless --parallel).
 
-    pdf — invokes Lambda PDF sequentially for each PDF key found in the
-          legislation bucket, waiting for each invocation to return.
+    pdf — invokes Lambda PDF for each PDF key. Use --async to fire all without
+          waiting (recommended for large PDFs that exceed the CLI read timeout).
     """
     import json as _json
     import time as _time
@@ -1530,8 +1599,9 @@ def invoke_all(c, pipeline, env, force=False, parallel=False):
                     _time.sleep(15)
                 elapsed = _time.monotonic() - t0
                 _log_invoke_csv(env, key, exec_arn, status, elapsed)
-                icon = "✓" if status == "SUCCEEDED" else "✗"
-                print(f"    {icon} {status} ({elapsed:.0f}s) — {key}")
+                icon = _green("✓") if status == "SUCCEEDED" else _red("✗")
+                status_label = _green(status) if status == "SUCCEEDED" else _red(status)
+                print(f"    {icon} {status_label} {_dim(f'({elapsed:.0f}s)')} — {key}")
                 if status != "SUCCEEDED":
                     print(
                         f"      Check: aws logs tail /aws/states/{NAME_PREFIX}-{env}-csv-pipeline --follow --region {REGION}"
@@ -1553,15 +1623,21 @@ def invoke_all(c, pipeline, env, force=False, parallel=False):
                     )
                     status = sr.stdout.strip()
                     if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
-                        icon = "✓" if status == "SUCCEEDED" else "✗"
-                        print(f"    {icon} {status} — {key}")
+                        icon = _green("✓") if status == "SUCCEEDED" else _red("✗")
+                        label = (
+                            _green(status) if status == "SUCCEEDED" else _red(status)
+                        )
+                        print(f"    {icon} {label} — {key}")
                     else:
                         still.append((key, exec_arn))
                 pending = still
                 if pending:
-                    print(f"    {len(pending)} still running — polling in 15 s...")
+                    print(
+                        _yellow(f"    {len(pending)} still running")
+                        + " — polling in 15 s..."
+                    )
                     _time.sleep(15)
-            print("==> All executions finished.")
+            print(_green("==> All executions finished."))
 
     elif pipeline == "pdf":
         import urllib.parse as _urlparse
@@ -1586,7 +1662,8 @@ def invoke_all(c, pipeline, env, force=False, parallel=False):
                 "Upload PDFs or run `uv run fab env.up dev --seed` first."
             )
 
-        print(f"==> Found {len(keys)} PDF file(s) — invoking sequentially")
+        mode_label = "async (fire-and-forget)" if async_ else "sequential"
+        print(f"==> Found {len(keys)} PDF file(s) — invoking {mode_label}")
         failed = []
         for key in keys:
             event = {
@@ -1604,35 +1681,54 @@ def invoke_all(c, pipeline, env, force=False, parallel=False):
             with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as out:
                 out_path = out.name
             try:
+                extra = "--invocation-type Event" if async_ else "--log-type Tail"
                 r = c.run(
                     f"aws lambda invoke "
                     f"--function-name {lambda_name} "
                     f"--payload file://{payload_path} "
                     f"--cli-binary-format raw-in-base64-out "
                     f"--region {REGION} "
-                    f"--log-type Tail "
+                    f"{extra} "
                     f"{out_path}",
                     warn=True,
                 )
-                icon = "✓" if r.ok else "✗"
-                print(f"    {icon} {key}")
+                icon = _green("✓") if r.ok else _red("✗")
+                suffix = _dim(" (async)") if async_ else ""
+                print(f"    {icon} {key}{suffix}")
+                if not async_ and verbose and r.ok:
+                    try:
+                        response_text = Path(out_path).read_text(encoding="utf-8")
+                        print(_dim(f"      response: {response_text}"))
+                    except Exception:
+                        pass
                 if not r.ok:
                     failed.append(key)
-                _log_invoke_pdf(env, key, lambda_name, "200" if r.ok else "ERROR")
+                status = "202" if (async_ and r.ok) else ("200" if r.ok else "ERROR")
+                _log_invoke_pdf(env, key, lambda_name, status)
             finally:
                 os.unlink(payload_path)
                 os.unlink(out_path)
 
         if failed:
-            print(f"\n==> {len(failed)} file(s) failed:")
+            print(f"\n==> {_red(str(len(failed)) + ' file(s) failed:')}")
             for f in failed:
-                print(f"      {f}")
+                print(f"      {_yellow(f)}")
             print(
-                f"    Check: aws logs tail /aws/lambda/{lambda_name} --follow --region {REGION}"
+                _dim(
+                    f"    Check: aws logs tail /aws/lambda/{lambda_name} --follow --region {REGION}"
+                )
             )
         else:
-            print(f"\n==> All {len(keys)} PDF(s) processed successfully.")
-            print("    Check OpenSearch index pdf_legal_vecs for ingested documents.")
+            if async_:
+                print(
+                    _green(f"\n==> All {len(keys)} PDF(s) fired async.")
+                    + _dim(" Lambda processing in background.")
+                )
+            else:
+                print(_green(f"\n==> All {len(keys)} PDF(s) processed successfully."))
+            print(
+                _dim(f"    Monitor: uv run fab lambda.pdf-async-status {env} --follow")
+            )
 
     else:
         raise SystemExit(f"Unknown pipeline '{pipeline}'. Use: csv | pdf")
@@ -1763,8 +1859,8 @@ def _bedrock_probe(model_id: str) -> tuple[bool, str]:
         return False, f"ERROR — {exc}"
 
 
-@task
-def model_access(c):
+@task(help={"verbose": "Add a Notes column with extra info per model."})
+def model_access(c, verbose=False):
     """Check Bedrock model access for every model this project uses.
 
     Probes each model with a minimal invoke to confirm real runtime access,
@@ -1772,40 +1868,67 @@ def model_access(c):
     If a model shows DENIED, enable it in the AWS Console:
       Bedrock -> Model access -> Manage model access -> select -> Save changes.
     """
+    from tabulate import tabulate as _tabulate
+
     _ensure_aws(c)
     ts = datetime.datetime.now().isoformat(timespec="seconds")
-    lines = [
-        "",
-        _SEP,
-        f"  Bedrock Model Access — account 586928288932  ({ts})",
-        _SEP,
-    ]
-    col_w = 52
-    lines.append(f"  {'Model':<{col_w}} {'Access'}")
-    lines.append(f"  {'─' * col_w} {'─' * 30}")
 
     all_ok = True
     cache: dict[str, tuple[bool, str]] = {}
+    rows = []
     for pipeline, models in _BEDROCK_MODELS.items():
-        lines.append(f"\n  [{pipeline}]")
         for model_id in models:
             if model_id not in cache:
                 cache[model_id] = _bedrock_probe(model_id)
             ok, msg = cache[model_id]
             if not ok:
                 all_ok = False
-            icon = "✓" if ok else "✗"
-            lines.append(f"  {icon} {model_id:<{col_w - 2}} {msg}")
+            if verbose:
+                rows.append([model_id, pipeline, msg])
+            else:
+                rows.append([model_id, pipeline, msg])
 
-    lines += [
+    headers = (
+        ["Model", "Pipeline", "Status"]
+        if not verbose
+        else ["Model", "Pipeline", "Status"]
+    )
+    table = _tabulate(rows, headers=headers, tablefmt="simple", disable_numparse=True)
+
+    # Colorize status words in the rendered table
+    table = table.replace("GRANTED", _green("GRANTED"))
+    table = table.replace("DENIED", _red("DENIED"))
+    table = table.replace("ERROR", _red("ERROR"))
+
+    print()
+    print(_bold(f"  Bedrock Model Access — account 586928288932  ({ts})"))
+    print()
+    # Indent each line
+    for line in table.splitlines():
+        print(f"  {line}")
+    print()
+    print("  To enable a denied model:")
+    print("    AWS Console → Bedrock → Model access → Manage model access")
+    print()
+
+    plain_lines = [
+        "",
+        _SEP,
+        f"  Bedrock Model Access — account 586928288932  ({ts})",
+        _SEP,
+        *[
+            f"  {line}"
+            for line in _tabulate(
+                rows, headers=headers, tablefmt="simple", disable_numparse=True
+            ).splitlines()
+        ],
         "",
         "  To enable a denied model:",
         "    AWS Console → Bedrock → Model access → Manage model access",
         _SEP,
         "",
     ]
-    print("\n".join(lines))
-    log_path = _log_write("bedrock-model-access", lines)
+    log_path = _log_write("bedrock-model-access", plain_lines)
     print(f"  Log saved → {log_path.relative_to(REPO_ROOT)}")
     if not all_ok:
         raise SystemExit(1)
@@ -1885,15 +2008,32 @@ def opensearch_status(c, env):
 
     # --- 3. Doc counts per index (SigV4 to AOSS HTTP API) ---
     if endpoint:
-        lines.append(f"  {'Index':<30} {'Docs':>10}  {'Status'}")
-        lines.append(f"  {'─' * 30} {'─' * 10}  {'─' * 10}")
+        from tabulate import tabulate as _tabulate
+
+        idx_rows = []
         for idx in OPENSEARCH_INDICES:
             try:
                 data = _aoss_get(endpoint, f"/{idx}/_count")
-                count = data.get("count", "?")
-                lines.append(f"  {idx:<30} {count:>10,}  OK")
+                count = (
+                    f"{data.get('count', '?'):,}"
+                    if isinstance(data.get("count"), int)
+                    else str(data.get("count", "?"))
+                )
+                idx_rows.append([idx, count, "ACTIVE"])
             except Exception as exc:  # noqa: BLE001
-                lines.append(f"  {idx:<30} {'—':>10}  ERROR: {exc}")
+                idx_rows.append([idx, "—", f"ERROR: {exc}"])
+
+        table = _tabulate(
+            idx_rows,
+            headers=["Index", "Docs", "Status"],
+            tablefmt="simple",
+            disable_numparse=True,
+        )
+        table = table.replace("ACTIVE", _green("ACTIVE")).replace(
+            "ERROR", _red("ERROR")
+        )
+        for line in table.splitlines():
+            lines.append(f"  {line}")
     else:
         lines.append("  (endpoint not available — run `fab env.up dev` first)")
 
@@ -1903,6 +2043,276 @@ def opensearch_status(c, env):
 
     log_path = _log_write(f"opensearch-status-{env}", lines)
     print(f"  Log saved → {log_path.relative_to(REPO_ROOT)}")
+
+
+@task(
+    positional=["env"],
+    help={
+        "env": "Deployment environment (e.g. dev).",
+        "last": "How many minutes back to look (default: 60).",
+        "follow": "Keep polling every 15 s until interrupted (Ctrl+C).",
+        "verbose": "Show full error messages and raw Lambda duration/memory stats.",
+    },
+)
+def pdf_async_status(c, env, last=60, follow=False, verbose=False):
+    """Show status of async PDF Lambda invocations (fired with --async flag).
+
+    Queries CloudWatch Logs Insights for result summaries from the PDF Lambda
+    log group, giving a per-file view of what finished, what errored, and what
+    is still in-flight.
+    """
+    import json as _json
+    import time as _time
+
+    _ensure_aws(c)
+
+    lambda_name = f"{NAME_PREFIX}-{env}-pdf"
+    log_group = f"/aws/lambda/{lambda_name}"
+
+    # Timestamps computed in Python — avoids $(date ...) portability issues on Windows
+    def _timestamps():
+        now = int(_time.time())
+        return now - last * 60, now
+
+    def _run_query(query_str):
+        t_start, t_end = _timestamps()
+        # Write query to temp file to avoid shell quoting issues on Windows
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as qtmp:
+            qtmp.write(query_str)
+            qtmp_path = qtmp.name
+        try:
+            res = c.run(
+                f"aws logs start-query "
+                f"--log-group-name {log_group} "
+                f"--start-time {t_start} "
+                f"--end-time {t_end} "
+                f"--query-string file://{qtmp_path} "
+                f"--region {REGION} --output json",
+                hide=True,
+                warn=True,
+            )
+        finally:
+            os.unlink(qtmp_path)
+        if not res.ok:
+            return None
+        query_id = _json.loads(res.stdout).get("queryId")
+        if not query_id:
+            return None
+        for _ in range(30):
+            r = c.run(
+                f"aws logs get-query-results --query-id {query_id} "
+                f"--region {REGION} --output json",
+                hide=True,
+            )
+            data = _json.loads(r.stdout)
+            if data.get("status") in ("Complete", "Failed", "Cancelled"):
+                return data.get("results", [])
+            _time.sleep(1)
+        return None
+
+    def _parse(results):
+        # Group rows by RequestId to correlate errors with REPORT lines
+        by_req: dict[str, list[dict]] = {}
+        for row in results:
+            flds = {f["field"]: f["value"] for f in row}
+            msg = flds.get("@message", "")
+            ts = flds.get("@timestamp", "")[:19]
+            req = flds.get("@requestId", "") or ""
+            # Extract requestId from Lambda log prefix if not a direct field
+            if not req and "\t" in msg:
+                parts = msg.split("\t")
+                if len(parts) >= 2:
+                    req = parts[1].strip()
+            by_req.setdefault(req, []).append({"msg": msg, "ts": ts})
+
+        invocations: list[dict] = []
+        for req, rows in by_req.items():
+            msgs = [r["msg"] for r in rows]
+            ts = rows[0]["ts"]
+            has_error = any("[ERROR]" in m for m in msgs)
+            no_sections = any("No sections extracted" in m for m in msgs)
+            # Try to extract file_key from any JSON payload in logs
+            file_key = None
+            sections = pages = duration = None
+            for m in msgs:
+                if "file_key" in m and "sections_indexed" in m:
+                    try:
+                        j = m[m.find("{") :]
+                        outer = _json.loads(j)
+                        inner = (
+                            _json.loads(outer.get("body", "{}"))
+                            if "body" in outer
+                            else outer
+                        )
+                        file_key = inner.get("file_key")
+                        sections = inner.get("sections_indexed")
+                        pages = inner.get("total_pages")
+                        duration = inner.get("duration_s")
+                    except Exception:
+                        pass
+                # REPORT line — extract billed duration
+                if "REPORT RequestId" in m:
+                    for part in m.split("\t"):
+                        if "Duration:" in part and "Billed" not in part:
+                            try:
+                                duration = (
+                                    float(part.split(":")[1].strip().split()[0]) / 1000
+                                )
+                            except Exception:
+                                pass
+
+            # Collect meaningful error snippets
+            error_snippets = []
+            for m in msgs:
+                if "[ERROR]" in m:
+                    snippet = m.strip()
+                    # Find the actual error message after the Lambda log prefix
+                    if "\t" in snippet:
+                        snippet = snippet.split("\t")[-1]
+                    error_snippets.append(snippet[:140])
+
+            status = "error" if (has_error or no_sections) else "ok"
+            invocations.append(
+                {
+                    "req": req,
+                    "ts": ts,
+                    "file_key": file_key,
+                    "status": status,
+                    "sections": sections,
+                    "pages": pages,
+                    "duration": duration,
+                    "errors": error_snippets,
+                }
+            )
+
+        return sorted(invocations, key=lambda x: x["ts"])
+
+    def _print_summary(invocations):
+        print()
+        print(
+            f"  PDF async status — {_bold(lambda_name)}  {_dim(f'(last {last} min)')}"
+        )
+        print(_dim(_SEP))
+
+        if not invocations:
+            print(_yellow("  No invocations found in this window."))
+            print(
+                _dim(
+                    "  PDFs may still be in-flight — try again in a moment or use --follow"
+                )
+            )
+            print(
+                _dim(
+                    f"  Raw logs: aws logs tail {log_group} --follow --region {REGION}"
+                )
+            )
+            print(_dim(_SEP))
+            print()
+            return set()
+
+        ok_count = sum(1 for i in invocations if i["status"] == "ok")
+        err_count = sum(1 for i in invocations if i["status"] == "error")
+
+        for inv in invocations:
+            label = (
+                inv["file_key"].split("/")[-1]
+                if inv["file_key"]
+                else f"req:{inv['req'][:8]}"
+            )
+            dur = f"  {inv['duration']:.0f}s" if inv["duration"] else ""
+
+            if inv["status"] == "ok":
+                secs = (
+                    f"  sections={inv['sections']}"
+                    if inv["sections"] is not None
+                    else ""
+                )
+                pgs = f"  pages={inv['pages']}" if inv["pages"] is not None else ""
+                print(
+                    f"  {_green('OK')}  {_dim(inv['ts'])}  {label}{_dim(secs + pgs + dur)}"
+                )
+            else:
+                print(f"  {_red('ERR')} {_dim(inv['ts'])}  {label}{_dim(dur)}")
+                for snippet in inv["errors"][:1]:
+                    if verbose:
+                        print(f"       {_red(snippet)}")
+                    else:
+                        truncated = snippet[:80] + ("…" if len(snippet) > 80 else "")
+                        print(f"       {_yellow(truncated)}")
+                if verbose and len(inv["errors"]) > 1:
+                    for snippet in inv["errors"][1:3]:
+                        print(f"       {_red(snippet)}")
+                if verbose and inv.get("req"):
+                    print(_dim(f"       req: {inv['req']}"))
+
+        print()
+        if err_count == 0 and ok_count > 0:
+            print(_green(f"  All {ok_count} invocation(s) completed successfully."))
+        else:
+            status_str = (
+                _green(f"{ok_count} ok")
+                + "  "
+                + (_red(f"{err_count} failed") if err_count else _dim("0 failed"))
+            )
+            print(f"  {ok_count + err_count} invocation(s) total  —  {status_str}")
+            if err_count and not verbose:
+                print(_dim("  Use --verbose for full error details and raw logs"))
+
+        if verbose:
+            print()
+            print(
+                _dim(
+                    f"  Raw logs: aws logs tail {log_group} --follow --region {REGION}"
+                )
+            )
+
+        print(_dim(_SEP))
+        print()
+        return {
+            i["file_key"] for i in invocations if i["file_key"] and i["status"] == "ok"
+        }
+
+    cw_query = (
+        "fields @timestamp, @requestId, @message "
+        "| filter @message like /ERROR/ or @message like /sections_indexed/ "
+        "    or @message like /No sections extracted/ or @message like /REPORT RequestId/ "
+        "| sort @timestamp asc "
+        "| limit 500"
+    )
+
+    if not follow:
+        results = _run_query(cw_query)
+        if results is None:
+            print(
+                _red(
+                    "  Could not query CloudWatch Logs Insights. Check AWS credentials / log group name."
+                )
+            )
+            return
+        invocations = _parse(results)
+        _print_summary(invocations)
+    else:
+        print(
+            _bold("==>")
+            + f" Watching {lambda_name} — polling every 15 s  (Ctrl+C to stop)"
+        )
+        seen: set[str] = set()
+        try:
+            while True:
+                results = _run_query(cw_query)
+                if results is None:
+                    print(_yellow("  Query failed — retrying..."))
+                else:
+                    invocations = _parse(results)
+                    completed = _print_summary(invocations)
+                    new = completed - seen
+                    if new:
+                        seen.update(new)
+                _time.sleep(15)
+        except KeyboardInterrupt:
+            print(_dim("\n==> Stopped."))
 
 
 # --------------------------------------------------------------------------- #
@@ -1930,6 +2340,7 @@ lambda_ns.add_task(pull)
 lambda_ns.add_task(build_layer, name="build-layer")
 lambda_ns.add_task(invoke)
 lambda_ns.add_task(invoke_all, name="invoke-all")
+lambda_ns.add_task(pdf_async_status, name="pdf-async-status")
 lambda_ns.add_task(set_env, name="set-env")
 lambda_ns.add_task(lambda_logs, name="logs")
 lambda_ns.add_task(lambda_status, name="status")
