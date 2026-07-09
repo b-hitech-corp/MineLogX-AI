@@ -40,12 +40,12 @@ uv run fab env.up   dev --skip-frontend   # infra only, skip frontend rebuild
 uv run fab frontend.deploy dev            # rebuild and redeploy the frontend only
 ```
 
-`env.up` realiza el ciclo completo:
+`env.up` runs the full cycle:
 1. Build Lambda layers (csv, pdf)
 2. Deploy CloudFormation (HTTP API Gateway v2, Lambda, Amplify, OpenSearch…)
-3. Obtiene `ApiUrl` del stack output → inyecta `VITE_API_BASE_URL` en el build de Vite
-4. `pnpm type-check` + `pnpm build` + upload a Amplify
-5. Imprime la URL del frontend al finalizar
+3. Fetch `ApiUrl` from stack outputs → inject `VITE_API_BASE_URL` into the Vite build
+4. `pnpm type-check` + `pnpm build` + upload to Amplify
+5. Print the frontend URL on completion
 
 One-time state backend bootstrap (run once per account):
 
