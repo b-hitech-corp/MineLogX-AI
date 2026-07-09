@@ -160,7 +160,8 @@ uv run fab env.up   dev               # deploy without seeding
 uv run fab env.plan dev               # preview changes (CFN change set, no apply)
 uv run fab env.down dev               # destroy the environment
 uv run fab env.list                   # list active CFN stacks and TF workspaces
-uv run fab env.endpoints dev          # print live URLs (API Gateway, Amplify, OpenSearch)
+uv run fab env.endpoints              # print live URLs (API, Amplify frontend, OpenSearch) — default: dev
+uv run fab env.endpoints qa           # same for another environment
 uv run fab env.bootstrap              # create the S3 bucket for CFN template uploads (once per account)
 ```
 
@@ -168,6 +169,8 @@ Engine defaults to `cloudformation`. Override with `--engine terraform` (alias `
 
 **Fixed** envs: `dev` / `qa` / `prod`.
 **Ephemeral** per-dev: `dev-<name>` (e.g. `dev-cesar`) — isolated by CFN stack prefix / TF workspace.
+
+> `env.up` auto-recovers stacks in `ROLLBACK_COMPLETE`: it deletes and re-creates them automatically.
 
 ### lambda.* — Pipeline invocation and layer builds
 
@@ -179,7 +182,9 @@ uv run fab lambda.invoke pdf dev                         # invoke PDF Lambda wit
 uv run fab lambda.invoke pdf dev --async                 # fire-and-forget (InvocationType=Event)
 uv run fab lambda.invoke-all csv dev --parallel          # process every S3 CSV in parallel
 uv run fab lambda.invoke-all pdf dev --async             # queue every S3 PDF asynchronously
-uv run fab lambda.pdf-async-status dev                   # CloudWatch Logs Insights status table
+uv run fab lambda.pdf-async-status                       # CloudWatch Logs Insights status table (default: dev)
+uv run fab lambda.redeploy api dev                       # re-zip backend/ + update-function-code (no layer rebuild)
+uv run fab lambda.status                                 # runtime config for all Lambda functions (default: dev)
 uv run fab lambda.build-layer csv                        # build the CSV deps layer (no Docker)
 uv run fab lambda.build-layer pdf                        # build the PDF deps layer (no Docker)
 uv run fab lambda.pull                                   # download deployed demo Lambda code
@@ -188,7 +193,8 @@ uv run fab lambda.pull                                   # download deployed dem
 ### opensearch.* — Collection and index status
 
 ```bash
-uv run fab opensearch.status dev      # collection status + document count per index
+uv run fab opensearch.status          # collection status + document count per index (default: dev)
+uv run fab opensearch.status qa       # same for another environment
 ```
 
 Prints collection health and doc counts for `csv_telemetry_vecs` and `pdf_legal_vecs`.

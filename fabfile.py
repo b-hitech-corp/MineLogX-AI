@@ -429,6 +429,30 @@ def up(
     _ensure_aws(c)
     print(f"==> up: env={env} engine={engine} region={REGION}")
 
+    # Auto-recover ROLLBACK_COMPLETE: delete stale stack before re-creating.
+    _stack_name = f"{NAME_PREFIX}-{env}"
+    _sr = c.run(
+        f"aws cloudformation describe-stacks --stack-name {_stack_name} "
+        f"--region {REGION} --query 'Stacks[0].StackStatus' --output text",
+        hide=True,
+        warn=True,
+    )
+    if _sr.ok and _sr.stdout.strip() == "ROLLBACK_COMPLETE":
+        print(
+            _yellow(
+                f"  [!] Stack '{_stack_name}' en ROLLBACK_COMPLETE — eliminando para re-crear..."
+            )
+        )
+        c.run(
+            f"aws cloudformation delete-stack --stack-name {_stack_name} --region {REGION}",
+            hide=True,
+        )
+        c.run(
+            f"aws cloudformation wait stack-delete-complete --stack-name {_stack_name} --region {REGION}",
+            hide=True,
+        )
+        print(_green(f"  Stack '{_stack_name}' eliminado. Continuando con deploy..."))
+
     log_path = _up_log_path(env)
 
     try:
@@ -468,7 +492,7 @@ def up(
                 _s3_seed(c, env)
 
         # --- 4. Endpoints summary (includes ApiUrl for frontend build) ---
-        outputs = _endpoints_data(c, env)
+        outputs, _stack_status = _endpoints_data(c, env)
         if outputs:
             _show_and_save_endpoints(env, outputs)
         else:
@@ -487,6 +511,13 @@ def up(
                 "",
             )
             _frontend_build_and_deploy(c, env, api_url=api_url)
+            # Show the live Amplify branch URL after deploy.
+            _frontend_url = _amplify_frontend_url(c, env)
+            if _frontend_url:
+                print(f"\n  {_bold('Frontend URL:')} {_cyan(_frontend_url)}")
+            # Re-save endpoints-<env>.md with the FrontendUrl row included.
+            if outputs and _frontend_url:
+                _show_and_save_endpoints(env, outputs, frontend_url=_frontend_url)
 
     except Exception as exc:
         msg = f"env.up failed: {exc}"
@@ -1071,7 +1102,7 @@ def deploy(c, env, skip_build=False, api_url=""):
     # Resolve API URL: CLI flag → stack output → empty (mock)
     resolved_url = api_url
     if not resolved_url:
-        outputs = _endpoints_data(c, env)
+        outputs, _ = _endpoints_data(c, env)
         resolved_url = next(
             (o["OutputValue"] for o in outputs if o["OutputKey"] == "ApiUrl"), ""
         )
@@ -1091,21 +1122,55 @@ def deploy(c, env, skip_build=False, api_url=""):
 
 
 def _endpoints_data(c, env):
-    """Return CFN stack Outputs for env, or [] if the stack is not found."""
+    """Return (outputs, stack_status) for env. outputs=[] when stack is absent or has no Outputs."""
     import json as _json
 
+    stack_name = f"{NAME_PREFIX}-{env}"
     result = c.run(
-        f"aws cloudformation describe-stacks --stack-name {NAME_PREFIX}-{env} "
-        f'--region {REGION} --query "Stacks[0].Outputs" --output json',
+        f"aws cloudformation describe-stacks --stack-name {stack_name} "
+        f'--region {REGION} --query "Stacks[0]" --output json',
         hide=True,
         warn=True,
     )
-    if not result.ok or not result.stdout.strip() or result.stdout.strip() == "null":
-        return []
-    return _json.loads(result.stdout)
+    if not result.ok:
+        stderr = result.stderr.strip()
+        if "does not exist" in stderr or "ValidationError" in stderr:
+            return [], "NOT_FOUND"
+        return [], f"ERROR: {stderr or 'no details — check AWS credentials'}"
+    raw = result.stdout.strip()
+    if not raw or raw == "null":
+        return [], "NOT_FOUND"
+    stack = _json.loads(raw)
+    return stack.get("Outputs") or [], stack.get("StackStatus", "UNKNOWN")
 
 
-def _show_and_save_endpoints(env, outputs):
+def _amplify_frontend_url(c, env):
+    """Return the live branch URL for the Amplify app, or '' if not found."""
+    import json as _json
+
+    r = c.run(
+        f"aws amplify list-apps --region {REGION} --output json",
+        hide=True,
+        warn=True,
+    )
+    if not r.ok:
+        return ""
+    apps = _json.loads(r.stdout).get("apps", [])
+    app = next((a for a in apps if a["name"] == f"{NAME_PREFIX}-{env}-frontend"), None)
+    if not app:
+        return ""
+    app_id = app["appId"]
+    br = c.run(
+        f"aws amplify list-branches --app-id {app_id} --region {REGION} --output json",
+        hide=True,
+        warn=True,
+    )
+    branches = _json.loads(br.stdout).get("branches", []) if br.ok else []
+    branch = branches[0]["branchName"] if branches else "main"
+    return f"https://{branch}.{app_id}.amplifyapp.com"
+
+
+def _show_and_save_endpoints(env, outputs, frontend_url=""):
     """Pretty-print CFN outputs and write endpoints-<env>.md to the repo root."""
     import datetime as _dt
     from tabulate import tabulate as _tabulate
@@ -1114,9 +1179,10 @@ def _show_and_save_endpoints(env, outputs):
     for o in outputs:
         key = o["OutputKey"]
         val = o["OutputValue"]
-        # Color URLs cyan
         display_val = _cyan(val) if val.startswith("http") else val
         rows.append([key, display_val])
+    if frontend_url:
+        rows.append(["FrontendUrl", _cyan(frontend_url)])
 
     table = _tabulate(
         rows, headers=["Resource", "Value"], tablefmt="simple", disable_numparse=True
@@ -1145,25 +1211,32 @@ def _show_and_save_endpoints(env, outputs):
         val = o["OutputValue"]
         desc = o.get("Description", "—")
         lines.append(f"| `{key}` | {val} | {desc} |")
+    if frontend_url:
+        lines.append(
+            f"| `FrontendUrl` | {frontend_url} | Frontend Amplify (branch URL) |"
+        )
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"  Guardado → {md_path.name}")
 
 
-@task(help={"env": "Environment name (dev|qa|prod|dev-<user>)."})
-def endpoints(c, env):
+@task(help={"env": "Environment name (dev|qa|prod|dev-<user>). Default: dev"})
+def endpoints(c, env="dev"):
     """Show and save all live endpoints for an environment.
 
-    Reads CloudFormation stack Outputs and prints a friendly table.
-    Also writes endpoints-<env>.md in the repo root (git-ignored).
+    Reads CloudFormation stack Outputs and prints a friendly table including
+    the live Amplify frontend URL. Also writes endpoints-<env>.md in the repo root.
     """
     _ensure_aws(c)
-    outputs = _endpoints_data(c, env)
+    outputs, status = _endpoints_data(c, env)
     if not outputs:
+        status_msg = f" (StackStatus: {status})" if status else ""
         raise SystemExit(
-            f"  [!] Stack '{NAME_PREFIX}-{env}' no encontrado o sin outputs.\n"
-            "      Ejecuta `uv run fab env.up <env>` primero."
+            f"  [!] Stack '{NAME_PREFIX}-{env}' sin outputs{status_msg}.\n"
+            "      Si el stack no existe: `uv run fab env.up {env}`\n"
+            "      Si está en ROLLBACK_COMPLETE: `uv run fab env.up {env}` (auto-recover)."
         )
-    _show_and_save_endpoints(env, outputs)
+    frontend_url = _amplify_frontend_url(c, env)
+    _show_and_save_endpoints(env, outputs, frontend_url=frontend_url)
 
 
 # --------------------------------------------------------------------------- #
@@ -1267,9 +1340,9 @@ def lambda_logs(c, name, env, follow=False):
 
 
 @task(
-    help={"env": "Environment name (dev|qa|prod|dev-<user>)."},
+    help={"env": "Environment name (dev|qa|prod|dev-<user>). Default: dev"},
 )
-def lambda_status(c, env):
+def lambda_status(c, env="dev"):
     """Show runtime config for all three Lambda functions in an environment.
 
     Displays function state, runtime, memory, timeout, last modified, and
@@ -1671,6 +1744,7 @@ def invoke_all(
         mode_label = "async (fire-and-forget)" if async_ else "sequential"
         print(f"==> Found {len(keys)} PDF file(s) — invoking {mode_label}")
         failed = []
+        summary_rows: list[tuple[str, str, str]] = []
         for key in keys:
             event = {
                 "detail": {
@@ -1699,8 +1773,8 @@ def invoke_all(
                     warn=True,
                 )
                 icon = _green("✓") if r.ok else _red("✗")
-                suffix = _dim(" (async)") if async_ else ""
-                print(f"    {icon} {key}{suffix}")
+                async_suffix = _dim(" (async)") if async_ else ""
+                print(f"    {icon} {key}{async_suffix}")
                 if not async_ and verbose and r.ok:
                     try:
                         response_text = Path(out_path).read_text(encoding="utf-8")
@@ -1711,9 +1785,26 @@ def invoke_all(
                     failed.append(key)
                 status = "202" if (async_ and r.ok) else ("200" if r.ok else "ERROR")
                 _log_invoke_pdf(env, key, lambda_name, status)
+                summary_rows.append((Path(key).name, status, "OK" if r.ok else "ERROR"))
             finally:
                 os.unlink(payload_path)
                 os.unlink(out_path)
+
+        # Summary table
+        from tabulate import tabulate as _tabulate
+
+        print(f"\n  {'─' * 56}")
+        print(f"  Resumen — {len(keys)} PDF(s)  env={env}")
+        print(f"  {'─' * 56}")
+        table = _tabulate(
+            summary_rows,
+            headers=["Archivo", "Status", "Resultado"],
+            tablefmt="simple",
+            disable_numparse=True,
+        )
+        for line in table.splitlines():
+            print(f"  {line}")
+        print(f"  {'─' * 56}\n")
 
         if failed:
             print(f"\n==> {_red(str(len(failed)) + ' file(s) failed:')}")
@@ -1811,8 +1902,8 @@ _BEDROCK_MODELS = {
         "cohere.embed-multilingual-v3",  # BEDROCK_EMBED_MODEL_ID
     ],
     # PDF pipeline classification
-    "Lambda PDF (classification — Haiku fallback: Sonnet)": [
-        "us.anthropic.claude-sonnet-4-6",  # PDF_HAIKU_MODEL_ID (Haiku 4.5 pending Marketplace sub)
+    "Lambda PDF (classification — Haiku 4.5)": [
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",  # PDF_HAIKU_MODEL_ID
     ],
     # PDF pipeline extraction
     "Lambda PDF (extraction — Sonnet)": [
@@ -1963,8 +2054,8 @@ def _aoss_get(endpoint: str, path: str) -> dict:
         return json.loads(resp.read())
 
 
-@task(help={"env": "Environment name (dev|qa|prod|dev-<user>)."})
-def opensearch_status(c, env):
+@task(help={"env": "Environment name (dev|qa|prod|dev-<user>). Default: dev"})
+def opensearch_status(c, env="dev"):
     """Show OpenSearch Serverless collection status and document count per index.
 
     Reads the collection endpoint from CloudFormation outputs and queries each
@@ -1985,7 +2076,7 @@ def opensearch_status(c, env):
     )
 
     # --- 2. Endpoint from CFN outputs (already in endpoints-dev.md) ---
-    outputs = _endpoints_data(c, env)
+    outputs, _ = _endpoints_data(c, env)
     endpoint = next(
         (o["OutputValue"] for o in outputs if o["OutputKey"] == "OpenSearchEndpoint"),
         None,
@@ -2060,7 +2151,7 @@ def opensearch_status(c, env):
         "verbose": "Show full error messages and raw Lambda duration/memory stats.",
     },
 )
-def pdf_async_status(c, env, last=60, follow=False, verbose=False):
+def pdf_async_status(c, env="dev", last=60, follow=False, verbose=False):
     """Show status of async PDF Lambda invocations (fired with --async flag).
 
     Queries CloudWatch Logs Insights for result summaries from the PDF Lambda

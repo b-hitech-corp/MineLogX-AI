@@ -52,22 +52,15 @@ Read this file completely before taking any action.
 - Push directly to `main` or `develop` branches — always use feature branches
 - Generate or suggest hardcoded AWS credentials, API keys, or secrets in any file
 
-### IaC dual-tool rule (Terraform + CloudFormation)
+### IaC rule (CloudFormation primary)
 
-Infrastructure is defined **in parallel in both Terraform and CloudFormation**,
-orchestrated by Fabric (`fab env.*`, `--engine=terraform|cloudformation`). See
-`CLAUDE.md` → *IaC Strategy* for the full rules. Agents must:
+Infrastructure is defined in **CloudFormation** (`onprem-aws/infrastructure/cloudformation/`),
+orchestrated by Fabric (`fab env.*`). See `CLAUDE.md` → *IaC Strategy* for full rules. Agents must:
 
-- Treat **Terraform as the state owner of the imported demo**
-  (`infrastructure/terraform/environments/_imported-demo`) — never introduce a
-  CloudFormation stack that manages the same live resources.
-- When adding or changing infrastructure, update **both** the Terraform and the
-  CloudFormation definitions and keep them at parity.
-- Create/destroy environments **only through Fabric tasks**, never with raw
-  console clicks. Ephemeral envs are `dev-<user>` (Terraform workspace); fixed
-  envs are `dev`/`qa`/`prod`.
-- Populate `infrastructure/discovery/` only via `scripts/discover-aws.sh` (read
-  only) and never commit it (gitignored — contains account IDs/ARNs).
+- Create/destroy environments **only through Fabric tasks** — never with raw console clicks.
+  Fixed envs: `dev`/`qa`/`prod`. Ephemeral: `dev-<user>`.
+- Always use `fab env.endpoints` (defaults to `dev`) to check live URLs after any deploy.
+- Populate `infrastructure/discovery/` only via `scripts/discover-aws.sh` (read only) and never commit it.
 
 ### File modification boundaries
 
@@ -149,6 +142,8 @@ co2_per_km          = SUM(co2_grams) / SUM(distance_km)                [g/km]
 **Purpose:** Answer natural language compliance questions grounded in regulatory documents across multiple jurisdictions (Senegal, United States, Chile).
 
 **Service:** Amazon Bedrock Claude (Converse API) with hybrid search over OpenSearch Serverless. Selectable model: `us.anthropic.claude-sonnet-4-6` (default), `us.amazon.nova-pro-v1:0`, or `deepseek.v3.2`.
+
+> **PDF pipeline classifier:** uses `us.anthropic.claude-haiku-4-5-20251001-v1:0` (GRANTED in this account). Extractor uses Sonnet 4.6.
 
 **Allowed actions:**
 - Query Amazon OpenSearch index `pdf_legal_vecs` via hybrid search (kNN + BM25)
