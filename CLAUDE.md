@@ -8,9 +8,9 @@ This file provides context and behavioral instructions for Claude Code agents wo
 
 MineLogX AI is an operational intelligence platform for mining operations built on AWS. It combines IoT telemetry analytics, machine learning anomaly detection, and compliance Q&A (RAG) powered by Amazon Bedrock.
 
-The infrastructure is defined as IaC in **both Terraform and CloudFormation in parallel** — each tool holds a full, equivalent definition of the platform (see IaC Strategy below). **Fabric is the orchestration layer**: it drives environment lifecycle through either engine (`--engine=terraform|cloudformation`) and also handles remote operations on the demo EC2 instances.
+The infrastructure is defined primarily in **CloudFormation** (`onprem-aws/infrastructure/cloudformation/`). **Fabric is the orchestration layer**: it drives environment lifecycle (`--engine=terraform|cloudformation`) and handles remote operations on the demo EC2 instances.
 
-> **Current status:** The demo is deployed by hand in the AWS account tagged `aws-apn-id = pc:13uw3s8iyvze74tlcq3o0w8r6`. The first IaC milestone is to **import** that demo into Terraform (source of truth) and mirror it in CloudFormation, then evolve toward the target architecture. Run `onprem-aws/scripts/discover-aws.sh` (or `.ps1`) to snapshot the live account into `onprem-aws/infrastructure/discovery/` before importing.
+> **Current status (2026-07-09):** Stack `minelogx-dev` is live (`CREATE_COMPLETE`) in `us-east-1`. HTTP API Gateway at `https://f81kmc7x2d.execute-api.us-east-1.amazonaws.com/dev`, 8 GET endpoints returning real data, frontend deployed to Amplify. CSV pipeline run (15/15 SUCCEEDED). PDF pipeline pending re-run. See `PLAN-ARCHITECTURE-GOAL.md` for full pending task list.
 
 ---
 
@@ -100,7 +100,7 @@ Both indices use HNSW with Faiss engine for kNN vector search, plus BM25 for hyb
 | `deepseek.v3.2` | RAG Compliance Q&A (selectable) | RAG Agent |
 | `cohere.embed-multilingual-v3` | Telemetry vectorization (1024d) | CSV Pipeline |
 | `amazon.titan-embed-text-v2:0` | Legal document vectorization (1024d) | PDF Pipeline |
-| `us.anthropic.claude-haiku-4-5-20251001-v1:0` | PDF document classifier | PDF Pipeline (pending Marketplace subscription — fallback: Sonnet) |
+| `us.anthropic.claude-haiku-4-5-20251001-v1:0` | PDF document classifier (Signal 3) | PDF Pipeline — GRANTED in this account |
 
 All models use cross-region inference profiles (prefix `us.` for Claude/Nova). Bare model IDs like `anthropic.claude-3-5-sonnet-20241022-v2:0` raise `ResourceNotFoundException` in this account.
 
@@ -171,7 +171,8 @@ uv run fab env.up   dev-cesar --engine=terraform      # ephemeral per-dev env
 uv run fab env.plan dev                               # preview changes (CFN change set)
 uv run fab env.down dev-cesar                         # tear down (prod is guarded)
 uv run fab env.list                                   # active workspaces + stacks
-uv run fab env.endpoints dev                          # print live URLs
+uv run fab env.endpoints                              # print live URLs (default: dev)
+uv run fab env.endpoints qa                           # same for another env
 
 # --- Lambda pipeline ops (lambda.*) ---
 uv run fab lambda.invoke csv dev --wait               # trigger CSV Step Functions pipeline
@@ -179,16 +180,17 @@ uv run fab lambda.invoke pdf dev                      # invoke PDF Lambda with S
 uv run fab lambda.invoke pdf dev --async              # fire-and-forget (InvocationType=Event)
 uv run fab lambda.invoke-all csv dev --parallel       # process all S3 CSVs in parallel
 uv run fab lambda.invoke-all pdf dev --async          # queue all PDFs asynchronously
-uv run fab lambda.pdf-async-status dev                # CloudWatch Logs Insights: per-PDF status table
+uv run fab lambda.pdf-async-status                    # CloudWatch Logs Insights: per-PDF status table (default: dev)
+uv run fab lambda.redeploy api dev                    # re-zip backend/ + update-function-code (no layer rebuild)
 uv run fab lambda.set-env pdf dev --key PDF_HAIKU_MODEL_ID --value us.anthropic.claude-haiku-4-5-20251001-v1:0
 uv run fab lambda.logs api dev --follow               # tail CloudWatch logs
-uv run fab lambda.status dev                          # state + env vars for api/csv/pdf
+uv run fab lambda.status                              # state + env vars for api/csv/pdf (default: dev)
 
 # --- Bedrock model probing (bedrock.*) ---
 uv run fab bedrock.model-access                       # probe all project models (GRANTED/DENIED)
 
 # --- OpenSearch status (opensearch.*) ---
-uv run fab opensearch.status dev                      # collection health + doc counts
+uv run fab opensearch.status                          # collection health + doc counts (default: dev)
 
 # --- Frontend (frontend.*) ---
 uv run fab frontend.deploy dev                        # build React/Vite + push to Amplify (standalone)

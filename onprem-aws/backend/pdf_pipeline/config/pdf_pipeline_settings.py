@@ -110,9 +110,6 @@ class PdfPipelineConfig:
     claude_haiku_model_id: str = field(
         default_factory=lambda: os.getenv(
             "PDF_HAIKU_MODEL_ID",
-            # claude-haiku-4-5 requires Marketplace subscription (pending).
-            # Fallback: claude-sonnet-4-6 is already GRANTED in this account.
-            # Override with PDF_HAIKU_MODEL_ID once Haiku 4.5 is subscribed.
             "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         )
     )
