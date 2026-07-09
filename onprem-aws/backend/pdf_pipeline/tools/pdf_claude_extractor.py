@@ -37,6 +37,8 @@ from typing import Any
 import boto3
 
 from pdf_pipeline.config.pdf_pipeline_settings import PdfPipelineConfig
+from pdf_pipeline.tools.prompts import BASE_EXTRACTION_PROMPT, CARRY_OVER_TEMPLATE
+from pdf_pipeline.tools.tool_schemas import EXTRACT_TOOL
 
 logger = logging.getLogger(__name__)
 
@@ -58,87 +60,14 @@ class ClaudeExtractionResult:
 # ---------------------------------------------------------------------------
 # Prompt construction
 # ---------------------------------------------------------------------------
-
-_BASE_EXTRACTION_PROMPT = """\
-You are a legal document analyst specializing in mining, environmental, and safety regulatory documents.
-
-Read the attached regulatory PDF and extract EVERY distinct section, then return them by
-calling the emit_sections tool. For each section provide:
-  title      : the exact section heading as it appears in the document.
-  body       : the complete VERBATIM text of the section, preserving sub-clauses, numbered
-               lists, tables (as pipe-delimited rows), and schedules.
-  page_start : 1-based page where the section begins.
-  page_end   : 1-based inclusive page where the section ends.
-
-Rules:
-  - Do NOT summarize; return the complete verbatim text of every section.
-  - Do NOT merge adjacent sections — each heading is its own entry.
-  - Sub-sections belong inside their parent section's body, not as separate entries.
-  - If a page number cannot be determined, use your best estimate.
-
-Call emit_sections exactly once, with every section in document order.\
-"""
-
-# Forced-tool-use schema for reliable structured output. Returning sections through a tool
-# call (rather than a JSON string in free text) makes Bedrock serialize them as an
-# already-parsed object — eliminating the markdown-fence / unescaped-quote parse failures
-# that legal text triggers (e.g. bodies containing 'the ("Act")' or '[Chapter 21:05]').
-_EXTRACT_TOOL = {
-    "toolSpec": {
-        "name": "emit_sections",
-        "description": "Return every distinct section extracted from the regulatory PDF, in document order.",
-        "inputSchema": {
-            "json": {
-                "type": "object",
-                "required": ["sections"],
-                "properties": {
-                    "sections": {
-                        "type": "array",
-                        "description": "One entry per section/heading in the document, in reading order.",
-                        "items": {
-                            "type": "object",
-                            "required": ["title", "body", "page_start", "page_end"],
-                            "properties": {
-                                "title": {
-                                    "type": "string",
-                                    "description": "Exact section heading as it appears in the document.",
-                                },
-                                "body": {
-                                    "type": "string",
-                                    "description": "Complete verbatim section text incl. sub-clauses, numbered lists, pipe-delimited tables, and schedules.",
-                                },
-                                "page_start": {
-                                    "type": "integer",
-                                    "description": "1-based page where the section begins.",
-                                },
-                                "page_end": {
-                                    "type": "integer",
-                                    "description": "1-based inclusive page where the section ends.",
-                                },
-                            },
-                        },
-                    }
-                },
-            }
-        },
-    }
-}
-
-_CARRY_OVER_TEMPLATE = """\
-[Context from previous batch]
-Last section processed: "{last_title}"
-Brief summary of that section: {last_summary}
-
-Continue extracting sections from where the previous batch ended.
-Do not repeat content already extracted. Start from the next section.
-
-"""
+# Prompt text lives in prompts.py (BASE_EXTRACTION_PROMPT, CARRY_OVER_TEMPLATE);
+# the emit_sections tool schema lives in tool_schemas.py (EXTRACT_TOOL).
 
 
 def _build_extraction_prompt(context_note: str = "") -> str:
     if context_note:
-        return context_note + _BASE_EXTRACTION_PROMPT
-    return _BASE_EXTRACTION_PROMPT
+        return context_note + BASE_EXTRACTION_PROMPT
+    return BASE_EXTRACTION_PROMPT
 
 
 def _sanitize_doc_name(key: str) -> str:
@@ -278,7 +207,7 @@ def _call_claude(
         modelId=config.claude_model_id,
         messages=[{"role": "user", "content": content_blocks}],
         toolConfig={
-            "tools": [_EXTRACT_TOOL],
+            "tools": [EXTRACT_TOOL],
             "toolChoice": {"tool": {"name": "emit_sections"}},
         },
         inferenceConfig={
@@ -355,7 +284,7 @@ def _build_carry_over(last_section: dict) -> str:
     summary_preview = body[:300].replace("\n", " ").strip()
     if len(body) > 300:
         summary_preview += "..."
-    return _CARRY_OVER_TEMPLATE.format(
+    return CARRY_OVER_TEMPLATE.format(
         last_title=title,
         last_summary=summary_preview,
     )
