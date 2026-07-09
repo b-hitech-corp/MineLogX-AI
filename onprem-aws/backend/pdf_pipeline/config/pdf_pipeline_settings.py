@@ -110,9 +110,10 @@ class PdfPipelineConfig:
     claude_haiku_model_id: str = field(
         default_factory=lambda: os.getenv(
             "PDF_HAIKU_MODEL_ID",
-            # Verified against the Bedrock console for this account. The previous
-            # value was missing the "-v1:0" version suffix.
-            "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            # claude-haiku-4-5 requires Marketplace subscription (pending).
+            # Fallback: claude-sonnet-4-6 is already GRANTED in this account.
+            # Override with PDF_HAIKU_MODEL_ID once Haiku 4.5 is subscribed.
+            "us.anthropic.claude-sonnet-4-6",
         )
     )
     haiku_max_tokens: int = 512

@@ -5,6 +5,7 @@ description = "MineLogX-AI — operational intelligence platform for mining oper
 requires-python = ">=3.11"
 dependencies = [
     "fabric>=3.0",  # pulls invoke + paramiko; used by fabfile.py
+    "boto3>=1.35",  # AWS SDK — used by fabfile.py for SigV4-signed AOSS requests
 ]
 
 # Installed into the project .venv by `uv sync` so the pre-commit git hook

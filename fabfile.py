@@ -29,6 +29,8 @@ Usage (env is positional; engine defaults to cloudformation):
   uv run fab ollama.health-check
   uv run fab lambda.pull                           # download the demo Lambda code
   uv run fab lambda.build-layer pdf                # build the PDF deps layer (no Docker)
+  uv run fab lambda.invoke csv dev --wait          # trigger CSV pipeline (Step Functions)
+  uv run fab lambda.invoke pdf dev                 # trigger PDF pipeline (Lambda direct)
 
 Full DEV flow (first time):
   uv run fab env.bootstrap                         # create S3 bucket (for nested template uploads)
@@ -45,6 +47,7 @@ venv activation. If terraform still isn't found, set TERRAFORM_BIN (see below).
 """
 
 import datetime
+import json
 import os
 import shutil
 import sys
@@ -971,6 +974,618 @@ def endpoints(c, env):
 
 
 # --------------------------------------------------------------------------- #
+# lambda.* — pipeline operations
+# --------------------------------------------------------------------------- #
+ACCOUNT_ID = os.environ.get("AWS_ACCOUNT_ID", "586928288932")
+
+# Logical names → Lambda function suffixes (minelogx-<env>-<suffix>)
+LAMBDA_NAMES = ("api", "csv", "pdf")
+
+
+def _lambda_fn(env, name):
+    return f"{NAME_PREFIX}-{env}-{name}"
+
+
+def _lambda_get_env(c, fn_name):
+    """Return the current Lambda environment variables as a dict."""
+    res = c.run(
+        f"aws lambda get-function-configuration --function-name {fn_name} "
+        f'--query "Environment.Variables" --output json --region {REGION}',
+        hide=True,
+        warn=True,
+    )
+    if not res.ok or res.stdout.strip() in ("", "null"):
+        return {}
+    return json.loads(res.stdout)
+
+
+@task(
+    help={
+        "name": "Lambda suffix: api | csv | pdf.",
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
+        "key": "Environment variable name to set.",
+        "value": "New value for the variable.",
+    },
+)
+def set_env(c, name, env, key, value):
+    """Update a single environment variable on a deployed Lambda (non-destructive merge).
+
+    Reads the current variables first, merges the new key=value, then writes
+    back — existing variables are preserved. Use this to override model IDs,
+    endpoints, or feature flags without a full env.up redeploy.
+
+    Examples:
+      uv run fab lambda.set-env pdf dev --key PDF_HAIKU_MODEL_ID --value us.anthropic.claude-3-haiku-20240307-v1:0
+      uv run fab lambda.set-env api dev --key LOG_LEVEL --value DEBUG
+    """
+    _ensure_aws(c)
+    fn_name = _lambda_fn(env, name)
+    current = _lambda_get_env(c, fn_name)
+    old_val = current.get(key, "<not set>")
+    current[key] = value
+
+    print("==> Updating Lambda env var")
+    print(f"    function : {fn_name}")
+    print(f"    {key}  {old_val}  →  {value}")
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", delete=False, encoding="utf-8"
+    ) as tmp:
+        json.dump({"Variables": current}, tmp)
+        tmp_path = tmp.name
+
+    try:
+        c.run(
+            f"aws lambda update-function-configuration "
+            f"--function-name {fn_name} "
+            f"--environment file://{tmp_path} "
+            f"--region {REGION} --output json",
+            hide=True,
+        )
+    finally:
+        os.unlink(tmp_path)
+
+    print(f"==> Done. Lambda {fn_name} updated (change is live in ~5 s).")
+
+
+@task(
+    help={
+        "name": "Lambda suffix: api | csv | pdf. Omit to show all three.",
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
+        "follow": "Keep tailing (Ctrl-C to stop). Default: last 50 lines and exit.",
+    },
+)
+def lambda_logs(c, name, env, follow=False):
+    """Tail CloudWatch logs for a Lambda function.
+
+    Examples:
+      uv run fab lambda.logs pdf dev
+      uv run fab lambda.logs pdf dev --follow
+    """
+    _ensure_aws(c)
+    fn_name = _lambda_fn(env, name)
+    log_group = f"/aws/lambda/{fn_name}"
+    follow_flag = "--follow" if follow else ""
+    print(f"==> Logs for {fn_name}  ({log_group})")
+    c.run(
+        f"aws logs tail {log_group} --since 1h {follow_flag} --region {REGION}",
+        warn=True,
+    )
+
+
+@task(
+    help={"env": "Environment name (dev|qa|prod|dev-<user>)."},
+)
+def lambda_status(c, env):
+    """Show runtime config for all three Lambda functions in an environment.
+
+    Displays function state, runtime, memory, timeout, last modified, and
+    every environment variable currently set on each function.
+    """
+    _ensure_aws(c)
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        "",
+        _SEP,
+        f"  Lambda Status — {NAME_PREFIX}-{env}  ({ts})",
+        _SEP,
+    ]
+    for name in LAMBDA_NAMES:
+        fn_name = _lambda_fn(env, name)
+        res = c.run(
+            f"aws lambda get-function-configuration --function-name {fn_name} "
+            f"--region {REGION} --output json",
+            hide=True,
+            warn=True,
+        )
+        if not res.ok:
+            lines.append(f"\n  [{fn_name}]  NOT FOUND")
+            continue
+        cfg = json.loads(res.stdout)
+        state = cfg.get("State", "?")
+        runtime = cfg.get("Runtime", "?")
+        memory = cfg.get("MemorySize", "?")
+        timeout = cfg.get("Timeout", "?")
+        modified = cfg.get("LastModified", "?")[:19].replace("T", " ")
+        env_vars = cfg.get("Environment", {}).get("Variables", {})
+
+        lines += [
+            f"\n  [{fn_name}]",
+            f"  State        : {state}",
+            f"  Runtime      : {runtime}    Memory: {memory} MB    Timeout: {timeout} s",
+            f"  Last deploy  : {modified}",
+            f"  Env vars ({len(env_vars)}):",
+        ]
+        for k, v in sorted(env_vars.items()):
+            # Truncate long values (e.g. ARNs) for readability
+            display = v if len(v) <= 60 else v[:57] + "..."
+            lines.append(f"    {k:<35} {display}")
+
+    lines.append(f"\n{_SEP}\n")
+    print("\n".join(lines))
+    log_path = _log_write(f"lambda-status-{env}", lines)
+    print(f"  Log saved → {log_path.relative_to(REPO_ROOT)}")
+
+
+@task(
+    help={
+        "pipeline": "Pipeline to invoke: csv | pdf.",
+        "env": "Environment name (dev|qa|prod|dev-<user>). Default: dev.",
+        "file_path": (
+            "For csv: S3 key relative to the telemetry bucket "
+            "(e.g. C1/fuel_management_events.csv). "
+            "For pdf: S3 key relative to the legislation bucket "
+            "(e.g. docs/test.pdf)."
+        ),
+        "force": "For csv: re-ingest even if the file was already processed.",
+        "wait": "Block until the execution completes and print the final status.",
+    },
+)
+def invoke(c, pipeline, env, file_path=None, force=False, wait=False):
+    """Invoke the csv or pdf pipeline manually without waiting for the scheduler.
+
+    csv — starts a Step Functions execution with the given S3 key from the
+          telemetry bucket.  Lists available files and picks the first one
+          when --file-path is omitted.
+
+    pdf — invokes Lambda PDF directly with a synthetic EventBridge S3 event
+          built from the given key in the legislation bucket.  Lists available
+          PDFs and picks the first one when --file-path is omitted.
+    """
+    import json as _json
+    import time as _time
+
+    _ensure_aws(c)
+
+    if pipeline == "csv":
+        telemetry_bucket = f"{NAME_PREFIX}-{env}-telemetry-data"
+
+        if not file_path:
+            res = c.run(
+                f"aws s3 ls s3://{telemetry_bucket}/ --recursive "
+                '--query "Contents[].Key" --output text',
+                hide=True,
+                warn=True,
+            )
+            keys = (
+                [k for k in res.stdout.split() if k.endswith(".csv")] if res.ok else []
+            )
+            if not keys:
+                raise SystemExit(
+                    f"No CSV files found in s3://{telemetry_bucket}/. "
+                    "Run `uv run fab env.up dev --seed` first."
+                )
+            file_path = keys[0]
+            print(f"==> No --file-path given — using first CSV found: {file_path}")
+
+        sm_arn = (
+            f"arn:aws:states:{REGION}:{ACCOUNT_ID}:stateMachine:"
+            f"{NAME_PREFIX}-{env}-csv-pipeline"
+        )
+        payload = _json.dumps({"file_path": file_path, "force": force})
+        print("==> Starting Step Functions execution")
+        print(f"    state machine : {sm_arn}")
+        print(f"    input         : {payload}")
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write(payload)
+            tmp_path = tmp.name
+
+        try:
+            res = c.run(
+                f"aws stepfunctions start-execution "
+                f"--state-machine-arn {sm_arn} "
+                f"--input file://{tmp_path} "
+                f"--region {REGION} --output json",
+            )
+        finally:
+            os.unlink(tmp_path)
+
+        execution = _json.loads(res.stdout)
+        exec_arn = execution["executionArn"]
+        print(f"==> Execution started: {exec_arn}")
+
+        t_start = _time.monotonic()
+        if wait:
+            print("==> Waiting for execution to complete (polling every 15 s)...")
+            for _ in range(80):  # up to 20 min
+                status_res = c.run(
+                    f"aws stepfunctions describe-execution "
+                    f"--execution-arn {exec_arn} "
+                    f'--query "status" --output text --region {REGION}',
+                    hide=True,
+                )
+                status = status_res.stdout.strip()
+                if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
+                    break
+                print(f"    status={status} — waiting 15 s...")
+                _time.sleep(15)
+            elapsed = _time.monotonic() - t_start
+            print(f"==> Final status: {status}")
+            _log_invoke_csv(env, file_path, exec_arn, status, elapsed)
+            if status != "SUCCEEDED":
+                raise SystemExit(
+                    f"Execution {status}. Check CloudWatch logs for details:\n"
+                    f"  aws logs tail /aws/states/{NAME_PREFIX}-{env}-csv-pipeline "
+                    f"--follow --region {REGION}"
+                )
+        else:
+            _log_invoke_csv(env, file_path, exec_arn, "RUNNING (background)", 0)
+            print(
+                "==> Execution running in background. To check status:\n"
+                f"    aws stepfunctions describe-execution "
+                f"--execution-arn {exec_arn} "
+                f"--query status --output text --region {REGION}"
+            )
+
+    elif pipeline == "pdf":
+        legislation_bucket = f"{NAME_PREFIX}-{env}-legislation-documents"
+        lambda_name = f"{NAME_PREFIX}-{env}-pdf"
+
+        if not file_path:
+            res = c.run(
+                f"aws s3 ls s3://{legislation_bucket}/ --recursive "
+                '--query "Contents[].Key" --output text',
+                hide=True,
+                warn=True,
+            )
+            keys = (
+                [k for k in res.stdout.split() if k.lower().endswith(".pdf")]
+                if res.ok
+                else []
+            )
+            if not keys:
+                raise SystemExit(
+                    f"No PDF files found in s3://{legislation_bucket}/. "
+                    "Upload a PDF or run `uv run fab env.up dev --seed` first."
+                )
+            file_path = keys[0]
+            print(f"==> No --file-path given — using first PDF found: {file_path}")
+
+        import urllib.parse as _urlparse
+
+        event = {
+            "detail": {
+                "bucket": {"name": legislation_bucket},
+                "object": {"key": _urlparse.quote(file_path, safe="")},
+            }
+        }
+        payload = _json.dumps(event)
+        print("==> Invoking Lambda PDF directly")
+        print(f"    function : {lambda_name}")
+        print(f"    bucket   : {legislation_bucket}")
+        print(f"    key      : {file_path}")
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        ) as tmp:
+            tmp.write(payload)
+            payload_path = tmp.name
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as out:
+            out_path = out.name
+
+        try:
+            res = c.run(
+                f"aws lambda invoke "
+                f"--function-name {lambda_name} "
+                f"--payload file://{payload_path} "
+                f"--cli-binary-format raw-in-base64-out "
+                f"--region {REGION} "
+                f"--log-type Tail "
+                f"{out_path}",
+                warn=True,
+            )
+            response = Path(out_path).read_text(encoding="utf-8")
+            print(f"==> Response: {response}")
+        finally:
+            os.unlink(payload_path)
+            os.unlink(out_path)
+
+        status_code = "200" if res.ok else "ERROR"
+        _log_invoke_pdf(env, file_path, lambda_name, status_code)
+        if res.ok:
+            print(
+                "==> Check OpenSearch index pdf_legal_vecs or CloudWatch logs:\n"
+                f"    aws logs tail /aws/lambda/{lambda_name} --follow --region {REGION}"
+            )
+        else:
+            raise SystemExit("Lambda invoke failed. See output above for details.")
+
+    else:
+        raise SystemExit(f"Unknown pipeline '{pipeline}'. Use: csv | pdf")
+
+
+# --------------------------------------------------------------------------- #
+# Activity logging helpers
+# --------------------------------------------------------------------------- #
+_SEP = "─" * 64
+
+
+def _log_write(name: str, lines: "list[str]") -> Path:
+    """Write formatted activity lines to .fab-logs/<name>-<ts>.log and return the path."""
+    LOGS_DIR.mkdir(exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    path = LOGS_DIR / f"{name}-{ts}.log"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _log_invoke_csv(env, file_path, exec_arn, status, elapsed_s):
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        _SEP,
+        f"  lambda.invoke csv  —  {ts}",
+        _SEP,
+        f"  env          : {env}",
+        f"  file_path    : {file_path}",
+        f"  execution    : {exec_arn}",
+        f"  status       : {status}",
+        f"  elapsed      : {elapsed_s:.0f} s",
+        _SEP,
+    ]
+    path = _log_write(f"invoke-csv-{env}", lines)
+    print("\n".join(lines))
+    print(f"  Log saved → {path.relative_to(REPO_ROOT)}")
+
+
+def _log_invoke_pdf(env, file_path, lambda_name, status_code):
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        _SEP,
+        f"  lambda.invoke pdf  —  {ts}",
+        _SEP,
+        f"  env          : {env}",
+        f"  file_path    : {file_path}",
+        f"  lambda       : {lambda_name}",
+        f"  status_code  : {status_code}",
+        _SEP,
+    ]
+    path = _log_write(f"invoke-pdf-{env}", lines)
+    print("\n".join(lines))
+    print(f"  Log saved → {path.relative_to(REPO_ROOT)}")
+
+
+# --------------------------------------------------------------------------- #
+# bedrock.* — model access status
+# --------------------------------------------------------------------------- #
+
+# Models the project uses, grouped by pipeline.
+_BEDROCK_MODELS = {
+    # RAG Agent + CSV pipeline — user-selectable via UI (key → env var → model id)
+    "Lambda API / RAG Agent (selectable)": [
+        "us.anthropic.claude-sonnet-4-6",  # RAG_CLAUDE_MODEL_ID  (default)
+        "us.amazon.nova-pro-v1:0",  # RAG_NOVA_MODEL_ID
+        "deepseek.v3.2",  # RAG_DEEPSEEK_MODEL_ID
+    ],
+    # CSV pipeline annotation
+    "Lambda CSV (annotation + chunking)": [
+        "us.anthropic.claude-sonnet-4-6",  # BEDROCK_MODEL_ID
+    ],
+    # CSV pipeline embeddings
+    "Lambda CSV (embeddings 1024d)": [
+        "cohere.embed-multilingual-v3",  # BEDROCK_EMBED_MODEL_ID
+    ],
+    # PDF pipeline classification
+    "Lambda PDF (classification — Haiku fallback: Sonnet)": [
+        "us.anthropic.claude-sonnet-4-6",  # PDF_HAIKU_MODEL_ID (Haiku 4.5 pending Marketplace sub)
+    ],
+    # PDF pipeline extraction
+    "Lambda PDF (extraction — Sonnet)": [
+        "us.anthropic.claude-sonnet-4-6",  # PDF_CLAUDE_MODEL_ID
+    ],
+    # PDF pipeline embeddings
+    "Lambda PDF (embeddings 1536d — Titan)": [
+        "amazon.titan-embed-text-v2:0",  # PDF_TITAN_MODEL_ID
+    ],
+}
+
+# Minimal converse payload to probe text-generation models.
+_PROBE_CONVERSE_MESSAGES = [{"role": "user", "content": [{"text": "hi"}]}]
+
+# Minimal embed payload to probe embedding models.
+_PROBE_EMBED_COHERE = {"texts": ["hi"], "input_type": "search_query"}
+_PROBE_EMBED_TITAN = {"inputText": "hi"}
+
+
+def _bedrock_probe(model_id: str) -> tuple[bool, str]:
+    """Try a minimal invoke against a Bedrock model. Returns (ok, message)."""
+    import boto3
+    import botocore.exceptions
+
+    client = boto3.client("bedrock-runtime", region_name=REGION)
+    try:
+        if "embed" in model_id:
+            body = _PROBE_EMBED_TITAN if "titan" in model_id else _PROBE_EMBED_COHERE
+            client.invoke_model(
+                modelId=model_id,
+                body=json.dumps(body),
+                contentType="application/json",
+                accept="application/json",
+            )
+        else:
+            client.converse(
+                modelId=model_id,
+                messages=_PROBE_CONVERSE_MESSAGES,
+                inferenceConfig={"maxTokens": 1},
+            )
+        return True, "GRANTED"
+    except botocore.exceptions.ClientError as exc:
+        code = exc.response["Error"]["Code"]
+        if code in ("AccessDeniedException",):
+            return False, "DENIED — not subscribed in Marketplace"
+        if code in ("ValidationException",):
+            return False, f"DENIED — {exc.response['Error']['Message'][:60]}"
+        return False, f"ERROR ({code})"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"ERROR — {exc}"
+
+
+@task
+def model_access(c):
+    """Check Bedrock model access for every model this project uses.
+
+    Probes each model with a minimal invoke to confirm real runtime access,
+    not just IAM permissions. Models listed in CLAUDE.md under 'Bedrock Models'.
+    If a model shows DENIED, enable it in the AWS Console:
+      Bedrock -> Model access -> Manage model access -> select -> Save changes.
+    """
+    _ensure_aws(c)
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        "",
+        _SEP,
+        f"  Bedrock Model Access — account 586928288932  ({ts})",
+        _SEP,
+    ]
+    col_w = 52
+    lines.append(f"  {'Model':<{col_w}} {'Access'}")
+    lines.append(f"  {'─' * col_w} {'─' * 30}")
+
+    all_ok = True
+    cache: dict[str, tuple[bool, str]] = {}
+    for pipeline, models in _BEDROCK_MODELS.items():
+        lines.append(f"\n  [{pipeline}]")
+        for model_id in models:
+            if model_id not in cache:
+                cache[model_id] = _bedrock_probe(model_id)
+            ok, msg = cache[model_id]
+            if not ok:
+                all_ok = False
+            icon = "✓" if ok else "✗"
+            lines.append(f"  {icon} {model_id:<{col_w - 2}} {msg}")
+
+    lines += [
+        "",
+        "  To enable a denied model:",
+        "    AWS Console → Bedrock → Model access → Manage model access",
+        _SEP,
+        "",
+    ]
+    print("\n".join(lines))
+    log_path = _log_write("bedrock-model-access", lines)
+    print(f"  Log saved → {log_path.relative_to(REPO_ROOT)}")
+    if not all_ok:
+        raise SystemExit(1)
+
+
+# --------------------------------------------------------------------------- #
+# opensearch.* — collection status and index doc counts
+# --------------------------------------------------------------------------- #
+OPENSEARCH_INDICES = ["csv_telemetry_vecs", "pdf_legal_vecs"]
+
+
+def _aoss_get(endpoint: str, path: str) -> dict:
+    """SigV4-signed GET against an AOSS endpoint. Requires boto3 in the venv."""
+    import boto3
+    from botocore.auth import SigV4Auth
+    from botocore.awsrequest import AWSRequest
+    from botocore.credentials import Credentials
+
+    session = boto3.Session()
+    creds: Credentials = session.get_credentials().get_frozen_credentials()
+    url = endpoint.rstrip("/") + path
+    aws_req = AWSRequest(method="GET", url=url)
+    SigV4Auth(creds, "aoss", REGION).add_auth(aws_req)
+    req = urllib.request.Request(url, headers=dict(aws_req.headers), method="GET")
+    with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310
+        return json.loads(resp.read())
+
+
+@task(help={"env": "Environment name (dev|qa|prod|dev-<user>)."})
+def opensearch_status(c, env):
+    """Show OpenSearch Serverless collection status and document count per index.
+
+    Reads the collection endpoint from CloudFormation outputs and queries each
+    index via a SigV4-signed HTTP request (requires boto3 in the venv).
+    """
+    _ensure_aws(c)
+
+    # --- 1. Collection info from AWS CLI ---
+    col_name = f"{NAME_PREFIX}-{env}-vectors"
+    res = c.run(
+        f"aws opensearchserverless list-collections --region {REGION} "
+        f"--collection-filters name={col_name} --output json",
+        hide=True,
+        warn=True,
+    )
+    collections = (
+        json.loads(res.stdout).get("collectionSummaries", []) if res.ok else []
+    )
+
+    # --- 2. Endpoint from CFN outputs (already in endpoints-dev.md) ---
+    outputs = _endpoints_data(c, env)
+    endpoint = next(
+        (o["OutputValue"] for o in outputs if o["OutputKey"] == "OpenSearchEndpoint"),
+        None,
+    )
+
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        "",
+        _SEP,
+        f"  OpenSearch Serverless — {NAME_PREFIX}-{env}  ({ts})",
+        _SEP,
+    ]
+
+    if collections:
+        col = collections[0]
+        lines += [
+            f"  Collection   : {col.get('name')}",
+            f"  Status       : {col.get('status')}",
+            f"  Type         : {col.get('type')}",
+            f"  ARN          : {col.get('arn')}",
+            f"  Endpoint     : {endpoint or '—'}",
+            "",
+        ]
+    else:
+        lines += [f"  Collection '{col_name}' not found or no access.", ""]
+
+    # --- 3. Doc counts per index (SigV4 to AOSS HTTP API) ---
+    if endpoint:
+        lines.append(f"  {'Index':<30} {'Docs':>10}  {'Status'}")
+        lines.append(f"  {'─' * 30} {'─' * 10}  {'─' * 10}")
+        for idx in OPENSEARCH_INDICES:
+            try:
+                data = _aoss_get(endpoint, f"/{idx}/_count")
+                count = data.get("count", "?")
+                lines.append(f"  {idx:<30} {count:>10,}  OK")
+            except Exception as exc:  # noqa: BLE001
+                lines.append(f"  {idx:<30} {'—':>10}  ERROR: {exc}")
+    else:
+        lines.append("  (endpoint not available — run `fab env.up dev` first)")
+
+    lines.append(_SEP)
+    lines.append("")
+    print("\n".join(lines))
+
+    log_path = _log_write(f"opensearch-status-{env}", lines)
+    print(f"  Log saved → {log_path.relative_to(REPO_ROOT)}")
+
+
+# --------------------------------------------------------------------------- #
 # Namespaces
 # --------------------------------------------------------------------------- #
 env = Collection("env")
@@ -993,9 +1608,21 @@ ollama.add_task(logs)
 lambda_ns = Collection("lambda")
 lambda_ns.add_task(pull)
 lambda_ns.add_task(build_layer, name="build-layer")
+lambda_ns.add_task(invoke)
+lambda_ns.add_task(set_env, name="set-env")
+lambda_ns.add_task(lambda_logs, name="logs")
+lambda_ns.add_task(lambda_status, name="status")
+
+bedrock_ns = Collection("bedrock")
+bedrock_ns.add_task(model_access, name="model-access")
+
+opensearch_ns = Collection("opensearch")
+opensearch_ns.add_task(opensearch_status, name="status")
 
 ns = Collection()
 ns.add_collection(env)
 ns.add_collection(frontend_ns)
 ns.add_collection(ollama)
 ns.add_collection(lambda_ns)
+ns.add_collection(bedrock_ns)
+ns.add_collection(opensearch_ns)
