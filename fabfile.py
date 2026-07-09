@@ -300,15 +300,57 @@ def _up_log_path(env):
     return LOGS_DIR / f"up-{env}-{ts}.log"
 
 
+def _cfn_empty_s3_buckets(c, stack_name: str) -> None:
+    """Empty all S3 buckets owned by a CFN stack so deletion doesn't fail."""
+    import json as _json
+
+    res = c.run(
+        f"aws cloudformation list-stack-resources --stack-name {stack_name} "
+        f"--region {REGION} --output json",
+        warn=True,
+        hide=True,
+    )
+    if not res or res.exited != 0:
+        return
+    try:
+        resources = _json.loads(res.stdout).get("StackResourceSummaries", [])
+    except Exception:
+        return
+    buckets = [
+        r["PhysicalResourceId"]
+        for r in resources
+        if r.get("ResourceType") == "AWS::S3::Bucket" and r.get("PhysicalResourceId")
+    ]
+    # Also recurse into nested stacks
+    nested = [
+        r["PhysicalResourceId"]
+        for r in resources
+        if r.get("ResourceType") == "AWS::CloudFormation::Stack"
+        and r.get("PhysicalResourceId")
+    ]
+    for nested_arn in nested:
+        nested_name = nested_arn.split("/")[1] if "/" in nested_arn else nested_arn
+        _cfn_empty_s3_buckets(c, nested_name)
+    for bucket in buckets:
+        print(f"    Emptying s3://{bucket} ...")
+        c.run(
+            f"aws s3 rm s3://{bucket} --recursive --region {REGION}",
+            warn=True,
+            hide=True,
+        )
+
+
 def _cfn_down(c, env):
     """Delete the CFN parent stack and wait until it is gone."""
-    print(f"==> down (auto-cleanup): deleting stack {NAME_PREFIX}-{env} ...")
+    stack_name = f"{NAME_PREFIX}-{env}"
+    print(f"==> down (auto-cleanup): deleting stack {stack_name} ...")
+    _cfn_empty_s3_buckets(c, stack_name)
     c.run(
-        f"aws cloudformation delete-stack --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        f"aws cloudformation delete-stack --stack-name {stack_name} --region {REGION}",
         warn=True,
     )
     c.run(
-        f"aws cloudformation wait stack-delete-complete --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        f"aws cloudformation wait stack-delete-complete --stack-name {stack_name} --region {REGION}",
         warn=True,
     )
 
@@ -319,10 +361,13 @@ def _cfn_down(c, env):
         "engine": "terraform | cloudformation",
         "seed": "After deploy, sync data from demo buckets into the new buckets (dev only).",
         "no_rollback": "Skip automatic env.down on failure (keeps stack for manual inspection).",
+        "skip_frontend": "Skip frontend build+deploy (infra only).",
     },
 )
-def up(c, env, engine="cloudformation", seed=False, no_rollback=False):
-    """Create/update an environment. Builds Lambda layers, deploys, and optionally seeds S3."""
+def up(
+    c, env, engine="cloudformation", seed=False, no_rollback=False, skip_frontend=False
+):
+    """Create/update an environment. Builds Lambda layers, deploys infra, and deploys the frontend."""
     engine = _norm_engine(engine)
     _ensure_aws(c)
     print(f"==> up: env={env} engine={engine} region={REGION}")
@@ -365,7 +410,7 @@ def up(c, env, engine="cloudformation", seed=False, no_rollback=False):
             else:
                 _s3_seed(c, env)
 
-        # --- 4. Endpoints summary ---
+        # --- 4. Endpoints summary (includes ApiUrl for frontend build) ---
         outputs = _endpoints_data(c, env)
         if outputs:
             _show_and_save_endpoints(env, outputs)
@@ -373,6 +418,18 @@ def up(c, env, engine="cloudformation", seed=False, no_rollback=False):
             print(
                 "[warn] Sin outputs de CloudFormation — omitiendo resumen de endpoints."
             )
+
+        # --- 5. Frontend build + deploy (inyecta VITE_API_BASE_URL dinámicamente) ---
+        if not skip_frontend:
+            api_url = next(
+                (
+                    o["OutputValue"]
+                    for o in (outputs or [])
+                    if o["OutputKey"] == "ApiUrl"
+                ),
+                "",
+            )
+            _frontend_build_and_deploy(c, env, api_url=api_url)
 
     except Exception as exc:
         msg = f"env.up failed: {exc}"
@@ -454,9 +511,11 @@ def down(c, env, engine="cloudformation"):
                 c.run(f'"{TERRAFORM}" workspace delete {env}', warn=True)
         return
 
-    # CloudFormation: one parent stack — deleting it removes all nested children.
+    # CloudFormation: empty S3 buckets first (CFN can't delete non-empty buckets).
+    stack_name = f"{NAME_PREFIX}-{env}"
+    _cfn_empty_s3_buckets(c, stack_name)
     c.run(
-        f"aws cloudformation delete-stack --stack-name {NAME_PREFIX}-{env} --region {REGION}",
+        f"aws cloudformation delete-stack --stack-name {stack_name} --region {REGION}",
         warn=True,
     )
 
@@ -718,16 +777,20 @@ def build_layer(c, fn):
     python_dir.mkdir(parents=True)
 
     print(f"==> Building layer for '{fn}' from {reqs.name} -> {build_dir}")
+    # uv venvs no incluyen pip por defecto — bootstrapear si falta.
+    c.run(f'"{sys.executable}" -m ensurepip --upgrade', warn=True, hide=True)
     # manylinux2014 (glibc 2.17) — matches Amazon Linux 2, which backs the
     # Lambda python3.11 runtime (glibc 2.26). Newer manylinux_2_28 wheels
     # (glibc >=2.28, e.g. PyMuPDF >=1.26) would import-error at runtime — pin
     # deps to versions that still ship a manylinux2014 wheel.
+    print("    Installing dependencies...", end="", flush=True)
     c.run(
-        f'"{sys.executable}" -m pip install '
+        f'"{sys.executable}" -m pip install -q '
         "--platform manylinux2014_x86_64 --python-version 3.11 "
         "--implementation cp --abi cp311 --only-binary=:all: "
         f'--target "{python_dir}" -r "{reqs}"'
     )
+    print(" done")
 
     size = _dir_size(build_dir)
     print(f"==> Layer '{fn}' built: {size / 1024 / 1024:.1f} MB decompressed")
@@ -790,70 +853,39 @@ def _amplify_branch(c, app_id):
     return branch
 
 
-@task(
-    help={
-        "env": "Environment to deploy the frontend to (dev|qa|prod|dev-<user>).",
-        "skip_build": "Skip `pnpm build` (use existing dist/ — useful for re-deploys).",
-    },
-)
-def deploy(c, env, skip_build=False):
-    """Build the React/Vite frontend and push it to Amplify (manual deployment).
+def _amplify_upload_and_poll(c, env, dist_dir, log):
+    """Zip dist/, upload to Amplify via presigned URL, poll until SUCCEED/FAILED.
 
-    Steps:
-      1. pnpm install + pnpm build  (skippable with --skip-build)
-      2. Zip shared/frontend/dist/
-      3. Create an Amplify manual deployment job (returns a presigned S3 upload URL)
-      4. PUT the zip to the presigned URL
-      5. Start the deployment job and poll until SUCCEED/FAILED
+    Returns the deployed URL on success; raises SystemExit on failure.
+    This is the shared upload logic used by both frontend.deploy and env.up.
     """
-    _ensure_aws(c)
-    print(f"==> frontend.deploy: env={env} region={REGION}")
+    import json as _json
+    import time as _time
 
-    dist_dir = FRONTEND_DIR / "dist"
-
-    if not skip_build:
-        pnpm = shutil.which("pnpm") or "pnpm"
-        print(f"==> Building frontend in {FRONTEND_DIR}")
-        with c.cd(str(FRONTEND_DIR)):
-            c.run(f'"{pnpm}" install --frozen-lockfile')
-            c.run(f'"{pnpm}" build')
-
-    if not dist_dir.exists():
-        raise SystemExit(
-            f"{dist_dir} not found. Run `pnpm build` in shared/frontend/ first, "
-            "or omit --skip-build."
-        )
-
-    # Zip the dist directory into a temp file.
     with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
         zip_path = tmp.name
     try:
-        print(f"==> Zipping {dist_dir} -> {zip_path}")
+        log(f"==> [frontend] Zipping {dist_dir}")
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file in dist_dir.rglob("*"):
-                if file.is_file():
-                    zf.write(file, file.relative_to(dist_dir))
+            for f in dist_dir.rglob("*"):
+                if f.is_file():
+                    zf.write(f, f.relative_to(dist_dir))
 
         app_id = _amplify_app_id(c, env)
         branch = _amplify_branch(c, app_id)
-        print(f"==> Amplify app={app_id} branch={branch}")
+        log(f"==> [frontend] Amplify app={app_id} branch={branch}")
 
-        # Create a manual deployment job — Amplify returns a presigned upload URL.
         create_result = c.run(
             f"aws amplify create-deployment --app-id {app_id} "
             f"--branch-name {branch} --region {REGION} --output json",
             hide=True,
         )
-        import json as _json
-
         deployment = _json.loads(create_result.stdout)
         job_id = deployment["jobId"]
         upload_url = deployment["zipUploadUrl"]
-        print(f"==> Deployment job created: jobId={job_id}")
+        log(f"==> [frontend] Job created: jobId={job_id}")
 
-        # Upload the zip to the presigned S3 URL.
-        print("==> Uploading dist.zip to Amplify presigned URL...")
-        urllib.request.urlopen(  # nosec B310 - URL comes from AWS API response
+        urllib.request.urlopen(  # nosec B310 - presigned URL from AWS API
             urllib.request.Request(
                 upload_url,
                 data=open(zip_path, "rb").read(),  # noqa: WPS515
@@ -862,41 +894,138 @@ def deploy(c, env, skip_build=False):
             )
         )
 
-        # Start the deployment.
         c.run(
             f"aws amplify start-deployment --app-id {app_id} "
             f"--branch-name {branch} --job-id {job_id} --region {REGION}",
             hide=True,
         )
-        print("==> Deployment started. Polling for completion...")
-
-        # Poll until done (max ~5 min).
-        import time as _time
-
+        log("==> [frontend] Polling deployment status...")
+        status = "PENDING"
         for _ in range(60):
-            status_result = c.run(
+            res = c.run(
                 f"aws amplify get-job --app-id {app_id} "
                 f"--branch-name {branch} --job-id {job_id} --region {REGION} "
                 '--query "job.summary.status" --output text',
                 hide=True,
             )
-            status = status_result.stdout.strip()
+            status = res.stdout.strip()
             if status in ("SUCCEED", "FAILED", "CANCELLED"):
                 break
-            print(f"    status={status} — waiting 5s...")
+            log(f"    status={status} — waiting 5s...")
             _time.sleep(5)
 
+        url = f"https://{branch}.{app_id}.amplifyapp.com"
         if status == "SUCCEED":
-            print(
-                f"\n==> Frontend deployed! Status={status}\n"
-                f"    URL: https://{branch}.{app_id}.amplifyapp.com"
-            )
-        else:
-            raise SystemExit(
-                f"Amplify deployment {status}. Check the console for logs."
-            )
+            log(f"\n==> [frontend] DEPLOYED  status={status}\n    URL: {url}")
+            return url
+        raise SystemExit(f"Amplify deployment {status}. Check the console for logs.")
     finally:
         os.unlink(zip_path)
+
+
+def _find_pnpm(c) -> str:
+    """Locate pnpm cross-platform by querying the npm global prefix at runtime."""
+    found = shutil.which("pnpm") or shutil.which("pnpm.cmd")
+    if found:
+        return found
+    # npm global bin: on Windows the prefix dir itself contains the shims;
+    # on POSIX it's prefix/bin. Querying npm at runtime avoids hardcoded paths.
+    res = c.run("npm config get prefix", hide=True, warn=True)
+    if res and res.exited == 0:
+        prefix = Path(res.stdout.strip())
+        candidates = [prefix / "pnpm.cmd", prefix / "pnpm", prefix / "bin" / "pnpm"]
+        for p in candidates:
+            if p.exists():
+                return str(p)
+    raise SystemExit("[frontend] pnpm not found — install with: npm install -g pnpm")
+
+
+def _frontend_build_and_deploy(c, env, api_url=""):
+    """Build the React/Vite app with a live API URL, then upload to Amplify.
+
+    Injects VITE_API_BASE_URL dynamically so it always reflects the current
+    stack — safe even after env.down + env.up (API GW ID changes).
+    Writes a friendly log to .fab-logs/frontend-deploy-<env>-<ts>.log.
+    """
+    import time as _time
+
+    ts = _time.strftime("%Y%m%d-%H%M%S")
+    log_path = LOGS_DIR / f"frontend-deploy-{env}-{ts}.log"
+    LOGS_DIR.mkdir(exist_ok=True)
+    lines: list[str] = []
+
+    def _log(msg: str) -> None:
+        print(msg)
+        lines.append(msg)
+
+    _log(f"==> [frontend] build+deploy  env={env}  region={REGION}")
+    _log(f"==> [frontend] VITE_API_BASE_URL={api_url or '(empty — will use mock)'}")
+
+    build_env = {
+        **os.environ,
+        "VITE_API_BASE_URL": api_url,
+        "VITE_USE_MOCK": "false" if api_url else "true",
+    }
+
+    pnpm = _find_pnpm(c)
+    _log(f"==> [frontend] Building in {FRONTEND_DIR}")
+    with c.cd(str(FRONTEND_DIR)):
+        _log("==> [frontend] pnpm install")
+        c.run(f'"{pnpm}" install --frozen-lockfile', env=build_env)
+        _log("==> [frontend] pnpm type-check")
+        c.run(f'"{pnpm}" type-check', env=build_env)
+        _log("==> [frontend] pnpm build")
+        c.run(f'"{pnpm}" build', env=build_env)
+
+    dist_dir = FRONTEND_DIR / "dist"
+    if not (dist_dir / "index.html").exists():
+        raise SystemExit(f"[frontend] Build failed — {dist_dir}/index.html not found")
+    _log("==> [frontend] Build OK")
+
+    try:
+        url = _amplify_upload_and_poll(c, env, dist_dir, _log)
+        return url
+    finally:
+        log_path.write_text("\n".join(lines), encoding="utf-8")
+        _log(f"==> [frontend] Log: {log_path}")
+
+
+@task(
+    help={
+        "env": "Environment to deploy the frontend to (dev|qa|prod|dev-<user>).",
+        "skip_build": "Skip pnpm build (use existing dist/ — useful for re-deploys).",
+        "api_url": "Override VITE_API_BASE_URL. Defaults to the live stack output.",
+    },
+)
+def deploy(c, env, skip_build=False, api_url=""):
+    """Build the React/Vite frontend and push it to Amplify (manual deployment).
+
+    Steps:
+      1. Resolve VITE_API_BASE_URL from CFN stack outputs (or --api-url override)
+      2. pnpm install + type-check + pnpm build  (skippable with --skip-build)
+      3. Zip shared/frontend/dist/
+      4. Create an Amplify manual deployment job (returns a presigned S3 upload URL)
+      5. PUT the zip to the presigned URL
+      6. Start the deployment job and poll until SUCCEED/FAILED
+    """
+    _ensure_aws(c)
+    print(f"==> frontend.deploy: env={env} region={REGION}")
+
+    # Resolve API URL: CLI flag → stack output → empty (mock)
+    resolved_url = api_url
+    if not resolved_url:
+        outputs = _endpoints_data(c, env)
+        resolved_url = next(
+            (o["OutputValue"] for o in outputs if o["OutputKey"] == "ApiUrl"), ""
+        )
+
+    if skip_build:
+        dist_dir = FRONTEND_DIR / "dist"
+        if not dist_dir.exists():
+            raise SystemExit(f"{dist_dir} not found. Run without --skip-build first.")
+        _amplify_upload_and_poll(c, env, dist_dir, print)
+    else:
+        _frontend_build_and_deploy(c, env, api_url=resolved_url)
 
 
 # --------------------------------------------------------------------------- #
@@ -1026,7 +1155,7 @@ def set_env(c, name, env, key, value):
 
     print("==> Updating Lambda env var")
     print(f"    function : {fn_name}")
-    print(f"    {key}  {old_val}  →  {value}")
+    print(f"    {key}  {old_val}  ->  {value}")
 
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", delete=False, encoding="utf-8"
@@ -1313,6 +1442,197 @@ def invoke(c, pipeline, env, file_path=None, force=False, wait=False):
             )
         else:
             raise SystemExit("Lambda invoke failed. See output above for details.")
+
+    else:
+        raise SystemExit(f"Unknown pipeline '{pipeline}'. Use: csv | pdf")
+
+
+@task(
+    positional=["pipeline", "env"],
+    help={
+        "pipeline": "csv or pdf",
+        "env": "Deployment environment (e.g. dev).",
+        "force": "For csv: re-ingest even if already processed.",
+        "parallel": "Launch all executions concurrently instead of waiting for each one (csv only).",
+    },
+)
+def invoke_all(c, pipeline, env, force=False, parallel=False):
+    """Invoke the csv or pdf pipeline for EVERY file in the S3 bucket.
+
+    csv — starts one Step Functions execution per CSV key found in the
+          telemetry bucket and waits for each to complete (unless --parallel).
+
+    pdf — invokes Lambda PDF sequentially for each PDF key found in the
+          legislation bucket, waiting for each invocation to return.
+    """
+    import json as _json
+    import time as _time
+
+    _ensure_aws(c)
+
+    if pipeline == "csv":
+        telemetry_bucket = f"{NAME_PREFIX}-{env}-telemetry-data"
+        res = c.run(
+            f"aws s3 ls s3://{telemetry_bucket}/ --recursive "
+            '--query "Contents[].Key" --output text',
+            hide=True,
+            warn=True,
+        )
+        keys = [k for k in res.stdout.split() if k.endswith(".csv")] if res.ok else []
+        if not keys:
+            raise SystemExit(
+                f"No CSV files found in s3://{telemetry_bucket}/. "
+                "Run `uv run fab env.up dev --seed` first."
+            )
+
+        sm_arn = (
+            f"arn:aws:states:{REGION}:{ACCOUNT_ID}:stateMachine:"
+            f"{NAME_PREFIX}-{env}-csv-pipeline"
+        )
+        print(
+            f"==> Found {len(keys)} CSV file(s) — {'parallel' if parallel else 'serial'} mode"
+        )
+
+        exec_arns: list[tuple[str, str]] = []
+        for key in keys:
+            payload = _json.dumps({"file_path": key, "force": force})
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False, encoding="utf-8"
+            ) as tmp:
+                tmp.write(payload)
+                tmp_path = tmp.name
+            try:
+                r = c.run(
+                    f"aws stepfunctions start-execution "
+                    f"--state-machine-arn {sm_arn} "
+                    f"--input file://{tmp_path} "
+                    f"--region {REGION} --output json",
+                )
+            finally:
+                os.unlink(tmp_path)
+            exec_arn = _json.loads(r.stdout)["executionArn"]
+            exec_arns.append((key, exec_arn))
+            print(f"    started: {key}")
+            if not parallel:
+                # wait inline before moving to next file
+                status = "RUNNING"
+                t0 = _time.monotonic()
+                for _ in range(80):
+                    sr = c.run(
+                        f"aws stepfunctions describe-execution "
+                        f"--execution-arn {exec_arn} "
+                        f'--query "status" --output text --region {REGION}',
+                        hide=True,
+                    )
+                    status = sr.stdout.strip()
+                    if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
+                        break
+                    _time.sleep(15)
+                elapsed = _time.monotonic() - t0
+                _log_invoke_csv(env, key, exec_arn, status, elapsed)
+                icon = "✓" if status == "SUCCEEDED" else "✗"
+                print(f"    {icon} {status} ({elapsed:.0f}s) — {key}")
+                if status != "SUCCEEDED":
+                    print(
+                        f"      Check: aws logs tail /aws/states/{NAME_PREFIX}-{env}-csv-pipeline --follow --region {REGION}"
+                    )
+
+        if parallel:
+            print(
+                f"\n==> All {len(exec_arns)} executions launched. Polling until done..."
+            )
+            pending = [*exec_arns]
+            while pending:
+                still = []
+                for key, exec_arn in pending:
+                    sr = c.run(
+                        f"aws stepfunctions describe-execution "
+                        f"--execution-arn {exec_arn} "
+                        f'--query "status" --output text --region {REGION}',
+                        hide=True,
+                    )
+                    status = sr.stdout.strip()
+                    if status in ("SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"):
+                        icon = "✓" if status == "SUCCEEDED" else "✗"
+                        print(f"    {icon} {status} — {key}")
+                    else:
+                        still.append((key, exec_arn))
+                pending = still
+                if pending:
+                    print(f"    {len(pending)} still running — polling in 15 s...")
+                    _time.sleep(15)
+            print("==> All executions finished.")
+
+    elif pipeline == "pdf":
+        import urllib.parse as _urlparse
+
+        legislation_bucket = f"{NAME_PREFIX}-{env}-legislation-documents"
+        lambda_name = f"{NAME_PREFIX}-{env}-pdf"
+
+        res = c.run(
+            f"aws s3 ls s3://{legislation_bucket}/ --recursive "
+            '--query "Contents[].Key" --output text',
+            hide=True,
+            warn=True,
+        )
+        keys = (
+            [k for k in res.stdout.split() if k.lower().endswith(".pdf")]
+            if res.ok
+            else []
+        )
+        if not keys:
+            raise SystemExit(
+                f"No PDF files found in s3://{legislation_bucket}/. "
+                "Upload PDFs or run `uv run fab env.up dev --seed` first."
+            )
+
+        print(f"==> Found {len(keys)} PDF file(s) — invoking sequentially")
+        failed = []
+        for key in keys:
+            event = {
+                "detail": {
+                    "bucket": {"name": legislation_bucket},
+                    "object": {"key": _urlparse.quote(key, safe="")},
+                }
+            }
+            payload = _json.dumps(event)
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False, encoding="utf-8"
+            ) as tmp:
+                tmp.write(payload)
+                payload_path = tmp.name
+            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as out:
+                out_path = out.name
+            try:
+                r = c.run(
+                    f"aws lambda invoke "
+                    f"--function-name {lambda_name} "
+                    f"--payload file://{payload_path} "
+                    f"--cli-binary-format raw-in-base64-out "
+                    f"--region {REGION} "
+                    f"--log-type Tail "
+                    f"{out_path}",
+                    warn=True,
+                )
+                icon = "✓" if r.ok else "✗"
+                print(f"    {icon} {key}")
+                if not r.ok:
+                    failed.append(key)
+                _log_invoke_pdf(env, key, lambda_name, "200" if r.ok else "ERROR")
+            finally:
+                os.unlink(payload_path)
+                os.unlink(out_path)
+
+        if failed:
+            print(f"\n==> {len(failed)} file(s) failed:")
+            for f in failed:
+                print(f"      {f}")
+            print(
+                f"    Check: aws logs tail /aws/lambda/{lambda_name} --follow --region {REGION}"
+            )
+        else:
+            print(f"\n==> All {len(keys)} PDF(s) processed successfully.")
+            print("    Check OpenSearch index pdf_legal_vecs for ingested documents.")
 
     else:
         raise SystemExit(f"Unknown pipeline '{pipeline}'. Use: csv | pdf")
@@ -1609,6 +1929,7 @@ lambda_ns = Collection("lambda")
 lambda_ns.add_task(pull)
 lambda_ns.add_task(build_layer, name="build-layer")
 lambda_ns.add_task(invoke)
+lambda_ns.add_task(invoke_all, name="invoke-all")
 lambda_ns.add_task(set_env, name="set-env")
 lambda_ns.add_task(lambda_logs, name="logs")
 lambda_ns.add_task(lambda_status, name="status")

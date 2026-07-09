@@ -15,6 +15,13 @@ Parameters:
   BranchStage:
     Type: String
     Default: PRODUCTION
+  ViteUseMock:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: >
+      Informativo para CI/CD git-based futuro. VITE_API_BASE_URL
+      se inyecta en build time por Fabric (no se almacena aqui).
 
 Resources:
   App:
@@ -24,6 +31,9 @@ Resources:
       Platform: WEB
       CustomRules:
         - { Source: '/<*>', Target: /index.html, Status: '404-200' }
+      EnvironmentVariables:
+        - Name: VITE_USE_MOCK
+          Value: !Ref ViteUseMock
       Tags:
         - { Key: aws-apn-id, Value: !Ref ProjectApnId }
         - { Key: Environment, Value: !Ref Environment }

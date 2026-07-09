@@ -113,7 +113,7 @@ class PdfPipelineConfig:
             # claude-haiku-4-5 requires Marketplace subscription (pending).
             # Fallback: claude-sonnet-4-6 is already GRANTED in this account.
             # Override with PDF_HAIKU_MODEL_ID once Haiku 4.5 is subscribed.
-            "us.anthropic.claude-sonnet-4-6",
+            "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         )
     )
     haiku_max_tokens: int = 512

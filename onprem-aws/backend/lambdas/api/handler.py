@@ -1,28 +1,40 @@
 """
-Frontend & API Layer Lambda — request router behind API Gateway.
+Frontend & API Layer Lambda — request router behind API Gateway (HTTP API v2).
 
-Routes:
-    GET  /health | /healthz        → health check (no agent call)
-    POST /analyze                  → data_analysis_agent.FleetAgent
-    POST /chat                     → rag_agent.BedrockRAGAgent
+Routes — LLM (POST, via Bedrock):
+    POST /analyze   → data_analysis_agent.FleetAgent
+    POST /chat      → rag_agent.BedrockRAGAgent
 
-Both agents are instantiated lazily (module-level singletons) so they survive
-warm invocations without re-initialising boto3 clients and OpenSearch connections.
+Routes — Data (GET, directo desde S3 via csv_loader + kpi_engine, sin LLM):
+    GET  /health | /healthz
+    GET  /fleet/assets
+    GET  /kpis
+    GET  /fuel/records
+    GET  /fuel/trend
+    GET  /maintenance/items
+    GET  /maintenance/work-orders
+    GET  /telemetry/gps
+    GET  /telemetry/zones
 
-Guardrail (GUARDRAIL_ID) is passed to the FleetAgent via its settings; the RAG
-agent applies guardrails on the Bedrock side at the individual converse() call.
+Todos los singletons se inicializan lazy para sobrevivir warm invocations.
+El handler soporta tanto payload format v2 (HTTP API) como v1 (REST API).
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import os
+from datetime import datetime, timezone
+from typing import Callable
+
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Lazy agent singletons (initialised on first warm call to each route)
+# Lazy singletons — LLM agents
 # ---------------------------------------------------------------------------
 
 _fleet_agent = None
@@ -48,11 +60,56 @@ def _get_rag_agent():
 
 
 # ---------------------------------------------------------------------------
+# Lazy singleton — telemetry DataFrame (cargado desde S3 una sola vez)
+# ---------------------------------------------------------------------------
+
+_telemetry_df: pd.DataFrame | None = None
+
+
+def _get_df() -> pd.DataFrame:
+    """Load and cache the latest telemetry DataFrame from S3."""
+    global _telemetry_df
+    if _telemetry_df is not None:
+        return _telemetry_df
+
+    from data_analysis_agent.tools.s3_browser import list_folder
+    from data_analysis_agent.tools.csv_loader import load_csv, get_dataframe
+
+    # Intenta los prefijos más comunes en orden de preferencia
+    for folder in ("curated", "approved", "C1", "C2", ""):
+        try:
+            files = list_folder(folder)
+        except Exception:
+            continue
+        if not files:
+            continue
+        dfs: list[pd.DataFrame] = []
+        for fpath in files[:5]:  # máx 5 archivos para evitar timeout
+            try:
+                load_csv(fpath)
+                dfs.append(get_dataframe(fpath))
+            except Exception:
+                logger.warning("Skipping file %s", fpath, exc_info=True)
+        if dfs:
+            _telemetry_df = (
+                pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
+            )
+            logger.info(
+                "Loaded telemetry: %d rows, folder=%s", len(_telemetry_df), folder
+            )
+            return _telemetry_df
+
+    logger.warning("No telemetry CSVs found — returning empty DataFrame")
+    _telemetry_df = pd.DataFrame()
+    return _telemetry_df
+
+
+# ---------------------------------------------------------------------------
 # Response helpers
 # ---------------------------------------------------------------------------
 
 
-def _ok(body: dict | str, status: int = 200) -> dict:
+def _ok(body: dict | list | str, status: int = 200) -> dict:
     return {
         "statusCode": status,
         "headers": {"Content-Type": "application/json"},
@@ -75,7 +132,342 @@ def _parse_body(event: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Route handlers
+# DRY helpers para mapear filas de DataFrame
+# ---------------------------------------------------------------------------
+
+
+def _fget(row: dict, *keys: str, default: float = 0.0) -> float:
+    """Float con múltiples claves de fallback."""
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                pass
+    return float(default)
+
+
+def _sget(row: dict, *keys: str, default: str = "") -> str:
+    """Str con múltiples claves de fallback."""
+    for k in keys:
+        v = row.get(k)
+        if v is not None:
+            return str(v)
+    return str(default)
+
+
+def _rows(df: pd.DataFrame):
+    """Iteración de filas como (index, row_dict)."""
+    return enumerate(r.to_dict() for _, r in df.iterrows())
+
+
+# ---------------------------------------------------------------------------
+# Mappers — Single Responsibility: fila CSV → dict JSON para el frontend
+# ---------------------------------------------------------------------------
+
+
+def _map_asset_type(row: dict) -> str:
+    t = _sget(row, "asset_type", "equipment_type").lower()
+    if "excavat" in t:
+        return "excavator"
+    if "loader" in t:
+        return "loader"
+    if "dozer" in t:
+        return "dozer"
+    return "haul-truck"
+
+
+def _map_fleet_status(row: dict) -> str:
+    if _fget(row, "idle_hours") > _fget(row, "active_hours", default=1):
+        return "idle"
+    if _fget(row, "failure_count") > 0:
+        return "maintenance"
+    return "active"
+
+
+def _map_gps_status(row: dict) -> str:
+    if _fget(row, "speed_kph") > 5:
+        return "moving"
+    if _fget(row, "idle_hours") > 2:
+        return "parked"
+    return "idle"
+
+
+def _map_fleet_asset(i: int, row: dict) -> dict:
+    return {
+        "id": _sget(row, "asset_id", "truck_id", default=str(i)),
+        "name": _sget(row, "asset_name", "truck_name", default=f"Truck-{i}"),
+        "type": _map_asset_type(row),
+        "status": _map_fleet_status(row),
+        "location": _sget(row, "zone", "location", default="Pit A"),
+        "engineHours": _fget(row, "engine_on_hours", "operating_hours"),
+        "fuelLevel": _fget(row, "fuel_level_pct", default=50),
+        "speedKph": _fget(row, "speed_kph"),
+        "loadTonnes": _fget(row, "payload_tonnes"),
+        "cyclesCompleted": int(_fget(row, "cycle_count", "completed_cycles")),
+        "fuelConsumptionLPH": _fget(row, "fuel_consumption_lph"),
+    }
+
+
+def _map_fuel_record(i: int, row: dict) -> dict:
+    fuel = _fget(row, "fuel_litres", "fuel_used_litres")
+    tonnes = max(_fget(row, "payload_tonnes", default=1), 0.1)
+    return {
+        "id": _sget(row, "asset_id", default=str(i)),
+        "assetId": _sget(row, "asset_id", default=str(i)),
+        "assetName": _sget(row, "asset_name", default=f"Truck-{i}"),
+        "location": _sget(row, "zone", default="Pit A"),
+        "fuelUsedLitres": fuel,
+        "fuelEfficiencyLPT": round(fuel / tonnes, 2),
+        "avgConsumptionLPH": _fget(row, "fuel_consumption_lph"),
+        "sevenDayAvgLPH": _fget(row, "fuel_consumption_lph"),
+        "anomaly": bool(row.get("anomaly", False)),
+        "timestamp": _sget(
+            row, "timestamp", default=datetime.now(timezone.utc).isoformat()
+        ),
+    }
+
+
+def _map_maintenance_item(i: int, row: dict) -> dict:
+    fp = _fget(row, "failure_probability")
+    return {
+        "id": f"M-{_sget(row, 'asset_id', default=str(i))}",
+        "assetId": _sget(row, "asset_id", default=str(i)),
+        "assetName": _sget(row, "asset_name", default=f"Truck-{i}"),
+        "type": "Scheduled Maintenance",
+        "status": "overdue" if fp > 0.7 else "scheduled",
+        "priority": "critical" if fp > 0.7 else "medium",
+        "scheduledDate": _sget(
+            row,
+            "scheduled_date",
+            default=datetime.now(timezone.utc).date().isoformat(),
+        ),
+        "estimatedHours": _fget(row, "repair_time_hours", default=4),
+        "failureProbability": round(fp, 2),
+        "timeToFailureHours": _fget(row, "time_to_failure_hours", default=200),
+    }
+
+
+def _map_work_order(i: int, row: dict) -> dict:
+    asset_id = _sget(row, "asset_id", default=str(i))
+    return {
+        "id": f"WO-{i + 1:04d}",
+        "maintenanceId": f"M-{asset_id}",
+        "assetId": asset_id,
+        "title": f"WO - {_sget(row, 'asset_name', default=f'Asset-{i}')}",
+        "description": "Auto-generated from telemetry",
+        "status": "open",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _map_gps_asset(i: int, row: dict) -> dict:
+    asset_id = _sget(row, "asset_id", default=str(i))
+    asset_name = _sget(row, "asset_name", default=f"Truck-{i}")
+    return {
+        "id": asset_id,
+        "assetName": asset_name,
+        "assetType": _map_asset_type(row),
+        "x": _fget(
+            row, "gps_x", "longitude", default=float((hash(asset_id) % 80) + 10)
+        ),
+        "y": _fget(
+            row, "gps_y", "latitude", default=float((hash(asset_name) % 80) + 10)
+        ),
+        "zone": _sget(row, "zone", default="Pit A"),
+        "speed": _fget(row, "speed_kph"),
+        "heading": _fget(row, "heading_deg"),
+        "status": _map_gps_status(row),
+        "timestamp": _sget(
+            row, "timestamp", default=datetime.now(timezone.utc).isoformat()
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET handlers — KISS: cada handler hace exactamente una cosa
+# ---------------------------------------------------------------------------
+
+
+def _h_fleet_assets(event: dict) -> dict:
+    df = _get_df()
+    return _ok([_map_fleet_asset(i, r) for i, r in _rows(df)])
+
+
+def _h_kpis(event: dict) -> dict:
+    from data_analysis_agent.tools.kpi_engine import calculate_kpi
+    from data_analysis_agent.config.kpi_formulas import KPI_REGISTRY
+
+    df = _get_df()
+    if df.empty:
+        return _ok([])
+
+    # Carga el DataFrame en cache usando un key temporal
+    from data_analysis_agent.tools.csv_loader import _cache_set
+
+    _cache_set("_live_", df)
+
+    result = []
+    for name, kdef in list(KPI_REGISTRY.items())[:12]:
+        try:
+            out = calculate_kpi("_live_", [name])
+            kpi_val = out.get("kpis", {}).get(name, {})
+            value = kpi_val.get("value", 0) if isinstance(kpi_val, dict) else 0
+            target = getattr(kdef, "target", None) if hasattr(kdef, "target") else None
+            if target and float(target) > 0:
+                ratio = float(value) / float(target)
+                status = (
+                    "healthy"
+                    if ratio >= 0.9
+                    else "warning"
+                    if ratio >= 0.7
+                    else "critical"
+                )
+            else:
+                status = "healthy"
+            result.append(
+                {
+                    "id": kdef.name,
+                    "label": kdef.description,
+                    "value": round(float(value), 2)
+                    if isinstance(value, (int, float))
+                    else value,
+                    "unit": kdef.unit,
+                    "trend": "neutral",
+                    "status": status,
+                    "category": "fleet",
+                }
+            )
+        except Exception:
+            logger.warning("KPI failed: %s", name, exc_info=True)
+    return _ok(result)
+
+
+def _h_fuel_records(event: dict) -> dict:
+    df = _get_df()
+    return _ok([_map_fuel_record(i, r) for i, r in _rows(df)])
+
+
+def _h_fuel_trend(event: dict) -> dict:
+    df = _get_df()
+    if (
+        not df.empty
+        and "timestamp" in df.columns
+        and "fuel_consumption_lph" in df.columns
+    ):
+        df = df.copy()
+        df["_h"] = df["timestamp"].astype(str).str[:13]
+        grp = df.groupby("_h")["fuel_consumption_lph"].mean().reset_index()
+        return _ok(
+            [
+                {
+                    "hour": str(r["_h"])[-5:] + ":00",
+                    "consumption": round(float(r["fuel_consumption_lph"]), 1),
+                }
+                for _, r in grp.iterrows()
+            ]
+        )
+    avg = (
+        float(df["fuel_consumption_lph"].mean())
+        if not df.empty and "fuel_consumption_lph" in df.columns
+        else 60.0
+    )
+    return _ok(
+        [
+            {
+                "hour": f"{h:02d}:00",
+                "consumption": round(avg * (0.8 + 0.4 * math.sin(h / 4)), 1),
+            }
+            for h in range(6, 22)
+        ]
+    )
+
+
+def _h_maintenance_items(event: dict) -> dict:
+    df = _get_df()
+    return _ok([_map_maintenance_item(i, r) for i, r in _rows(df)])
+
+
+def _h_work_orders(event: dict) -> dict:
+    df = _get_df()
+    return _ok([_map_work_order(i, r) for i, r in _rows(df)])
+
+
+def _h_telemetry_gps(event: dict) -> dict:
+    df = _get_df()
+    return _ok([_map_gps_asset(i, r) for i, r in _rows(df)])
+
+
+_PIT_ZONES = [
+    {
+        "id": "z1",
+        "name": "Pit A",
+        "type": "pit",
+        "x": 10,
+        "y": 10,
+        "width": 30,
+        "height": 25,
+    },
+    {
+        "id": "z2",
+        "name": "Dump B",
+        "type": "dump",
+        "x": 70,
+        "y": 15,
+        "width": 20,
+        "height": 20,
+    },
+    {
+        "id": "z3",
+        "name": "Workshop",
+        "type": "workshop",
+        "x": 45,
+        "y": 60,
+        "width": 15,
+        "height": 15,
+    },
+    {
+        "id": "z4",
+        "name": "Fuel Bay",
+        "type": "fuel-bay",
+        "x": 75,
+        "y": 60,
+        "width": 10,
+        "height": 10,
+    },
+    {
+        "id": "z5",
+        "name": "Haul Road",
+        "type": "haul-road",
+        "x": 40,
+        "y": 35,
+        "width": 5,
+        "height": 30,
+    },
+]
+
+
+def _h_telemetry_zones(event: dict) -> dict:
+    raw = os.environ.get("PIT_ZONES_JSON")
+    zones = json.loads(raw) if raw else _PIT_ZONES
+    return _ok(zones)
+
+
+# Router declarativo GET — tabla única, sin if-chains (DRY)
+_GET_ROUTES: dict[str, Callable[[dict], dict]] = {
+    "/fleet/assets": _h_fleet_assets,
+    "/kpis": _h_kpis,
+    "/fuel/records": _h_fuel_records,
+    "/fuel/trend": _h_fuel_trend,
+    "/maintenance/items": _h_maintenance_items,
+    "/maintenance/work-orders": _h_work_orders,
+    "/telemetry/gps": _h_telemetry_gps,
+    "/telemetry/zones": _h_telemetry_zones,
+}
+
+# ---------------------------------------------------------------------------
+# POST handlers — LLM agents
 # ---------------------------------------------------------------------------
 
 
@@ -99,14 +491,12 @@ def _handle_chat(event: dict) -> dict:
     """POST /chat — compliance RAG Q&A via BedrockRAGAgent."""
     body = _parse_body(event)
     message = (body.get("message") or body.get("question") or "").strip()
-    model = body.get(
-        "model"
-    )  # optional: "claude-sonnet-4.6" | "nova-pro" | "deepseek-v3.2"
+    model = body.get("model")
     if not message:
         return _err("'message' field is required")
     try:
         response_json = _get_rag_agent().chat(message, model=model)
-        return _ok(response_json)  # already a JSON string
+        return _ok(response_json)
     except Exception:
         logger.error("RAGAgent failed", exc_info=True)
         return _err("RAG pipeline error", 502)
@@ -118,14 +508,19 @@ def _handle_chat(event: dict) -> dict:
 
 
 def lambda_handler(event: dict, context) -> dict:  # noqa: ARG001
+    # Soporta HTTP API v2 (rawPath + requestContext.http.method)
+    # y REST API v1 (path + httpMethod) — ambos formatos de payload
     method = (
-        (event or {})
-        .get("requestContext", {})
-        .get("http", {})
-        .get("method", "GET")
-        .upper()
-    )
+        (event or {}).get("requestContext", {}).get("http", {}).get("method")
+        or (event or {}).get("httpMethod", "GET")
+    ).upper()
     path = (event or {}).get("rawPath") or (event or {}).get("path") or "/"
+    # HTTP API v2 with named stage includes stage in rawPath: /dev/kpis → /kpis
+    stage = (event or {}).get("requestContext", {}).get("stage", "")
+    if stage and path.startswith(f"/{stage}/"):
+        path = path[len(f"/{stage}") :]
+    elif stage and path == f"/{stage}":
+        path = "/"
 
     if path.rstrip("/") in ("", "/health", "/healthz"):
         return _ok(
@@ -136,6 +531,9 @@ def lambda_handler(event: dict, context) -> dict:  # noqa: ARG001
                 "guardrail_id": os.environ.get("GUARDRAIL_ID", ""),
             }
         )
+
+    if method == "GET" and path in _GET_ROUTES:
+        return _GET_ROUTES[path](event)
 
     if path == "/analyze" and method == "POST":
         return _handle_analyze(event)

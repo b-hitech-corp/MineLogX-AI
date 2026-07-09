@@ -310,7 +310,7 @@ module "lambda_pdf" {
   source_dir    = local.backend_dir
   excludes      = local.lambda_excludes
   role_arn      = module.iam.role_arns["pdf"]
-  timeout       = 300
+  timeout       = 900
   memory_size   = 1024
   layer_arns    = var.build_pdf_layer ? [module.lambda_layer_pdf[0].arn] : []
   environment = {

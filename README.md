@@ -33,10 +33,19 @@ bash scripts/dev-setup.sh          # Windows PowerShell: ./scripts/dev-setup.ps1
 Then drive environments with Fabric (no venv activation needed — `uv run` handles it):
 
 ```bash
-uv run fab --list                    # list all available tasks
-uv run fab env.plan dev --engine cf  # preview a CloudFormation change set
-uv run fab env.up   dev --seed       # deploy + seed S3 from demo buckets (dev only)
+uv run fab --list                         # list all available tasks
+uv run fab env.plan dev --engine cf       # preview a CloudFormation change set
+uv run fab env.up   dev --seed            # deploy infra + frontend full-stack (+ seed S3)
+uv run fab env.up   dev --skip-frontend   # solo infra, sin rebuild del frontend
+uv run fab frontend.deploy dev            # rebuild y redeploy solo el frontend
 ```
+
+`env.up` realiza el ciclo completo:
+1. Build Lambda layers (csv, pdf)
+2. Deploy CloudFormation (HTTP API Gateway v2, Lambda, Amplify, OpenSearch…)
+3. Obtiene `ApiUrl` del stack output → inyecta `VITE_API_BASE_URL` en el build de Vite
+4. `pnpm type-check` + `pnpm build` + upload a Amplify
+5. Imprime la URL del frontend al finalizar
 
 One-time state backend bootstrap (run once per account):
 
