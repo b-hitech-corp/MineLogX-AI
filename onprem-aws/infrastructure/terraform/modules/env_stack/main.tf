@@ -257,10 +257,10 @@ resource "aws_iam_role_policy" "pdf" {
 module "lambda_api" {
   source        = "../lambda"
   function_name = local.fn.api
-  handler       = "handler.lambda_handler"
-  source_dir    = "${local.backend_dir}/lambdas/api"
+  handler       = "lambdas.api.handler.lambda_handler"
+  source_dir    = local.backend_dir
   role_arn      = module.iam.role_arns["api"]
-  timeout       = 30
+  timeout       = 60
   memory_size   = 512
   environment = {
     OPENSEARCH_HOST = module.opensearch.collection_host

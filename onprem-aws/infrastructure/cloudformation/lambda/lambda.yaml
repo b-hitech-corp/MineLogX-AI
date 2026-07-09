@@ -69,12 +69,12 @@ Resources:
     Properties:
       FunctionName: !Sub '${NamePrefix}-api'
       Runtime: python3.11
-      Handler: handler.lambda_handler
+      Handler: lambdas.api.handler.lambda_handler
       Role: !Ref ApiRoleArn
-      Timeout: 30
+      Timeout: 60
       MemorySize: 512
       Layers: !If [ShouldBuildCsvLayer, [!Ref CsvLayer], !Ref 'AWS::NoValue']
-      Code: ../../../backend/lambdas/api
+      Code: ../../../backend
       Environment:
         Variables:
           OPENSEARCH_HOST: !Ref OpenSearchHost

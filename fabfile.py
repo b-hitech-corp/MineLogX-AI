@@ -56,6 +56,12 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+# Windows cp1252 terminals crash on Unicode chars (✓, →, etc.) — force UTF-8.
+if sys.stdout and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if sys.stderr and hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 from fabric import Connection, SerialGroup, task
 from invoke import Collection
 
@@ -2335,9 +2341,74 @@ ollama.add_task(restart_ollama)
 ollama.add_task(pull_model)
 ollama.add_task(logs)
 
+
+@task(
+    help={
+        "name": "Lambda suffix: api | csv | pdf.",
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
+    },
+)
+def redeploy(c, name, env):
+    """Re-zip and push Lambda code without rebuilding layers or running a full CFN deploy.
+
+    Zips backend/ (skipping .lambda-layers/, __pycache__, *.pyc, .git/) and calls
+    aws lambda update-function-code. Useful after editing handler code when the
+    layer dependencies have not changed.
+
+    Examples:
+      uv run fab lambda.redeploy api dev
+      uv run fab lambda.redeploy csv dev
+    """
+    _ensure_aws(c)
+    fn_name = _lambda_fn(env, name)
+    src = TARGET_ROOT / "backend"
+    if not src.is_dir():
+        raise SystemExit(f"backend/ not found: {src}")
+
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        zip_path = tmp.name
+
+    EXCLUDE_DIRS = {
+        ".lambda-layers",
+        "__pycache__",
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+    }
+    EXCLUDE_EXTS = {".pyc", ".pyo"}
+
+    try:
+        print(f"==> [redeploy] Zipping {src} ...")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for f in src.rglob("*"):
+                if not f.is_file():
+                    continue
+                if any(part in EXCLUDE_DIRS for part in f.parts):
+                    continue
+                if f.suffix in EXCLUDE_EXTS:
+                    continue
+                zf.write(f, f.relative_to(src))
+        size_mb = round(os.path.getsize(zip_path) / (1024 * 1024), 1)
+        print(f"==> [redeploy] zip ready: {size_mb} MB — uploading to {fn_name} ...")
+        res = c.run(
+            f"aws lambda update-function-code --function-name {fn_name} "
+            f'--zip-file "fileb://{zip_path}" --region {REGION} '
+            '--query "[FunctionName,LastModified,CodeSize]" --output text',
+            hide=False,
+            warn=True,
+        )
+        if res.ok:
+            print(_green(f"==> [redeploy] {fn_name} updated successfully"))
+        else:
+            raise SystemExit(f"[redeploy] update-function-code failed: {res.stderr}")
+    finally:
+        os.unlink(zip_path)
+
+
 lambda_ns = Collection("lambda")
 lambda_ns.add_task(pull)
 lambda_ns.add_task(build_layer, name="build-layer")
+lambda_ns.add_task(redeploy)
 lambda_ns.add_task(invoke)
 lambda_ns.add_task(invoke_all, name="invoke-all")
 lambda_ns.add_task(pdf_async_status, name="pdf-async-status")
