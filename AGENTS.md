@@ -20,8 +20,8 @@ Read this file completely before taking any action.
 
 | Agent | Service | Purpose |
 |---|---|---|
-| Data Analysis Agent | Amazon Bedrock Claude + Strands | KPI calculation, anomaly detection, telemetry analysis |
-| RAG Compliance Agent | Amazon Bedrock Agent | Compliance Q&A, hybrid search over legal documents |
+| Data Analysis Agent | Amazon Bedrock Claude (Converse API) | KPI calculation, anomaly detection, telemetry analysis |
+| RAG Compliance Agent | Amazon Bedrock Claude (Converse API + OpenSearch hybrid search) | Compliance Q&A with selectable model (Sonnet / Nova Pro / DeepSeek) |
 
 ---
 
@@ -110,7 +110,7 @@ Any file in .git/
 
 **Purpose:** Analyze IoT telemetry data, calculate KPIs, detect anomalies, and generate operational insights.
 
-**Framework:** Amazon Bedrock Claude with Strands agent framework.
+**Framework:** Amazon Bedrock Claude (Converse API).
 
 **Allowed actions:**
 - Query Amazon OpenSearch index `csv_telemetry_vecs` via kNN search
@@ -148,7 +148,7 @@ co2_per_km          = SUM(co2_grams) / SUM(distance_km)                [g/km]
 
 **Purpose:** Answer natural language compliance questions grounded in regulatory documents across multiple jurisdictions (Senegal, United States, Chile).
 
-**Service:** Amazon Bedrock Agent with hybrid search over OpenSearch.
+**Service:** Amazon Bedrock Claude (Converse API) with hybrid search over OpenSearch Serverless. Selectable model: `us.anthropic.claude-sonnet-4-6` (default), `us.amazon.nova-pro-v1:0`, or `deepseek.v3.2`.
 
 **Allowed actions:**
 - Query Amazon OpenSearch index `pdf_legal_vecs` via hybrid search (kNN + BM25)
@@ -300,5 +300,7 @@ When adding a new Bedrock Agent or AI component to the platform:
 - `infrastructure/cloudformation/bedrock-guardrails/` — Guardrail stack
 - `backend/agents/data-analysis/` — Data Analysis Agent implementation
 - `backend/agents/rag-agent/` — RAG Compliance Agent implementation
-- `fabfile.py` — `env.*` environment orchestration + `ollama.*` EC2 remote ops
+- `fabfile.py` — Fabric orchestrator: `env.*` lifecycle (full-stack: infra + frontend en un comando), `lambda.*` pipeline ops, `bedrock.*` model probing, `opensearch.*` status, `frontend.*` Amplify deploy, `ollama.*` EC2 remote ops
+- `lambdas/api/handler.py` — Lambda API: GET /fleet/assets, /kpis, /fuel/*, /maintenance/*, /telemetry/* (datos S3, sin LLM) + POST /analyze (FleetAgent) + POST /chat (RAGAgent)
+- `cloudformation/apigw/apigw.yaml` — HTTP API v2 con CORS nativo para `*.amplifyapp.com`
 - `scripts/discover-aws.sh` / `.ps1` — read-only AWS inventory for demo import

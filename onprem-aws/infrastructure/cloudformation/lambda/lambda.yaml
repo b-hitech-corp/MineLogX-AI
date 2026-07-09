@@ -73,11 +73,14 @@ Resources:
       Role: !Ref ApiRoleArn
       Timeout: 30
       MemorySize: 512
+      Layers: !If [ShouldBuildCsvLayer, [!Ref CsvLayer], !Ref 'AWS::NoValue']
       Code: ../../../backend/lambdas/api
       Environment:
         Variables:
           OPENSEARCH_HOST: !Ref OpenSearchHost
           GUARDRAIL_ID: !Ref GuardrailId
+          FLEET_S3_BUCKET: !Ref TelemetryBucket
+          FLEET_S3_PREFIX: ''
       Tags:
         - { Key: Environment, Value: !Ref Environment }
 
@@ -109,7 +112,7 @@ Resources:
       Runtime: python3.11
       Handler: pdf_pipeline.lambda_function.lambda_handler
       Role: !Ref PdfRoleArn
-      Timeout: 300
+      Timeout: 900
       MemorySize: 1024
       Layers: !If [ShouldBuildPdfLayer, [!Ref PdfLayer], !Ref 'AWS::NoValue']
       Code: ../../../backend

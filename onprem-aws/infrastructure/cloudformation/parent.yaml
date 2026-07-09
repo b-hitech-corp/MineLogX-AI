@@ -55,6 +55,13 @@ Parameters:
     Description: >
       Publish the PDF deps Lambda layer. Off by default so `package`/`deploy`
       don't fail before `fab lambda.build-layer pdf` has produced the tree.
+  ViteUseMock:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: >
+      Passed to the Amplify app as VITE_USE_MOCK env var.
+      VITE_API_BASE_URL is injected at build time by Fabric (not stored here).
 
 Resources:
   Network:
@@ -120,6 +127,7 @@ Resources:
         NamePrefix: !Ref NamePrefix
         Environment: !Ref Environment
         ProjectApnId: !Ref ProjectApnId
+        LambdaArn: !GetAtt Lambda.Outputs.ApiFunctionArn
 
   Ec2:
     Type: AWS::CloudFormation::Stack
@@ -159,6 +167,7 @@ Resources:
         NamePrefix: !Ref NamePrefix
         Environment: !Ref Environment
         ProjectApnId: !Ref ProjectApnId
+        ViteUseMock: !Ref ViteUseMock
 
   Lambda:
     Type: AWS::CloudFormation::Stack
@@ -206,6 +215,8 @@ Outputs:
     Value: !GetAtt Network.Outputs.VpcId
   ApiId:
     Value: !GetAtt Apigw.Outputs.RestApiId
+  ApiUrl:
+    Value: !GetAtt Apigw.Outputs.ApiUrl
   AmplifyAppId:
     Value: !GetAtt Amplify.Outputs.AppId
   AmplifyDomain:

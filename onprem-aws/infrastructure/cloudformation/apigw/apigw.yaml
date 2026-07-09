@@ -1,5 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: MineLogX - REST API Gateway that exposes the chat and query endpoints to the frontend.
+Description: >
+  MineLogX - HTTP API Gateway (v2) con Lambda proxy integration y CORS nativo.
+  Expone todos los endpoints REST del frontend y los routes LLM (/analyze, /chat).
+  TODO: reemplazar AllowOrigins con dominio custom cuando se configure Route53+ACM.
 
 Parameters:
   NamePrefix:
@@ -9,23 +12,69 @@ Parameters:
   ProjectApnId:
     Type: String
     Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
-  ApiDescription:
+  LambdaArn:
     Type: String
-    Default: MineLogX API
+    Description: ARN completo de la Lambda minelogx-api
 
 Resources:
-  RestApi:
-    Type: AWS::ApiGateway::RestApi
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
     Properties:
       Name: !Sub '${NamePrefix}-api'
-      Description: !Ref ApiDescription
-      EndpointConfiguration: { Types: [REGIONAL] }
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+          # TODO: replace '*' with exact Amplify URL + custom domain once known (API GW v2 does not support wildcard subdomains)
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+        MaxAge: 300
       Tags:
-        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
-        - { Key: Environment, Value: !Ref Environment }
+        aws-apn-id: !Ref ProjectApnId
+        Environment: !Ref Environment
+
+  LambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub
+        - 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${Arn}/invocations'
+        - { Arn: !Ref LambdaArn }
+      PayloadFormatVersion: '2.0'
+
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: '$default'
+      Target: !Sub 'integrations/${LambdaIntegration}'
+
+  Stage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: !Ref Environment
+      AutoDeploy: true
+      Tags:
+        aws-apn-id: !Ref ProjectApnId
+        Environment: !Ref Environment
+
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*'
 
 Outputs:
   RestApiId:
-    Value: !Ref RestApi
-  RootResourceId:
-    Value: !GetAtt RestApi.RootResourceId
+    Value: !Ref HttpApi
+  ApiUrl:
+    Value: !Sub 'https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'

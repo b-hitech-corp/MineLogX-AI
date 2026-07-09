@@ -33,10 +33,19 @@ bash scripts/dev-setup.sh          # Windows PowerShell: ./scripts/dev-setup.ps1
 Then drive environments with Fabric (no venv activation needed — `uv run` handles it):
 
 ```bash
-uv run fab --list                    # list all available tasks
-uv run fab env.plan dev --engine cf  # preview a CloudFormation change set
-uv run fab env.up   dev --seed       # deploy + seed S3 from demo buckets (dev only)
+uv run fab --list                         # list all available tasks
+uv run fab env.plan dev --engine cf       # preview a CloudFormation change set
+uv run fab env.up   dev --seed            # deploy infra + frontend full-stack (+ seed S3)
+uv run fab env.up   dev --skip-frontend   # solo infra, sin rebuild del frontend
+uv run fab frontend.deploy dev            # rebuild y redeploy solo el frontend
 ```
+
+`env.up` realiza el ciclo completo:
+1. Build Lambda layers (csv, pdf)
+2. Deploy CloudFormation (HTTP API Gateway v2, Lambda, Amplify, OpenSearch…)
+3. Obtiene `ApiUrl` del stack output → inyecta `VITE_API_BASE_URL` en el build de Vite
+4. `pnpm type-check` + `pnpm build` + upload a Amplify
+5. Imprime la URL del frontend al finalizar
 
 One-time state backend bootstrap (run once per account):
 
@@ -167,6 +176,10 @@ uv run fab lambda.invoke csv dev                         # trigger CSV pipeline 
 uv run fab lambda.invoke csv dev --wait                  # trigger + block until complete
 uv run fab lambda.invoke csv dev --file-path C1/foo.csv  # use a specific S3 key
 uv run fab lambda.invoke pdf dev                         # invoke PDF Lambda with synthetic S3 event
+uv run fab lambda.invoke pdf dev --async                 # fire-and-forget (InvocationType=Event)
+uv run fab lambda.invoke-all csv dev --parallel          # process every S3 CSV in parallel
+uv run fab lambda.invoke-all pdf dev --async             # queue every S3 PDF asynchronously
+uv run fab lambda.pdf-async-status dev                   # CloudWatch Logs Insights status table
 uv run fab lambda.build-layer csv                        # build the CSV deps layer (no Docker)
 uv run fab lambda.build-layer pdf                        # build the PDF deps layer (no Docker)
 uv run fab lambda.pull                                   # download deployed demo Lambda code
@@ -203,8 +216,9 @@ Fabric writes structured, human-readable logs to `.fab-logs/` (git-ignored):
 
 | File pattern | Written by |
 |---|---|
-| `invoke-csv-<env>-<ts>.log` | `lambda.invoke csv` |
-| `invoke-pdf-<env>-<ts>.log` | `lambda.invoke pdf` |
+| `invoke-csv-<env>-<ts>.log` | `lambda.invoke csv` / `lambda.invoke-all csv` |
+| `invoke-pdf-<env>-<ts>.log` | `lambda.invoke pdf` / `lambda.invoke-all pdf` |
+| `pdf-async-status-<env>-<ts>.log` | `lambda.pdf-async-status` |
 | `opensearch-status-<env>-<ts>.log` | `opensearch.status` |
 | `up-<env>-<ts>.log` | `env.up` (on failure only) |
 

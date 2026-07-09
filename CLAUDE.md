@@ -93,11 +93,16 @@ Both indices use HNSW with Faiss engine for kNN vector search, plus BM25 for hyb
 
 ### Bedrock Models
 
-| Model | Use Case | Pipeline |
+| Model ID | Use Case | Pipeline |
 |---|---|---|
-| claude-3-5-sonnet | Data analysis agent, CSV annotation, complex PDF extraction | Data Analysis Layer, CSV Pipeline, PDF Pipeline |
-| cohere.embed-multilingual-v3 | Telemetry vectorization | CSV Pipeline |
-| amazon.titan-embed-text-v2:0 | Legal document vectorization | PDF Pipeline |
+| `us.anthropic.claude-sonnet-4-6` | Data analysis, CSV annotation, complex PDF extraction, RAG Q&A | API Lambda, CSV Pipeline, PDF Pipeline |
+| `us.amazon.nova-pro-v1:0` | RAG Compliance Q&A (selectable) | RAG Agent |
+| `deepseek.v3.2` | RAG Compliance Q&A (selectable) | RAG Agent |
+| `cohere.embed-multilingual-v3` | Telemetry vectorization (1024d) | CSV Pipeline |
+| `amazon.titan-embed-text-v2:0` | Legal document vectorization (1024d) | PDF Pipeline |
+| `us.anthropic.claude-haiku-4-5-20251001-v1:0` | PDF document classifier | PDF Pipeline (pending Marketplace subscription — fallback: Sonnet) |
+
+All models use cross-region inference profiles (prefix `us.` for Claude/Nova). Bare model IDs like `anthropic.claude-3-5-sonnet-20241022-v2:0` raise `ResourceNotFoundException` in this account.
 
 ### Bedrock Guardrails
 
@@ -123,8 +128,12 @@ These will be replaced by Bedrock in production. Managed via Fabric.
 
 ## Fabric — Remote Operations
 
-Fabric (with Invoke) is the automation entrypoint for the project. It has two task namespaces:
+Fabric (with Invoke) is the automation entrypoint for the project. It has six task namespaces:
 - **`env.*`** — infrastructure environment lifecycle, running Terraform **or** CloudFormation (`--engine`).
+- **`lambda.*`** — invoke pipelines, set env vars, view logs, check status, build layers.
+- **`bedrock.*`** — probe model access across all project models.
+- **`opensearch.*`** — collection health and document count per index.
+- **`frontend.*`** — build and deploy the React/Vite app to Amplify.
 - **`ollama.*`** — remote SSH operations on the demo EC2 instances running Ollama.
 
 ### Installation
@@ -139,35 +148,59 @@ uv run fab --list
 
 ### fabfile.py Structure
 
-```python
-from fabric import Connection, SerialGroup, task
-from invoke import Collection
+The fabfile uses `invoke.Collection` namespaces so tasks are grouped as `<ns>.<task>`:
 
-# EC2 instance connections
-INSTANCES = {
-    "qwen3":      "ec2-98-81-228-187.compute-1.amazonaws.com",
-    "gemma3":     "ec2-100-31-82-64.compute-1.amazonaws.com",
-    "embeddings": "ec2-3-208-23-94.compute-1.amazonaws.com",
-}
-KEY_PATH = "~/.ssh/minelogx-demo-poc-keypair.pem"
-USER = "ubuntu"
 ```
+env_ns      → env.*        (up, plan, down, list, bootstrap, endpoints)
+lambda_ns   → lambda.*     (invoke, invoke-all, set-env, logs, status, build-layer, pull, pdf-async-status)
+bedrock_ns  → bedrock.*    (model-access)
+opensearch_ns → opensearch.* (status)
+frontend_ns → frontend.*   (deploy)
+ollama_ns   → ollama.*     (health-check, restart-ollama, pull-model, logs)
+```
+
+Activity logs are written to `.fab-logs/` (git-ignored):
+`invoke-csv-<env>-<ts>.log`, `invoke-pdf-<env>-<ts>.log`, `opensearch-status-<env>-<ts>.log`
 
 ### Common Fabric Tasks
 
 ```bash
 # --- Environment orchestration (env.*) ---
-fab env.up   --env=dev-cesar --engine=terraform       # ephemeral per-dev env
-fab env.up   --env=dev-cesar --engine=cloudformation  # same env, other engine
-fab env.plan --env=qa   --engine=terraform       # preview changes
-fab env.down --env=dev-cesar --engine=terraform       # tear down (prod is guarded)
-fab env.list                                          # active workspaces + stacks
+uv run fab env.up   dev --seed                        # deploy + seed S3 from demo buckets
+uv run fab env.up   dev-cesar --engine=terraform      # ephemeral per-dev env
+uv run fab env.plan dev                               # preview changes (CFN change set)
+uv run fab env.down dev-cesar                         # tear down (prod is guarded)
+uv run fab env.list                                   # active workspaces + stacks
+uv run fab env.endpoints dev                          # print live URLs
+
+# --- Lambda pipeline ops (lambda.*) ---
+uv run fab lambda.invoke csv dev --wait               # trigger CSV Step Functions pipeline
+uv run fab lambda.invoke pdf dev                      # invoke PDF Lambda with S3 synthetic event
+uv run fab lambda.invoke pdf dev --async              # fire-and-forget (InvocationType=Event)
+uv run fab lambda.invoke-all csv dev --parallel       # process all S3 CSVs in parallel
+uv run fab lambda.invoke-all pdf dev --async          # queue all PDFs asynchronously
+uv run fab lambda.pdf-async-status dev                # CloudWatch Logs Insights: per-PDF status table
+uv run fab lambda.set-env pdf dev --key PDF_HAIKU_MODEL_ID --value us.anthropic.claude-haiku-4-5-20251001-v1:0
+uv run fab lambda.logs api dev --follow               # tail CloudWatch logs
+uv run fab lambda.status dev                          # state + env vars for api/csv/pdf
+
+# --- Bedrock model probing (bedrock.*) ---
+uv run fab bedrock.model-access                       # probe all project models (GRANTED/DENIED)
+
+# --- OpenSearch status (opensearch.*) ---
+uv run fab opensearch.status dev                      # collection health + doc counts
+
+# --- Frontend (frontend.*) ---
+uv run fab frontend.deploy dev                        # build React/Vite + push to Amplify (standalone)
+uv run fab env.up dev                                 # full-stack: infra + frontend en un solo comando
+uv run fab env.up dev --skip-frontend                 # solo infra, sin rebuild del frontend
+# VITE_API_BASE_URL se inyecta dinámicamente desde los outputs del stack (no hardcodeada)
 
 # --- Ollama demo remote ops (ollama.*) ---
-fab ollama.health-check                               # check all instances
-fab ollama.pull-model --host=qwen3 --model=qwen3:8b   # pull a model
-fab ollama.restart-ollama                             # restart on all instances
-fab ollama.logs --host=gemma3                         # tail container logs
+uv run fab ollama.health-check                        # check all instances
+uv run fab ollama.pull-model --host=qwen3 --model=qwen3:8b
+uv run fab ollama.restart-ollama
+uv run fab ollama.logs --host=gemma3
 ```
 
 ### Example Fabric Task Pattern
@@ -406,6 +439,8 @@ For Fabric, use environment variables or a `.env` file (gitignored).
 - All Lambdas must log structured JSON to CloudWatch
 - S3 prefix routing must be strictly enforced — never read from `raw/` for Bedrock
 - Use Lambda Function URLs for LLM calls (API Gateway 29s timeout limitation)
+- Data endpoints (GET /fleet/assets, /kpis, /fuel/*, /maintenance/*, /telemetry/*) van por HTTP API v2 — respuesta < 5s sin LLM
+- Chat y Company usan Lambda Function URL directa (streaming futuro; ver TODO en apigw.yaml)
 
 ```python
 # Required structured logging pattern
@@ -427,7 +462,7 @@ def lambda_handler(event, context):
 
 ## Critical Architecture Constraints
 
-1. **API Gateway timeout = 29s hard limit** — use Lambda Function URLs for LLM calls
+1. **API Gateway timeout = 29s hard limit** — LLM calls (chat, analyze) usan Lambda Function URL; los GET de datos van por HTTP API v2 (< 5s)
 2. **OpenSearch uses hybrid search** — kNN (vector) + BM25 (lexical) for RAG queries
 3. **Raw data is untrusted** — validate before any Bedrock operation
 4. **Bedrock Guardrails are mandatory** at all AI touchpoints — never bypass
