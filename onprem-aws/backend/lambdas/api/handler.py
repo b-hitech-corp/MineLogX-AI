@@ -5,7 +5,7 @@ Routes — LLM (POST, via Bedrock):
     POST /analyze   → data_analysis_agent.FleetAgent
     POST /chat      → rag_agent.BedrockRAGAgent
 
-Routes — Data (GET, directo desde S3 via csv_loader + kpi_engine, sin LLM):
+Routes — Data (GET, direct from S3 via csv_loader + kpi_engine, no LLM):
     GET  /health | /healthz
     GET  /fleet/assets
     GET  /kpis
@@ -16,8 +16,8 @@ Routes — Data (GET, directo desde S3 via csv_loader + kpi_engine, sin LLM):
     GET  /telemetry/gps
     GET  /telemetry/zones
 
-Todos los singletons se inicializan lazy para sobrevivir warm invocations.
-El handler soporta tanto payload format v2 (HTTP API) como v1 (REST API).
+All singletons are lazily initialized to survive warm invocations.
+The handler supports both payload format v2 (HTTP API) and v1 (REST API).
 """
 
 from __future__ import annotations
@@ -60,7 +60,7 @@ def _get_rag_agent():
 
 
 # ---------------------------------------------------------------------------
-# Lazy singleton — telemetry DataFrame (cargado desde S3 una sola vez)
+# Lazy singleton — telemetry DataFrame (loaded from S3 once per container)
 # ---------------------------------------------------------------------------
 
 _telemetry_df: pd.DataFrame | None = None
@@ -75,7 +75,7 @@ def _get_df() -> pd.DataFrame:
     from data_analysis_agent.tools.s3_browser import list_folder
     from data_analysis_agent.tools.csv_loader import load_csv, get_dataframe
 
-    # Intenta los prefijos más comunes en orden de preferencia
+    # Try common prefixes in order of preference
     for folder in ("curated", "approved", "C1", "C2", ""):
         try:
             files = list_folder(folder)
@@ -84,7 +84,7 @@ def _get_df() -> pd.DataFrame:
         if not files:
             continue
         dfs: list[pd.DataFrame] = []
-        for fpath in files[:5]:  # máx 5 archivos para evitar timeout
+        for fpath in files[:5]:  # cap at 5 files to avoid timeout
             try:
                 load_csv(fpath)
                 dfs.append(get_dataframe(fpath))
@@ -132,12 +132,12 @@ def _parse_body(event: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# DRY helpers para mapear filas de DataFrame
+# DRY helpers for mapping DataFrame rows to dicts
 # ---------------------------------------------------------------------------
 
 
 def _fget(row: dict, *keys: str, default: float = 0.0) -> float:
-    """Float con múltiples claves de fallback."""
+    """Float with multiple key fallbacks."""
     for k in keys:
         v = row.get(k)
         if v is not None:
@@ -149,7 +149,7 @@ def _fget(row: dict, *keys: str, default: float = 0.0) -> float:
 
 
 def _sget(row: dict, *keys: str, default: str = "") -> str:
-    """Str con múltiples claves de fallback."""
+    """String with multiple key fallbacks."""
     for k in keys:
         v = row.get(k)
         if v is not None:
@@ -158,12 +158,12 @@ def _sget(row: dict, *keys: str, default: str = "") -> str:
 
 
 def _rows(df: pd.DataFrame):
-    """Iteración de filas como (index, row_dict)."""
+    """Yield (index, row_dict) pairs over a DataFrame."""
     return enumerate(r.to_dict() for _, r in df.iterrows())
 
 
 # ---------------------------------------------------------------------------
-# Mappers — Single Responsibility: fila CSV → dict JSON para el frontend
+# Mappers — Single Responsibility: CSV row → JSON dict for the frontend
 # ---------------------------------------------------------------------------
 
 
@@ -286,7 +286,7 @@ def _map_gps_asset(i: int, row: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# GET handlers — KISS: cada handler hace exactamente una cosa
+# GET handlers — KISS: each handler does exactly one thing
 # ---------------------------------------------------------------------------
 
 
@@ -303,7 +303,7 @@ def _h_kpis(event: dict) -> dict:
     if df.empty:
         return _ok([])
 
-    # Carga el DataFrame en cache usando un key temporal
+    # Load the DataFrame into the cache under a temporary key
     from data_analysis_agent.tools.csv_loader import _cache_set
 
     _cache_set("_live_", df)
@@ -454,7 +454,7 @@ def _h_telemetry_zones(event: dict) -> dict:
     return _ok(zones)
 
 
-# Router declarativo GET — tabla única, sin if-chains (DRY)
+# Declarative GET router — single table, no if-chains (DRY)
 _GET_ROUTES: dict[str, Callable[[dict], dict]] = {
     "/fleet/assets": _h_fleet_assets,
     "/kpis": _h_kpis,
@@ -508,8 +508,8 @@ def _handle_chat(event: dict) -> dict:
 
 
 def lambda_handler(event: dict, context) -> dict:  # noqa: ARG001
-    # Soporta HTTP API v2 (rawPath + requestContext.http.method)
-    # y REST API v1 (path + httpMethod) — ambos formatos de payload
+    # Supports HTTP API v2 (rawPath + requestContext.http.method)
+    # and REST API v1 (path + httpMethod) — both payload formats
     method = (
         (event or {}).get("requestContext", {}).get("http", {}).get("method")
         or (event or {}).get("httpMethod", "GET")

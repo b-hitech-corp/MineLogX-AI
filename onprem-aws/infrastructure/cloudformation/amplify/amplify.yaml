@@ -20,8 +20,8 @@ Parameters:
     AllowedValues: ['true', 'false']
     Default: 'false'
     Description: >
-      Informativo para CI/CD git-based futuro. VITE_API_BASE_URL
-      se inyecta en build time por Fabric (no se almacena aqui).
+      Informational for future git-based CI/CD. VITE_API_BASE_URL
+      is injected at build time by Fabric (not stored here).
 
 Resources:
   App:

@@ -828,7 +828,7 @@ def build_layer(c, fn):
     python_dir.mkdir(parents=True)
 
     print(f"==> Building layer for '{fn}' from {reqs.name} -> {build_dir}")
-    # uv venvs no incluyen pip por defecto — bootstrapear si falta.
+    # uv venvs do not include pip by default — bootstrap it if missing.
     c.run(f'"{sys.executable}" -m ensurepip --upgrade', warn=True, hide=True)
     # manylinux2014 (glibc 2.17) — matches Amazon Linux 2, which backs the
     # Lambda python3.11 runtime (glibc 2.26). Newer manylinux_2_28 wheels

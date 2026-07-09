@@ -36,8 +36,8 @@ Then drive environments with Fabric (no venv activation needed — `uv run` hand
 uv run fab --list                         # list all available tasks
 uv run fab env.plan dev --engine cf       # preview a CloudFormation change set
 uv run fab env.up   dev --seed            # deploy infra + frontend full-stack (+ seed S3)
-uv run fab env.up   dev --skip-frontend   # solo infra, sin rebuild del frontend
-uv run fab frontend.deploy dev            # rebuild y redeploy solo el frontend
+uv run fab env.up   dev --skip-frontend   # infra only, skip frontend rebuild
+uv run fab frontend.deploy dev            # rebuild and redeploy the frontend only
 ```
 
 `env.up` realiza el ciclo completo:

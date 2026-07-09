@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  MineLogX - HTTP API Gateway (v2) con Lambda proxy integration y CORS nativo.
-  Expone todos los endpoints REST del frontend y los routes LLM (/analyze, /chat).
-  TODO: reemplazar AllowOrigins con dominio custom cuando se configure Route53+ACM.
+  MineLogX - HTTP API Gateway (v2) with Lambda proxy integration and native CORS.
+  Exposes all frontend REST endpoints and LLM routes (/analyze, /chat).
+  TODO: replace AllowOrigins with a custom domain once Route53+ACM is configured.
 
 Parameters:
   NamePrefix:
@@ -14,7 +14,7 @@ Parameters:
     Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
   LambdaArn:
     Type: String
-    Description: ARN completo de la Lambda minelogx-api
+    Description: Full ARN of the minelogx-api Lambda function
 
 Resources:
   HttpApi:
