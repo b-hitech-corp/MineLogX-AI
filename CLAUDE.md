@@ -129,7 +129,7 @@ These will be replaced by Bedrock in production. Managed via Fabric.
 ## Fabric — Remote Operations
 
 Fabric (with Invoke) is the automation entrypoint for the project. It has six task namespaces:
-- **`env.*`** — infrastructure environment lifecycle, running Terraform **or** CloudFormation (`--engine`).
+- **`env.*`** — infrastructure environment lifecycle (up, plan, down, endpoints, health), running Terraform **or** CloudFormation (`--engine`).
 - **`lambda.*`** — invoke pipelines, set env vars, view logs, check status, build layers.
 - **`bedrock.*`** — probe model access across all project models.
 - **`opensearch.*`** — collection health and document count per index.
@@ -151,7 +151,7 @@ uv run fab --list
 The fabfile uses `invoke.Collection` namespaces so tasks are grouped as `<ns>.<task>`:
 
 ```
-env_ns      → env.*        (up, plan, down, list, bootstrap, endpoints)
+env_ns      → env.*        (up, plan, down, list, bootstrap, endpoints, health)
 lambda_ns   → lambda.*     (invoke, invoke-all, set-env, logs, status, build-layer, pull, pdf-async-status)
 bedrock_ns  → bedrock.*    (model-access)
 opensearch_ns → opensearch.* (status)
@@ -171,7 +171,8 @@ uv run fab env.up   dev-cesar --engine=terraform      # ephemeral per-dev env
 uv run fab env.plan dev                               # preview changes (CFN change set)
 uv run fab env.down dev-cesar                         # tear down (prod is guarded)
 uv run fab env.list                                   # active workspaces + stacks
-uv run fab env.endpoints                              # print live URLs (default: dev)
+uv run fab env.endpoints dev                          # print live URLs
+uv run fab env.health dev                             # aggregate health: lambda + opensearch + step-functions + bedrock
 uv run fab env.endpoints qa                           # same for another env
 
 # --- Lambda pipeline ops (lambda.*) ---
