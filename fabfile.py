@@ -1132,6 +1132,200 @@ def deploy(c, env, skip_build=False, api_url=""):
         _frontend_build_and_deploy(c, env, api_url=resolved_url)
 
 
+@task(
+    positional=["env"],
+    help={
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
+        "timeout": "Request timeout in seconds (default: 15).",
+    },
+)
+def validate(c, env, timeout=15):
+    """Validate that all frontend endpoints (API GW + Lambda Function URLs) are reachable.
+
+    Checks each API Gateway route for HTTP 200, JSON content-type, and CORS headers.
+    Discovers the Lambda Function URL dynamically and compares it against the URL
+    hardcoded in shared/frontend/src/services/chat.ts to detect stack re-creation drift.
+    """
+    import re as _re
+    import time as _time
+    import urllib.error as _ue
+    import urllib.request as _ur
+
+    _ensure_aws(c)
+    ts = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    print(f"\n  Frontend Validation — {NAME_PREFIX}-{env}  ({ts})\n")
+
+    outputs, stack_status = _endpoints_data(c, env)
+    if not outputs:
+        raise SystemExit(
+            f"Stack {NAME_PREFIX}-{env} not found or has no outputs (status={stack_status})"
+        )
+
+    api_url = next(
+        (o["OutputValue"] for o in outputs if o["OutputKey"] == "ApiUrl"), ""
+    )
+    if not api_url:
+        raise SystemExit("ApiUrl not found in stack outputs")
+
+    amplify_domain = next(
+        (
+            o["OutputValue"]
+            for o in outputs
+            if o["OutputKey"] in ("FrontendUrl", "AmplifyUrl")
+        ),
+        "",
+    )
+
+    _API_ROUTES = [
+        "/fleet/assets",
+        "/kpis",
+        "/fuel/records",
+        "/fuel/trend",
+        "/maintenance/items",
+        "/maintenance/work-orders",
+        "/telemetry/gps",
+        "/telemetry/zones",
+    ]
+
+    passed = 0
+    failed = 0
+
+    def _req_get(url, method="GET", data=None, headers=None):
+        req = _ur.Request(url, method=method, data=data)
+        if amplify_domain:
+            req.add_header("Origin", amplify_domain.rstrip("/"))
+        if headers:
+            for k, v in headers.items():
+                req.add_header(k, v)
+        return req
+
+    # --- API Gateway routes ---
+    print("  API Gateway (VITE_API_BASE_URL)")
+    print("  " + "─" * 65)
+    for route in _API_ROUTES:
+        url = api_url.rstrip("/") + route
+        t0 = _time.monotonic()
+        try:
+            with _ur.urlopen(_req_get(url), timeout=timeout) as resp:  # nosec B310
+                elapsed = int((_time.monotonic() - t0) * 1000)
+                ct = resp.headers.get("Content-Type", "")
+                cors = resp.headers.get("Access-Control-Allow-Origin", "")
+                ok = resp.status == 200 and "application/json" in ct and bool(cors)
+                passed += ok
+                failed += not ok
+                json_tag = "JSON" if "application/json" in ct else "NOT-JSON"
+                cors_tag = "CORS ✓" if cors else "CORS ✗"
+                print(
+                    f"  {route:<32}  {resp.status}  {json_tag}  {cors_tag}   {elapsed} ms"
+                )
+        except Exception as exc:
+            elapsed = int((_time.monotonic() - t0) * 1000)
+            failed += 1
+            print(f"  {route:<32}  ERR  {exc}   {elapsed} ms")
+
+    # CORS preflight
+    preflight_url = api_url.rstrip("/") + "/fleet/assets"
+    req = _ur.Request(preflight_url, method="OPTIONS")
+    req.add_header("Origin", amplify_domain or "https://example.com")
+    req.add_header("Access-Control-Request-Method", "GET")
+    t0 = _time.monotonic()
+    try:
+        with _ur.urlopen(req, timeout=timeout) as resp:  # nosec B310
+            elapsed = int((_time.monotonic() - t0) * 1000)
+            ok = resp.status in (200, 204)
+            passed += ok
+            failed += not ok
+            print(
+                f"  OPTIONS /fleet/assets                   {resp.status}  CORS preflight {'✓' if ok else '✗'}   {elapsed} ms"
+            )
+    except _ue.HTTPError as exc:
+        elapsed = int((_time.monotonic() - t0) * 1000)
+        ok = exc.code in (200, 204)
+        passed += ok
+        failed += not ok
+        print(
+            f"  OPTIONS /fleet/assets                   {exc.code}  CORS preflight {'✓' if ok else '✗'}   {elapsed} ms"
+        )
+    except Exception as exc:
+        elapsed = int((_time.monotonic() - t0) * 1000)
+        failed += 1
+        print(f"  OPTIONS /fleet/assets                   ERR  {exc}   {elapsed} ms")
+
+    # --- Lambda Function URL (chat) ---
+    print()
+    print("  Lambda Function URL (chat/RAG)")
+    print("  " + "─" * 65)
+
+    fn_name = f"{NAME_PREFIX}-{env}-api"
+    r = c.run(
+        f"aws lambda get-function-url-config --function-name {fn_name} --region {REGION} --output json",
+        hide=True,
+        warn=True,
+    )
+    live_url = ""
+    if r.ok:
+        live_url = json.loads(r.stdout).get("FunctionUrl", "")
+
+    # Extract hardcoded fallback from chat.ts
+    chat_ts = FRONTEND_DIR / "src" / "services" / "chat.ts"
+    hardcoded_url = ""
+    if chat_ts.exists():
+        m = _re.search(
+            r"https://[a-z0-9]+\.lambda-url\.[a-z0-9-]+\.on\.aws/",
+            chat_ts.read_text(encoding="utf-8"),
+        )
+        if m:
+            hardcoded_url = m.group(0)
+
+    print(f"  Live URL (AWS):   {live_url or '(not found)'}")
+    print(f"  Hardcoded in src: {hardcoded_url or '(none)'}")
+
+    url_match = (
+        live_url and hardcoded_url and live_url.rstrip("/") == hardcoded_url.rstrip("/")
+    )
+    if url_match:
+        print("  Match: ✓")
+    elif not live_url:
+        print("  Match: ✗  (Lambda Function URL config not found)")
+        failed += 1
+    else:
+        print(
+            "  Match: ✗  DRIFT DETECTED — hardcoded URL is stale; update services/chat.ts or set VITE_CHAT_ENDPOINT"
+        )
+        failed += 1
+
+    if live_url:
+        req = _ur.Request(live_url, method="POST", data=b'{"query":"ping"}')
+        req.add_header("Content-Type", "application/json")
+        t0 = _time.monotonic()
+        try:
+            with _ur.urlopen(req, timeout=timeout) as resp:  # nosec B310
+                elapsed = int((_time.monotonic() - t0) * 1000)
+                passed += 1
+                print(
+                    f"  POST /                                  {resp.status} ✓   {elapsed} ms"
+                )
+        except _ue.HTTPError as exc:
+            elapsed = int((_time.monotonic() - t0) * 1000)
+            # ponytail: 4xx/5xx still means Lambda is reachable — only network errors fail
+            passed += 1
+            print(
+                f"  POST /                                  {exc.code} (Lambda reachable)   {elapsed} ms"
+            )
+        except Exception as exc:
+            elapsed = int((_time.monotonic() - t0) * 1000)
+            failed += 1
+            print(
+                f"  POST /                                  ERR  {exc}   {elapsed} ms"
+            )
+
+    total = passed + failed
+    print()
+    print(f"  Summary: {passed}/{total} passed  [FAIL: {failed}]")
+    if failed:
+        raise SystemExit(f"\n  {failed} check(s) failed.")
+
+
 # --------------------------------------------------------------------------- #
 # env.endpoints helpers
 # --------------------------------------------------------------------------- #
@@ -2840,6 +3034,7 @@ env.add_task(health)
 
 frontend_ns = Collection("frontend")
 frontend_ns.add_task(deploy)
+frontend_ns.add_task(validate)
 
 ollama = Collection("ollama")
 ollama.add_task(health_check)
@@ -2852,18 +3047,22 @@ ollama.add_task(logs)
     help={
         "name": "Lambda suffix: api | csv | pdf.",
         "env": "Environment name (dev|qa|prod|dev-<user>).",
+        "publish": "Publish a new version after the code update and point alias 'live' to it.",
     },
 )
-def redeploy(c, name, env):
+def redeploy(c, name, env, publish=False):
     """Re-zip and push Lambda code without rebuilding layers or running a full CFN deploy.
 
     Zips backend/ (skipping .lambda-layers/, __pycache__, *.pyc, .git/) and calls
     aws lambda update-function-code. Useful after editing handler code when the
     layer dependencies have not changed.
 
+    With --publish: also publishes a new numbered version and updates (or creates)
+    the alias 'live' to point to it. Required before lambda.rollback can roll back.
+
     Examples:
       uv run fab lambda.redeploy api dev
-      uv run fab lambda.redeploy csv dev
+      uv run fab lambda.redeploy api dev --publish
     """
     _ensure_aws(c)
     fn_name = _lambda_fn(env, name)
@@ -2896,25 +3095,139 @@ def redeploy(c, name, env):
                 zf.write(f, f.relative_to(src))
         size_mb = round(os.path.getsize(zip_path) / (1024 * 1024), 1)
         print(f"==> [redeploy] zip ready: {size_mb} MB — uploading to {fn_name} ...")
+        publish_flag = " --publish" if publish else ""
         res = c.run(
             f"aws lambda update-function-code --function-name {fn_name} "
-            f'--zip-file "fileb://{zip_path}" --region {REGION} '
-            '--query "[FunctionName,LastModified,CodeSize]" --output text',
+            f'--zip-file "fileb://{zip_path}" --region {REGION}{publish_flag} '
+            '--query "[FunctionName,LastModified,CodeSize,Version]" --output text',
             hide=False,
             warn=True,
         )
-        if res.ok:
-            print(_green(f"==> [redeploy] {fn_name} updated successfully"))
-        else:
+        if not res.ok:
             raise SystemExit(f"[redeploy] update-function-code failed: {res.stderr}")
+        print(_green(f"==> [redeploy] {fn_name} updated successfully"))
+        if publish:
+            version = res.stdout.strip().split()[-1]
+            # Update alias 'live'; create it if it doesn't exist yet
+            alias_res = c.run(
+                f"aws lambda update-alias --function-name {fn_name} --name live "
+                f"--function-version {version} --region {REGION} --output text",
+                hide=True,
+                warn=True,
+            )
+            if not alias_res.ok:
+                c.run(
+                    f"aws lambda create-alias --function-name {fn_name} --name live "
+                    f"--function-version {version} --region {REGION} --output text",
+                    hide=True,
+                )
+            print(_green(f"==> [redeploy] alias 'live' → version {version}"))
     finally:
         os.unlink(zip_path)
+
+
+@task(
+    positional=["name", "env"],
+    help={
+        "name": "Lambda suffix: api | csv | pdf.",
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
+        "version": "Version number to activate. Omit to list available versions.",
+    },
+)
+def rollback(c, name, env, version=None):
+    """List published Lambda versions or roll back via alias 'live'.
+
+    Requires versions to have been published first:
+      uv run fab lambda.redeploy <name> <env> --publish
+
+    Examples:
+      uv run fab lambda.rollback api dev             # list published versions
+      uv run fab lambda.rollback api dev --version 3 # point alias 'live' to version 3
+    """
+    from tabulate import tabulate as _tabulate
+
+    _ensure_aws(c)
+    fn_name = _lambda_fn(env, name)
+
+    r = c.run(
+        f"aws lambda list-versions-by-function --function-name {fn_name} "
+        f"--region {REGION} --output json",
+        hide=True,
+        warn=True,
+    )
+    if not r.ok:
+        raise SystemExit(f"[rollback] failed to list versions: {r.stderr}")
+
+    versions = [
+        v for v in json.loads(r.stdout).get("Versions", []) if v["Version"] != "$LATEST"
+    ]
+    if not versions:
+        raise SystemExit(
+            f"[rollback] no published versions found for {fn_name}.\n"
+            f"  Publish first: uv run fab lambda.redeploy {name} {env} --publish"
+        )
+
+    alias_r = c.run(
+        f"aws lambda get-alias --function-name {fn_name} --name live "
+        f"--region {REGION} --output json",
+        hide=True,
+        warn=True,
+    )
+    current_ver = (
+        json.loads(alias_r.stdout).get("FunctionVersion", "(none)")
+        if alias_r.ok
+        else "(no alias)"
+    )
+
+    if version is None:
+        rows = [
+            [
+                v["Version"],
+                v.get("LastModified", "")[:19],
+                "<-- live" if v["Version"] == current_ver else "",
+            ]
+            for v in sorted(versions, key=lambda x: int(x["Version"]), reverse=True)
+        ]
+        print()
+        print(
+            _bold(f"  Published versions — {fn_name}  (alias 'live' → {current_ver})")
+        )
+        print()
+        for line in _tabulate(
+            rows, headers=["Version", "Published", ""], tablefmt="simple"
+        ).splitlines():
+            print(f"  {line}")
+        print()
+        print(f"  To roll back: uv run fab lambda.rollback {name} {env} --version N")
+        return
+
+    version = str(version)
+    valid = {v["Version"] for v in versions}
+    if version not in valid:
+        raise SystemExit(
+            f"[rollback] version {version} not found. Available: {', '.join(sorted(valid, key=int))}"
+        )
+
+    upd = c.run(
+        f"aws lambda update-alias --function-name {fn_name} --name live "
+        f"--function-version {version} --region {REGION} --output text",
+        hide=True,
+        warn=True,
+    )
+    if not upd.ok:
+        c.run(
+            f"aws lambda create-alias --function-name {fn_name} --name live "
+            f"--function-version {version} --region {REGION} --output text",
+            hide=True,
+        )
+    print(_green(f"==> [rollback] alias 'live' on {fn_name} → version {version}"))
 
 
 lambda_ns = Collection("lambda")
 lambda_ns.add_task(pull)
 lambda_ns.add_task(build_layer, name="build-layer")
 lambda_ns.add_task(redeploy)
+lambda_ns.add_task(rollback)
 lambda_ns.add_task(invoke)
 lambda_ns.add_task(invoke_all, name="invoke-all")
 lambda_ns.add_task(pdf_async_status, name="pdf-async-status")
