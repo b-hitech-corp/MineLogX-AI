@@ -82,11 +82,22 @@ class PdfPipelineConfig:
     # ------------------------------------------------------------------
     # Routing thresholds
     # ------------------------------------------------------------------
+    # HARD LIMIT: Bedrock Converse rejects any PDF document block over 100
+    # pages with "A maximum of 100 PDF pages may be provided". Every Converse
+    # call — single-call OR one mini-batch — must stay at or under it, so both
+    # thresholds below are pinned to 95 (a margin under 100, since pdfplumber's
+    # page count and Bedrock's can differ at the edge and build_batches() snaps
+    # cuts to section boundaries). A doc of >95 pages routes to the mini-batch
+    # path; each batch is then a valid ≤95-page call.
+    bedrock_max_pdf_pages: int = 100  # documented hard cap — do not send more
     # Documents exceeding either limit use the mini-batch path
-    claude_max_pages: int = 550
+    claude_max_pages: int = 95
     claude_max_mb: float = 18.0
     # Each mini-batch must stay within both limits
-    batch_max_pages: int = 500
+    batch_max_pages: int = 95
+    # NOTE: the MB caps below have not produced a failure yet, but Bedrock also
+    # enforces a per-request document size limit — verify against the API docs
+    # before raising these if a large scanned PDF starts failing on size.
     batch_max_mb: float = 15.0
 
     # ------------------------------------------------------------------
@@ -137,6 +148,12 @@ class PdfPipelineConfig:
     # max_tokens truncation rather than a genuine validation failure.
     claude_truncation_error_markers: list = field(
         default_factory=lambda: ["the model returned the following"]
+    )
+    # Substrings (case-insensitive) identifying a ValidationException as the
+    # Bedrock 100-page-per-PDF limit — surfaced as PageLimitExceededError so a
+    # recurrence is an unmistakable "batching is broken" signal, not noise.
+    claude_page_limit_error_markers: list = field(
+        default_factory=lambda: ["maximum of 100 pdf pages"]
     )
 
     # ------------------------------------------------------------------
