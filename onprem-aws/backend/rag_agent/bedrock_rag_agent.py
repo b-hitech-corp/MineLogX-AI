@@ -140,6 +140,7 @@ class Hit:
     score: float
     text: str
     locator: str  # human-readable source reference for citations
+    source_file: str = ""  # raw provenance key (telemetry client-scope check)
 
 
 # ---------------------------------------------------------------------------
@@ -280,10 +281,26 @@ class BedrockRAGAgent:
     # Retrieval (shared infrastructure) — dual-index kNN + merge/rerank
     # ------------------------------------------------------------------
 
-    def _knn(self, index: str, vector: list[float], k: int) -> list[dict]:
+    def _knn(
+        self,
+        index: str,
+        vector: list[float],
+        k: int,
+        filter_: dict | None = None,
+    ) -> list[dict]:
+        """kNN search over one index, with an optional metadata pre-filter.
+
+        When ``filter_`` is given it is placed *inside* the knn clause, so
+        OpenSearch applies it during the ANN traversal (efficient k-NN
+        filtering) and still returns up to ``k`` matching hits — rather than
+        post-filtering, which could return fewer than ``k``.
+        """
+        knn_clause: dict[str, Any] = {"vector": vector, "k": k}
+        if filter_:
+            knn_clause["filter"] = filter_
         body = {
             "size": k,
-            "query": {"knn": {"text_embedding": {"vector": vector, "k": k}}},
+            "query": {"knn": {"text_embedding": knn_clause}},
         }
         return (
             self._client()
@@ -292,10 +309,21 @@ class BedrockRAGAgent:
             .get("hits", [])
         )
 
-    def _retrieve(self, question: str) -> list[Hit]:
-        """Embed with both models, kNN-search both indexes, merge and rerank."""
+    def _retrieve(self, question: str, client: str | None = None) -> list[Hit]:
+        """Embed with both models, kNN-search both indexes, merge and rerank.
+
+        Client (tenant) isolation for telemetry:
+          * The PDF/regulatory index is ALWAYS searched unfiltered — regulatory
+            and legal documents are shared across all clients.
+          * The CSV/telemetry index is client-scoped: it is only searched when a
+            valid ``client`` is supplied, and only chunks whose ``source_file``
+            begins with ``"{client}/"`` are eligible. When ``client`` is None
+            (missing/invalid upstream) the telemetry index is skipped entirely —
+            fail closed, answer from regulatory sources only.
+        """
         hits: list[Hit] = []
 
+        # --- PDF / regulatory: shared across all clients, never filtered ---
         try:
             for h in self._knn(
                 self.pdf_index, self._embed_query_titan(question), self.top_k
@@ -312,21 +340,53 @@ class BedrockRAGAgent:
         except Exception as exc:  # noqa: BLE001
             logger.warning("[RAGAgent] PDF index search failed: %s", exc)
 
-        try:
-            for h in self._knn(
-                self.csv_index, self._embed_query_cohere(question), self.top_k
-            ):
-                s = h.get("_source", {})
-                hits.append(
-                    Hit(
-                        index=self.csv_index,
-                        score=h.get("_score", 0.0),
-                        text=s.get("text", ""),
-                        locator=f"{s.get('source_file', '?')} chunk {s.get('chunk_index')}",
+        # --- CSV / telemetry: client-scoped; skipped when no valid client ---
+        if client:
+            # The trailing slash ANCHORS the match to a whole path segment so
+            # client "C1" cannot match "C12/..." — both the OpenSearch `prefix`
+            # filter and the Python `startswith` guard below use this exact
+            # "{client}/" prefix, and both are whole-string prefix comparisons
+            # (not char-membership), so they agree.
+            client_prefix = f"{client}/"
+            telemetry_filter = {
+                "bool": {"filter": [{"prefix": {"source_file": client_prefix}}]}
+            }
+            try:
+                for h in self._knn(
+                    self.csv_index,
+                    self._embed_query_cohere(question),
+                    self.top_k,
+                    filter_=telemetry_filter,
+                ):
+                    s = h.get("_source", {})
+                    source_file = s.get("source_file", "")
+                    # Defense-in-depth: even though the query pre-filters by
+                    # client, re-check here so a filter regression or a doc
+                    # missing source_file can never leak another tenant's data.
+                    if not source_file.startswith(client_prefix):
+                        logger.warning(
+                            "[RAGAgent] Dropping telemetry hit outside client "
+                            "scope '%s': source_file=%r",
+                            client,
+                            source_file,
+                        )
+                        continue
+                    hits.append(
+                        Hit(
+                            index=self.csv_index,
+                            score=h.get("_score", 0.0),
+                            text=s.get("text", ""),
+                            locator=f"{source_file or '?'} chunk {s.get('chunk_index')}",
+                            source_file=source_file,
+                        )
                     )
-                )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[RAGAgent] CSV index search failed: %s", exc)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[RAGAgent] CSV index search failed: %s", exc)
+        else:
+            logger.info(
+                "[RAGAgent] No valid client supplied — skipping telemetry index "
+                "(regulatory documents only)."
+            )
 
         # Rerank: dedup by (index, locator), sort by score desc, keep top_n.
         seen: set[tuple[str, str]] = set()
@@ -427,24 +487,37 @@ class BedrockRAGAgent:
     # Public interface
     # ------------------------------------------------------------------
 
-    def chat(self, user_message: str, model: str | None = None) -> str:
+    def chat(
+        self,
+        user_message: str,
+        model: str | None = None,
+        client: str | None = None,
+    ) -> str:
         """Answer a user message with the selected model; return a JSON string.
 
         Args:
             user_message: the user's question.
             model: a MODELS key ("claude-sonnet-4.6" | "nova-pro" | "deepseek-v3.2").
                    Unknown/None falls back to the default model.
+            client: the tenant selected in the UI. Scopes telemetry retrieval to
+                    that client (regulatory docs are always shared). Must already
+                    be validated by the caller; None/invalid → telemetry is
+                    skipped (regulatory-only). Passed per call and never stored on
+                    the instance, so a warm-container singleton cannot leak one
+                    request's client into the next.
 
         The selected model drives both query optimization and generation. The
         response JSON contract is identical across models; the `model` block echoes
         which model actually answered so the UI can display it.
         """
         spec = self._resolve_model(model)
-        logger.info("[RAGAgent] chat model=%s: '%s'", spec.key, user_message)
+        logger.info(
+            "[RAGAgent] chat model=%s client=%s: '%s'", spec.key, client, user_message
+        )
 
         try:
             search_query = self._optimize_query(user_message, spec)
-            hits = self._retrieve(search_query)
+            hits = self._retrieve(search_query, client=client)
 
             t0 = time.perf_counter()
             answer = self._generate_answer(user_message, hits, spec)
@@ -467,7 +540,10 @@ class BedrockRAGAgent:
                 "query": {"original": user_message, "optimized": search_query},
                 "answer": answer,
                 "retrieval": {
-                    "indexes": [self.pdf_index, self.csv_index],
+                    # Telemetry (CSV) index is only searched for a valid client.
+                    "indexes": [self.pdf_index]
+                    + ([self.csv_index] if client else []),
+                    "client": client,
                     "top_k": self.top_k,
                     "top_n": self.top_n,
                     "document_count": len(documents),
@@ -495,7 +571,9 @@ class BedrockRAGAgent:
                 "query": {"original": user_message, "optimized": ""},
                 "answer": "An internal error occurred while processing your request.",
                 "retrieval": {
-                    "indexes": [self.pdf_index, self.csv_index],
+                    "indexes": [self.pdf_index]
+                    + ([self.csv_index] if client else []),
+                    "client": client,
                     "top_k": self.top_k,
                     "top_n": self.top_n,
                     "document_count": 0,
