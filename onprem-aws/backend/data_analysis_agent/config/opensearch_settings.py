@@ -51,6 +51,12 @@ class OpenSearchConfig:
         default_factory=lambda: os.getenv("OPENSEARCH_INDEX", "minelogx-telemetry-v1")
     )
 
+    # Dedicated index for the vectorized data-analysis results (KPIs / insights).
+    # Separate from the raw-telemetry index; queried by the RAG agent (ANALYSIS_INDEX).
+    analysis_index_name: str = field(
+        default_factory=lambda: os.getenv("ANALYSIS_INDEX", "minelogx-analysis-v1")
+    )
+
     # Embedding — must match the values used at query time in the RAG agent
     embedding_model_id: str = field(
         default_factory=lambda: os.getenv("BEDROCK_EMBED_MODEL_ID", "cohere.embed-v4:0")
@@ -62,3 +68,37 @@ class OpenSearchConfig:
     bulk_batch_size: int = field(
         default_factory=lambda: int(os.getenv("OPENSEARCH_BATCH_SIZE", "50"))
     )
+
+
+@dataclass
+class AnalysisIngestConfig:
+    """Settings for vectorizing the data-analysis results into OpenSearch.
+
+    The ledger is an append-only JSONL control log in S3 recording which source
+    files were processed (path, ETag, model, timestamp) — the authority for
+    "what is already indexed". `pipeline_version` is stamped on every doc and
+    ledger record; bumping it forces a global re-ingest when the chunking or
+    rendering logic changes.
+    """
+
+    # Bumped when the serializer / chunking logic changes → forces re-ingest.
+    pipeline_version: str = field(
+        default_factory=lambda: os.getenv("ANALYSIS_PIPELINE_VERSION", "1")
+    )
+
+    # S3 location of the ledger (control log). Defaults to the telemetry bucket
+    # under the CLAUDE.md logs/ convention.
+    ledger_bucket: str = field(
+        default_factory=lambda: os.getenv(
+            "ANALYSIS_LEDGER_BUCKET",
+            os.getenv("FLEET_S3_BUCKET", "bhitech-minelogx-poc-telemetry-data"),
+        )
+    )
+    ledger_key: str = field(
+        default_factory=lambda: os.getenv(
+            "ANALYSIS_LEDGER_KEY", "logs/analysis-ingest/ledger.jsonl"
+        )
+    )
+
+    # Cohere document input_type at ingest (query side uses "search_query").
+    embed_input_type: str = "search_document"

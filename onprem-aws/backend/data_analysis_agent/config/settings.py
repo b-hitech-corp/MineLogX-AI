@@ -7,7 +7,10 @@ import os
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
-from data_analysis_agent.config.opensearch_settings import OpenSearchConfig
+from data_analysis_agent.config.opensearch_settings import (
+    AnalysisIngestConfig,
+    OpenSearchConfig,
+)
 
 load_dotenv()
 
@@ -55,6 +58,7 @@ class AgentConfig:
     ollama: OllamaConfig = field(default_factory=OllamaConfig)
     bedrock: BedrockConfig = field(default_factory=BedrockConfig)
     opensearch: OpenSearchConfig = field(default_factory=OpenSearchConfig)
+    analysis_ingest: AnalysisIngestConfig = field(default_factory=AnalysisIngestConfig)
     cache_ttl_seconds: int = 300
     local_data_path: str = "sample_data"
 
