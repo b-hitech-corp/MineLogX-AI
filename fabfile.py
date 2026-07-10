@@ -47,6 +47,7 @@ venv activation. If terraform still isn't found, set TERRAFORM_BIN (see below).
 """
 
 import datetime
+import hashlib
 import json
 import os
 import shutil
@@ -860,6 +861,20 @@ def build_layer(c, fn):
 
     build_dir = LAMBDA_LAYERS_DIR / fn
     python_dir = build_dir / "python"
+
+    # ponytail: hash stored in .lambda-layers/.hash-{fn}, delete to force rebuild
+    hash_file = LAMBDA_LAYERS_DIR / f".hash-{fn}"
+    current_hash = hashlib.sha256(reqs.read_bytes()).hexdigest()
+    if (
+        hash_file.exists()
+        and hash_file.read_text().strip() == current_hash
+        and build_dir.exists()
+    ):
+        print(
+            f"==> [build-layer] Layer '{fn}' up-to-date (requirements unchanged) — skipping."
+        )
+        return
+
     if build_dir.exists():
         shutil.rmtree(build_dir)
     python_dir.mkdir(parents=True)
@@ -887,6 +902,7 @@ def build_layer(c, fn):
             "    WARNING: over the safety margin for the 250MB Lambda code+layers "
             "limit — trim requirements or split further before deploying."
         )
+    hash_file.write_text(current_hash)
     next_msg = (
         "Next: fab env.plan <env> --engine tf --build-pdf-layer (or --engine cf)."
         if fn == "pdf"
@@ -2203,6 +2219,45 @@ def model_access(c, verbose=False):
         raise SystemExit(1)
 
 
+# Maps friendly pipeline names to (lambda_suffix, env_var_key).
+_PIPELINE_MODEL_VARS: dict[str, tuple[str, str]] = {
+    "api": ("api", "RAG_CLAUDE_MODEL_ID"),
+    "api-nova": ("api", "RAG_NOVA_MODEL_ID"),
+    "api-deepseek": ("api", "RAG_DEEPSEEK_MODEL_ID"),
+    "csv": ("csv", "BEDROCK_MODEL_ID"),
+    "csv-embed": ("csv", "BEDROCK_EMBED_MODEL_ID"),
+    "pdf": ("pdf", "PDF_CLAUDE_MODEL_ID"),
+    "pdf-haiku": ("pdf", "PDF_HAIKU_MODEL_ID"),
+    "pdf-embed": ("pdf", "PDF_TITAN_MODEL_ID"),
+}
+
+
+@task(
+    positional=["pipeline", "env", "model_id"],
+    help={
+        "pipeline": ("Pipeline alias: " + " | ".join(_PIPELINE_MODEL_VARS) + "."),
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
+        "model_id": "Bedrock model ID to set (e.g. us.anthropic.claude-sonnet-4-6).",
+    },
+)
+def set_model(c, pipeline, env, model_id):
+    """Shortcut to change a pipeline's Bedrock model without knowing the env var name.
+
+    Resolves the correct Lambda function and environment variable for the given
+    pipeline alias, then delegates to lambda.set-env.
+
+    Examples:
+      uv run fab bedrock.set-model csv dev us.anthropic.claude-sonnet-4-6
+      uv run fab bedrock.set-model pdf-haiku dev us.anthropic.claude-haiku-4-5-20251001-v1:0
+      uv run fab bedrock.set-model api dev us.amazon.nova-pro-v1:0
+    """
+    if pipeline not in _PIPELINE_MODEL_VARS:
+        valid = ", ".join(_PIPELINE_MODEL_VARS)
+        raise SystemExit(f"Unknown pipeline '{pipeline}'. Valid aliases: {valid}")
+    lambda_suffix, env_var = _PIPELINE_MODEL_VARS[pipeline]
+    set_env(c, lambda_suffix, env, env_var, model_id)
+
+
 # --------------------------------------------------------------------------- #
 # opensearch.* — collection status and index doc counts
 # --------------------------------------------------------------------------- #
@@ -2312,6 +2367,41 @@ def opensearch_status(c, env):
 
     log_path = _log_write(f"opensearch-status-{env}", lines)
     print(f"  Log saved → {log_path.relative_to(REPO_ROOT)}")
+
+
+@task(
+    positional=["env"],
+    help={
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
+        "confirm": "Skip the confirmation prompt (use in scripts).",
+    },
+)
+def reindex(c, env, confirm=False):
+    """Re-ingest all CSVs (parallel) and PDFs (serial) into OpenSearch from S3.
+
+    Pipelines upsert by document ID so re-running overwrites existing documents
+    without creating duplicates. Use this after a stack re-creation or when the
+    OpenSearch collection is empty / corrupted.
+
+    Examples:
+      uv run fab opensearch.reindex dev
+      uv run fab opensearch.reindex dev --confirm   # non-interactive / CI
+    """
+    _ensure_aws(c)
+    if not confirm:
+        print(
+            f"\n  Will re-ingest ALL CSVs (parallel) + ALL PDFs (serial) into '{env}'."
+        )
+        print(f"  Type '{env}' to confirm: ", end="", flush=True)
+        if input().strip() != env:
+            raise SystemExit("Aborted.")
+    print(f"\n==> [reindex] Re-ingesting CSVs (parallel) into '{env}' ...")
+    invoke_all(c, "csv", env, parallel=True)
+    print(f"\n==> [reindex] Re-ingesting PDFs (serial) into '{env}' ...")
+    invoke_all(c, "pdf", env)
+    print(
+        f"\n==> [reindex] Done. Run `fab opensearch.status {env}` to verify doc counts."
+    )
 
 
 @task(
@@ -2552,7 +2642,12 @@ def pdf_async_status(c, env, last=60, follow=False, verbose=False):
                     print(_dim(f"       req: {inv['req']}"))
 
         print()
-        if err_count == 0 and timeout_count == 0 and unknown_count == 0 and ok_count > 0:
+        if (
+            err_count == 0
+            and timeout_count == 0
+            and unknown_count == 0
+            and ok_count > 0
+        ):
             print(_green(f"  All {ok_count} invocation(s) completed successfully."))
         else:
             status_str = (
@@ -2631,6 +2726,104 @@ def pdf_async_status(c, env, last=60, follow=False, verbose=False):
                 _time.sleep(15)
         except KeyboardInterrupt:
             print(_dim("\n==> Stopped."))
+
+
+# --------------------------------------------------------------------------- #
+# step-functions.* — execution history for the CSV pipeline state machine
+# --------------------------------------------------------------------------- #
+
+
+@task(
+    positional=["env"],
+    help={
+        "env": "Environment name (dev|qa|prod|dev-<user>).",
+        "n": "Number of executions to show (default: 10).",
+    },
+)
+def sf_history(c, env, n=10):
+    """List the N most recent Step Functions executions for the CSV pipeline.
+
+    Shows execution name (last 8 chars), status, start time, and duration.
+
+    Examples:
+      uv run fab step-functions.history dev
+      uv run fab step-functions.history dev --n 20
+    """
+    import datetime as _dt
+
+    from tabulate import tabulate as _tabulate
+
+    _ensure_aws(c)
+    arn = (
+        f"arn:aws:states:{REGION}:{ACCOUNT_ID}:stateMachine:"
+        f"{NAME_PREFIX}-{env}-csv-pipeline"
+    )
+    res = c.run(
+        f"aws stepfunctions list-executions --state-machine-arn {arn} "
+        f"--max-results {n} --output json --region {REGION}",
+        hide=True,
+        warn=True,
+    )
+    if not res.ok:
+        raise SystemExit(f"Could not list executions: {res.stderr.strip()[:120]}")
+
+    executions = json.loads(res.stdout).get("executions", [])
+    if not executions:
+        print(f"  No executions found for {NAME_PREFIX}-{env}-csv-pipeline.")
+        return
+
+    _STATUS_COLOR = {
+        "SUCCEEDED": _green,
+        "FAILED": _red,
+        "TIMED_OUT": _red,
+        "ABORTED": _yellow,
+        "RUNNING": _yellow,
+    }
+
+    rows = []
+    for ex in executions:
+        name = ex.get("name", "")[-8:]
+        status = ex.get("status", "UNKNOWN")
+        start_raw = ex.get("startDate", "")
+        stop_raw = ex.get("stopDate", "")
+
+        # Parse ISO timestamps (may include fractional seconds or 'Z')
+        def _parse_ts(s):
+            s = s.replace("Z", "+00:00")
+            try:
+                return _dt.datetime.fromisoformat(s)
+            except ValueError:
+                return None
+
+        start_dt = _parse_ts(start_raw)
+        stop_dt = _parse_ts(stop_raw)
+        start_str = (
+            start_dt.strftime("%Y-%m-%d %H:%M:%S") if start_dt else start_raw[:19]
+        )
+
+        if start_dt and stop_dt:
+            secs = int((stop_dt - start_dt).total_seconds())
+            duration = f"{secs // 60}m {secs % 60}s"
+        elif status == "RUNNING":
+            duration = "running…"
+        else:
+            duration = "—"
+
+        color = _STATUS_COLOR.get(status, lambda x: x)
+        rows.append([name, color(status), start_str, duration])
+
+    table = _tabulate(
+        rows,
+        headers=["Name (last 8)", "Status", "Started", "Duration"],
+        tablefmt="simple",
+        disable_numparse=True,
+    )
+    print()
+    print(_bold(f"  Step Functions — {NAME_PREFIX}-{env}-csv-pipeline"))
+    print()
+    for line in table.splitlines():
+        print(f"  {line}")
+    print()
 
 
 # --------------------------------------------------------------------------- #
@@ -2731,9 +2924,14 @@ lambda_ns.add_task(lambda_status, name="status")
 
 bedrock_ns = Collection("bedrock")
 bedrock_ns.add_task(model_access, name="model-access")
+bedrock_ns.add_task(set_model, name="set-model")
 
 opensearch_ns = Collection("opensearch")
 opensearch_ns.add_task(opensearch_status, name="status")
+opensearch_ns.add_task(reindex)
+
+sfn_ns = Collection("step-functions")
+sfn_ns.add_task(sf_history, name="history")
 
 ns = Collection()
 ns.add_collection(env)
@@ -2742,3 +2940,4 @@ ns.add_collection(ollama)
 ns.add_collection(lambda_ns)
 ns.add_collection(bedrock_ns)
 ns.add_collection(opensearch_ns)
+ns.add_collection(sfn_ns)
