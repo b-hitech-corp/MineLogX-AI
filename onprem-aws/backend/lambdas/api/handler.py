@@ -493,7 +493,9 @@ def _handle_analyze(event: dict) -> dict:
 def _handle_chat(event: dict) -> dict:
     """POST /chat — compliance RAG Q&A via BedrockRAGAgent."""
     body = _parse_body(event)
-    message = (body.get("message") or body.get("question") or "").strip()
+    message = (
+        body.get("message") or body.get("question") or body.get("query") or ""
+    ).strip()
     model = body.get("model")
     if not message:
         return _err("'message' field is required")
