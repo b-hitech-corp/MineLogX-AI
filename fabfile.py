@@ -1219,8 +1219,180 @@ def _show_and_save_endpoints(env, outputs, frontend_url=""):
     print(f"  Guardado → {md_path.name}")
 
 
-@task(help={"env": "Environment name (dev|qa|prod|dev-<user>). Default: dev"})
-def endpoints(c, env="dev"):
+@task(help={"env": "Environment name (dev|qa|prod|dev-<user>)."})
+def health(c, env):
+    """Comprehensive health check: Lambda states, AOSS doc counts, Step Functions history, Bedrock access.
+
+    Combines the output of lambda.status, opensearch.status, recent Step Functions
+    executions, and bedrock.model-access into a single summary report. Useful to
+    quickly verify the environment is fully operational after a deploy or re-ingest.
+
+    Examples:
+      uv run fab env.health dev
+      uv run fab env.health qa
+    """
+    _ensure_aws(c)
+    from tabulate import tabulate as _tabulate
+
+    ts = datetime.datetime.now().isoformat(timespec="seconds")
+    lines = [
+        "",
+        _SEP,
+        f"  env.health — {NAME_PREFIX}-{env}  ({ts})",
+        _SEP,
+    ]
+
+    # --- 1. Lambda states ---
+    lines += ["", _bold("  [1/4] Lambda Functions"), ""]
+    lambda_rows = []
+    for name in LAMBDA_NAMES:
+        fn_name = _lambda_fn(env, name)
+        res = c.run(
+            f"aws lambda get-function-configuration --function-name {fn_name} "
+            f"--region {REGION} --output json",
+            hide=True,
+            warn=True,
+        )
+        if not res.ok:
+            lambda_rows.append([fn_name, _red("NOT FOUND"), "—", "—"])
+            continue
+        cfg = json.loads(res.stdout)
+        state = cfg.get("State", "?")
+        state_col = _green(state) if state == "Active" else _yellow(state)
+        last = cfg.get("LastModified", "?")[:19].replace("T", " ")
+        timeout = f"{cfg.get('Timeout', '?')}s"
+        lambda_rows.append([fn_name, state_col, timeout, last])
+    table = _tabulate(
+        lambda_rows,
+        headers=["Function", "State", "Timeout", "Last Deploy"],
+        tablefmt="simple",
+        disable_numparse=True,
+    )
+    for line in table.splitlines():
+        lines.append(f"  {line}")
+
+    # --- 2. AOSS collection + doc counts ---
+    lines += ["", _bold("  [2/4] OpenSearch Serverless"), ""]
+    outputs, _ = _endpoints_data(c, env)
+    endpoint = next(
+        (o["OutputValue"] for o in outputs if o["OutputKey"] == "OpenSearchEndpoint"),
+        None,
+    )
+    col_name = f"{NAME_PREFIX}-{env}-vectors"
+    res = c.run(
+        f"aws opensearchserverless list-collections --region {REGION} "
+        f"--collection-filters name={col_name} --output json",
+        hide=True,
+        warn=True,
+    )
+    collections = (
+        json.loads(res.stdout).get("collectionSummaries", []) if res.ok else []
+    )
+    if collections:
+        col = collections[0]
+        col_status = col.get("status", "?")
+        col_status_col = (
+            _green(col_status) if col_status == "ACTIVE" else _yellow(col_status)
+        )
+        lines.append(f"\n  Collection   : {col.get('name')}  status={col_status_col}")
+    else:
+        lines.append(f"\n  {_red('Collection not found:')} {col_name}")
+    if endpoint:
+        idx_rows = []
+        for idx in OPENSEARCH_INDICES:
+            try:
+                data = _aoss_get(endpoint, f"/{idx}/_count")
+                count = (
+                    f"{data['count']:,}"
+                    if isinstance(data.get("count"), int)
+                    else str(data.get("count", "?"))
+                )
+                idx_rows.append([idx, count, _green("OK")])
+            except Exception as exc:  # noqa: BLE001
+                idx_rows.append([idx, "—", _red(f"ERROR: {exc}")])
+        table = _tabulate(
+            idx_rows,
+            headers=["Index", "Docs", "Status"],
+            tablefmt="simple",
+            disable_numparse=True,
+        )
+        for line in table.splitlines():
+            lines.append(f"  {line}")
+    else:
+        lines.append("  (endpoint unavailable — run `fab env.up dev` first)")
+
+    # --- 3. Step Functions — last 5 CSV pipeline executions ---
+    lines += ["", _bold("  [3/4] Step Functions — CSV Pipeline (last 5)"), ""]
+    sm_arn = (
+        f"arn:aws:states:{REGION}:{ACCOUNT_ID}:stateMachine"
+        f":{NAME_PREFIX}-{env}-csv-pipeline"
+    )
+    res = c.run(
+        f"aws stepfunctions list-executions --state-machine-arn {sm_arn} "
+        f"--max-results 5 --region {REGION} --output json",
+        hide=True,
+        warn=True,
+    )
+    if res.ok:
+        executions = json.loads(res.stdout).get("executions", [])
+        if executions:
+            sf_rows = []
+            for ex in executions:
+                status = ex.get("status", "?")
+                if status == "SUCCEEDED":
+                    status_col = _green(status)
+                elif status in ("FAILED", "TIMED_OUT", "ABORTED"):
+                    status_col = _red(status)
+                else:
+                    status_col = _yellow(status)
+                start = ex.get("startDate", "?")
+                if isinstance(start, (int, float)):
+                    start = datetime.datetime.fromtimestamp(start).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+                elif isinstance(start, str):
+                    start = start[:19].replace("T", " ")
+                sf_rows.append([ex.get("name", "?")[-40:], status_col, start])
+            table = _tabulate(
+                sf_rows,
+                headers=["Execution", "Status", "Started"],
+                tablefmt="simple",
+                disable_numparse=True,
+            )
+            for line in table.splitlines():
+                lines.append(f"  {line}")
+        else:
+            lines.append("  No executions found.")
+    else:
+        lines.append(f"  {_red('State machine not found.')} ARN: {sm_arn}")
+
+    # --- 4. Bedrock model access ---
+    lines += ["", _bold("  [4/4] Bedrock Model Access"), ""]
+    seen: dict[str, tuple[bool, str]] = {}
+    bedrock_rows = []
+    for model_ids in _BEDROCK_MODELS.values():
+        for model_id in model_ids:
+            if model_id not in seen:
+                seen[model_id] = _bedrock_probe(model_id)
+            ok, msg = seen[model_id]
+            bedrock_rows.append([model_id, _green(msg) if ok else _red(msg)])
+    table = _tabulate(
+        bedrock_rows,
+        headers=["Model ID", "Status"],
+        tablefmt="simple",
+        disable_numparse=True,
+    )
+    for line in table.splitlines():
+        lines.append(f"  {line}")
+
+    lines += ["", _SEP, ""]
+    print("\n".join(lines))
+    log_path = _log_write(f"env-health-{env}", lines)
+    print(f"  Log saved → {log_path.relative_to(REPO_ROOT)}")
+
+
+@task(help={"env": "Environment name (dev|qa|prod|dev-<user>)."})
+def endpoints(c, env):
     """Show and save all live endpoints for an environment.
 
     Reads CloudFormation stack Outputs and prints a friendly table including
@@ -1342,7 +1514,7 @@ def lambda_logs(c, name, env, follow=False):
 @task(
     help={"env": "Environment name (dev|qa|prod|dev-<user>). Default: dev"},
 )
-def lambda_status(c, env="dev"):
+def lambda_status(c, env):
     """Show runtime config for all three Lambda functions in an environment.
 
     Displays function state, runtime, memory, timeout, last modified, and
@@ -2055,7 +2227,7 @@ def _aoss_get(endpoint: str, path: str) -> dict:
 
 
 @task(help={"env": "Environment name (dev|qa|prod|dev-<user>). Default: dev"})
-def opensearch_status(c, env="dev"):
+def opensearch_status(c, env):
     """Show OpenSearch Serverless collection status and document count per index.
 
     Reads the collection endpoint from CloudFormation outputs and queries each
@@ -2151,7 +2323,7 @@ def opensearch_status(c, env="dev"):
         "verbose": "Show full error messages and raw Lambda duration/memory stats.",
     },
 )
-def pdf_async_status(c, env="dev", last=60, follow=False, verbose=False):
+def pdf_async_status(c, env, last=60, follow=False, verbose=False):
     """Show status of async PDF Lambda invocations (fired with --async flag).
 
     Queries CloudWatch Logs Insights for result summaries from the PDF Lambda
@@ -2471,6 +2643,7 @@ env.add_task(down)
 env.add_task(list)
 env.add_task(bootstrap)
 env.add_task(endpoints)
+env.add_task(health)
 
 frontend_ns = Collection("frontend")
 frontend_ns.add_task(deploy)
