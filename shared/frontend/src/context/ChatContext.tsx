@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { ChatMessage } from '../types/chat'
 import { mockInitialMessages, demoResponses } from '../mocks/chat'
 import { sendChatPrompt } from '../services/chat'
+import { useApp } from './AppContext'
 
 // VITE_CHAT_MOCK overrides the global VITE_USE_MOCK for the chat module
 const USE_MOCK =
@@ -37,6 +38,7 @@ interface ChatContextType {
 const ChatContext = createContext<ChatContextType | undefined>(undefined)
 
 export function ChatProvider({ children }: { children: ReactNode }) {
+  const { selectedCompany } = useApp()
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>(mockInitialMessages)
   const [isTyping, setIsTyping] = useState(false)
@@ -72,7 +74,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const text = await sendChatPrompt(content, selectedModel.id)
+      const text = await sendChatPrompt(content, selectedModel.id, selectedCompany.id.toLowerCase())
       setMessages((prev) => [
         ...prev,
         { id: `resp-${Date.now()}`, role: 'assistant', content: text, timestamp: new Date().toISOString() },
