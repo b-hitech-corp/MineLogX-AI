@@ -59,6 +59,16 @@ class MaxTokensTruncationError(Exception):
     """
 
 
+class PageLimitExceededError(Exception):
+    """A Converse call was sent more than Bedrock's 100-page-per-PDF hard limit.
+
+    Not retried — the same oversized payload would be rejected again. With the
+    routing thresholds pinned at/below the limit (claude_max_pages /
+    batch_max_pages), this should be unreachable in normal operation; if it
+    fires, batching or page-count estimation produced a batch that is too large.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
@@ -290,6 +300,7 @@ def _classify_error(exc: Exception, config: PdfPipelineConfig) -> str:
     """Classify an exception from a Claude call for the retry wrapper.
 
     Returns "truncation" (max_tokens truncation — raise MaxTokensTruncationError,
+    never retry), "page_limit" (>100 PDF pages — raise PageLimitExceededError,
     never retry), "retryable" (transient — backoff and retry), or "fatal"
     (anything else — propagate on the first attempt).
     """
@@ -297,10 +308,15 @@ def _classify_error(exc: Exception, config: PdfPipelineConfig) -> str:
         error = exc.response.get("Error", {})
         code = error.get("Code", "")
         message = error.get("Message", "").lower()
-        if code == "ValidationException" and any(
-            marker in message for marker in config.claude_truncation_error_markers
-        ):
-            return "truncation"
+        if code == "ValidationException":
+            if any(
+                marker in message for marker in config.claude_truncation_error_markers
+            ):
+                return "truncation"
+            if any(
+                marker in message for marker in config.claude_page_limit_error_markers
+            ):
+                return "page_limit"
         if code in config.claude_retryable_error_codes:
             return "retryable"
         return "fatal"
@@ -340,6 +356,13 @@ def _call_claude_with_retry(
             kind = _classify_error(exc, config)
             if kind == "truncation":
                 raise MaxTokensTruncationError(str(exc)) from exc
+            if kind == "page_limit":
+                raise PageLimitExceededError(
+                    "Bedrock rejected a PDF over its 100-page limit despite "
+                    f"claude_max_pages={config.claude_max_pages}/"
+                    f"batch_max_pages={config.batch_max_pages}; batching or "
+                    f"page-count estimation is producing oversized batches: {exc}"
+                ) from exc
             if kind != "retryable":
                 raise
             wait = config.claude_call_retry_base_s * (2**attempt) + random.uniform(
@@ -495,7 +518,7 @@ def extract_with_claude(
             bedrock_client=bedrock,
             deadline_ts=deadline_ts,
         )
-    except MaxTokensTruncationError:
+    except (MaxTokensTruncationError, PageLimitExceededError):
         raise
     except Exception as exc:
         error_msg = f"Claude call failed for batch {batch_index}: {exc}"

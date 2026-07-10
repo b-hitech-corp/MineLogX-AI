@@ -43,6 +43,7 @@ from pdf_pipeline.tools.pdf_textract_extractor import (
 )
 from pdf_pipeline.tools.pdf_claude_extractor import (
     MaxTokensTruncationError,
+    PageLimitExceededError,
     _call_claude_with_retry,
     _effective_read_timeout,
     _parse_claude_sections,
@@ -120,6 +121,22 @@ def sample_sections(sample_metadata) -> list[SectionRecord]:
             metadata=sample_metadata,
         ),
     ]
+
+
+# ===========================================================================
+# Tests: config routing limits
+# ===========================================================================
+
+
+class TestConfigLimits:
+    def test_default_config_respects_bedrock_page_limit(self):
+        """Regression guard: Bedrock rejects any PDF document block over 100
+        pages, so neither routing threshold may default above that hard cap.
+        Every Converse call — single-call or one mini-batch — must be valid."""
+        cfg = PdfPipelineConfig()
+        assert cfg.bedrock_max_pdf_pages == 100
+        assert cfg.claude_max_pages <= cfg.bedrock_max_pdf_pages
+        assert cfg.batch_max_pages <= cfg.bedrock_max_pdf_pages
 
 
 # ===========================================================================
@@ -623,6 +640,33 @@ class TestClaudeExtractor:
         )
 
         with pytest.raises(MaxTokensTruncationError):
+            _call_claude_with_retry(
+                pdf_bytes=b"%PDF-1.4",
+                doc_name="doc",
+                context_note="",
+                config=config,
+                bedrock_client=mock_bedrock,
+            )
+
+        assert mock_bedrock.converse.call_count == 1
+
+    def test_retry_raises_page_limit_without_retrying(self, config):
+        """A ValidationException for the 100-page limit must raise
+        PageLimitExceededError immediately, not retry the identical payload."""
+        from botocore.exceptions import ClientError
+
+        mock_bedrock = MagicMock()
+        mock_bedrock.converse.side_effect = ClientError(
+            {
+                "Error": {
+                    "Code": "ValidationException",
+                    "Message": "A maximum of 100 PDF pages may be provided.",
+                }
+            },
+            "Converse",
+        )
+
+        with pytest.raises(PageLimitExceededError):
             _call_claude_with_retry(
                 pdf_bytes=b"%PDF-1.4",
                 doc_name="doc",

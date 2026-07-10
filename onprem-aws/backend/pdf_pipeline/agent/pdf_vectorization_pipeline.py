@@ -56,6 +56,7 @@ from pdf_pipeline.config.pdf_pipeline_settings import PdfPipelineConfig
 from pdf_pipeline.tools.pdf_classifier import classify, ClassificationResult
 from pdf_pipeline.tools.pdf_claude_extractor import (
     MaxTokensTruncationError,
+    PageLimitExceededError,
     build_carry_over_context,
     extract_with_claude,
 )
@@ -259,6 +260,13 @@ def _run_claude_minibatch_path(
             batch_errors.append(error_msg)
             # Can't build carry-over from a batch that produced no sections —
             # continue processing remaining batches (partial indexing beats none).
+            context_note = ""
+            continue
+        except PageLimitExceededError as exc:
+            error_msg = f"Batch {batch_slice.batch_index} exceeded Bedrock page limit: {exc}"
+            logger.error(error_msg)
+            batch_errors.append(error_msg)
+            # Same handling as truncation: record, skip this batch, keep going.
             context_note = ""
             continue
 

@@ -1942,7 +1942,16 @@ def invoke(c, pipeline, env, file_path=None, force=False, wait=False, async_=Fal
             out_path = out.name
 
         try:
-            extra = "--log-type Tail" if not async_ else "--invocation-type Event"
+            # Synchronous (RequestResponse) invokes wait for the whole Lambda
+            # run. Large PDFs take longer than the AWS CLI's default 60s read
+            # timeout, so a slow-but-succeeding Lambda looks like a client
+            # "read timeout". Disable the read timeout (0 = wait; capped in
+            # practice by the Lambda's own 900s ceiling) on the sync path only —
+            # the async path returns 202 immediately and needs no override.
+            if async_:
+                extra = "--invocation-type Event"
+            else:
+                extra = "--log-type Tail --cli-read-timeout 0 --cli-connect-timeout 10"
             res = c.run(
                 f"aws lambda invoke "
                 f"--function-name {lambda_name} "
@@ -2146,7 +2155,15 @@ def invoke_all(
             with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as out:
                 out_path = out.name
             try:
-                extra = "--invocation-type Event" if async_ else "--log-type Tail"
+                # See invoke(): disable the CLI read timeout on the synchronous
+                # path so large PDFs that outlast the default 60s don't surface
+                # as a spurious client-side "read timeout".
+                if async_:
+                    extra = "--invocation-type Event"
+                else:
+                    extra = (
+                        "--log-type Tail --cli-read-timeout 0 --cli-connect-timeout 10"
+                    )
                 r = c.run(
                     f"aws lambda invoke "
                     f"--function-name {lambda_name} "
