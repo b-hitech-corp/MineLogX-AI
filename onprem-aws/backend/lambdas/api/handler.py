@@ -26,12 +26,18 @@ import json
 import logging
 import math
 import os
+import re
 from datetime import datetime, timezone
 from typing import Callable
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+# Client (tenant) identifier accepted from the chat request. Kept permissive
+# enough for the current "Cn" convention while rejecting anything that could
+# alter the retrieval filter (slashes, wildcards, whitespace, over-long input).
+_CLIENT_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 
 # ---------------------------------------------------------------------------
 # Lazy singletons — LLM agents
@@ -491,16 +497,29 @@ def _handle_analyze(event: dict) -> dict:
 
 
 def _handle_chat(event: dict) -> dict:
-    """POST /chat — compliance RAG Q&A via BedrockRAGAgent."""
+    """POST /chat — compliance RAG Q&A via BedrockRAGAgent.
+
+    Accepts the current frontend field name ``query`` as well as the legacy
+    ``message``/``question``. ``client`` scopes telemetry retrieval to a single
+    tenant; it is validated here and, when missing/invalid, passed through as
+    None so the agent fails closed (regulatory-only, no telemetry).
+    """
     body = _parse_body(event)
     message = (
         body.get("message") or body.get("question") or body.get("query") or ""
     ).strip()
     model = body.get("model")
     if not message:
-        return _err("'message' field is required")
+        return _err("'query' field is required")
+
+    raw_client = (body.get("client") or "").strip()
+    client = raw_client if _CLIENT_RE.fullmatch(raw_client) else None
+    if raw_client and client is None:
+        # Never fall back to a real tenant — just drop telemetry access.
+        logger.warning("Rejected invalid client identifier; telemetry disabled")
+
     try:
-        response_json = _get_rag_agent().chat(message, model=model)
+        response_json = _get_rag_agent().chat(message, model=model, client=client)
         return _ok(response_json)
     except Exception:
         logger.error("RAGAgent failed", exc_info=True)
