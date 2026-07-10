@@ -35,6 +35,7 @@ Read this file completely before taking any action.
 - Run `terraform fmt`, `terraform validate`, and `terraform plan`
 - Run `aws cloudformation validate-template`
 - Run `fab --list` and read-only Fabric tasks
+- Run `fab docs.build` to preview the documentation site locally (`mkdocs serve`)
 - Run tests and linters
 - Suggest git commits following the `[BHMIB-{ticket}] {type}: {description}` format
 - Install Python dependencies in a virtual environment
@@ -295,7 +296,7 @@ When adding a new Bedrock Agent or AI component to the platform:
 - `infrastructure/cloudformation/bedrock-guardrails/` — Guardrail stack
 - `backend/agents/data-analysis/` — Data Analysis Agent implementation
 - `backend/agents/rag-agent/` — RAG Compliance Agent implementation
-- `fabfile.py` — Fabric orchestrator: `env.*` lifecycle (up, plan, down, endpoints, health), `lambda.*` pipeline ops, `bedrock.*` model probing, `opensearch.*` status, `frontend.*` Amplify deploy, `ollama.*` EC2 remote ops
+- `fabfile.py` — Fabric orchestrator: `env.*` lifecycle (up, plan, down, endpoints, health), `lambda.*` pipeline ops, `bedrock.*` model probing, `opensearch.*` status, `frontend.*` Amplify deploy, `docs.*` mkdocs-material build+deploy, `ollama.*` EC2 remote ops
 - `lambdas/api/handler.py` — Lambda API: GET /fleet/assets, /kpis, /fuel/*, /maintenance/*, /telemetry/* (datos S3, sin LLM) + POST /analyze (FleetAgent) + POST /chat (RAGAgent)
 - `cloudformation/apigw/apigw.yaml` — HTTP API v2 con CORS nativo para `*.amplifyapp.com`
 - `scripts/discover-aws.sh` / `.ps1` — read-only AWS inventory for demo import

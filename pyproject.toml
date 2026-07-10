@@ -15,6 +15,10 @@ dependencies = [
 dev = [
     "pre-commit>=4.0",
     "ruff>=0.15.20",
+    "mkdocs-material>=9.5",
+    "yamllint>=1.38.0",
+    "isort>=8.0.1",
+    "bandit>=1.9.4",
 ]
 
 [tool.uv]

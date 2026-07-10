@@ -48,3 +48,6 @@ venv/
 
 # fab env.up failure logs (auto-generated, local only)
 .fab-logs/
+
+# mkdocs build output
+site/

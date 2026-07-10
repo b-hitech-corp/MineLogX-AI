@@ -1,0 +1,80 @@
+site_name: MineLogX AI
+site_description: Intelligent mining operations platform — AWS reference implementation
+docs_dir: docs
+site_dir: site
+
+theme:
+  name: material
+  logo: assets/minelogx-logo.png
+  favicon: assets/minelogx-logo.png
+  palette:
+    - scheme: default
+      primary: blue grey
+      accent: amber
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: blue grey
+      accent: amber
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - content.tabs.link
+    - search.highlight
+
+nav:
+  - Home: index.md
+  - Getting Started:
+      - Quickstart: getting-started/quickstart.md
+      - Prerequisites: getting-started/prerequisites.md
+      - AWS Authentication: getting-started/aws-auth.md
+  - Architecture:
+      - System Overview (C4 L1): architecture/overview.md
+      - Containers (C4 L2): architecture/containers.md
+      - Data Flow: architecture/data-flow.md
+      - Bedrock Models: architecture/bedrock-models.md
+      - OpenSearch Indices: architecture/opensearch-indices.md
+  - AI Agents:
+      - Data Analysis Agent: agents/data-analysis.md
+      - RAG Compliance Agent: agents/rag-compliance.md
+      - Guardrails: agents/guardrails.md
+      - KPI Definitions: agents/kpi-definitions.md
+  - API Reference:
+      - Endpoints: api/endpoints.md
+      - Backend Lambda: api/backend-lambda.md
+  - Infrastructure:
+      - Overview: infrastructure/overview.md
+      - CloudFormation Stacks: infrastructure/cloudformation.md
+      - Terraform: infrastructure/terraform.md
+  - Operations:
+      - Fabric Task Reference: operations/fabric-tasks.md
+      - Pipelines (CSV & PDF): operations/pipelines.md
+      - Activity Logs: operations/logs.md
+  - Contributing:
+      - Workflow: contributing/workflow.md
+      - Git Conventions: contributing/git-conventions.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - tables
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+plugins:
+  - search

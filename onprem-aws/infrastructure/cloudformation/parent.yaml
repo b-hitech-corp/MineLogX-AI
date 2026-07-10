@@ -169,6 +169,15 @@ Resources:
         ProjectApnId: !Ref ProjectApnId
         ViteUseMock: !Ref ViteUseMock
 
+  AmplifyDocs:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: amplify/amplify-docs.yaml
+      Parameters:
+        NamePrefix: !Ref NamePrefix
+        Environment: !Ref Environment
+        ProjectApnId: !Ref ProjectApnId
+
   Lambda:
     Type: AWS::CloudFormation::Stack
     Properties:
@@ -221,6 +230,10 @@ Outputs:
     Value: !GetAtt Amplify.Outputs.AppId
   AmplifyDomain:
     Value: !GetAtt Amplify.Outputs.DefaultDomain
+  AmplifyDocsAppId:
+    Value: !GetAtt AmplifyDocs.Outputs.DocsAppId
+  AmplifyDocsDomain:
+    Value: !GetAtt AmplifyDocs.Outputs.DocsDomain
   OpenSearchEndpoint:
     Value: !GetAtt OpenSearch.Outputs.CollectionEndpoint
   GuardrailId:

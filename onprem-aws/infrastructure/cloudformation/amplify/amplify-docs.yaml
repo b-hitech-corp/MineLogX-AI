@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: MineLogX - Amplify hosting for the mkdocs-material documentation site.
+
+Parameters:
+  NamePrefix:
+    Type: String
+  Environment:
+    Type: String
+  ProjectApnId:
+    Type: String
+    Default: 'pc:13uw3s8iyvze74tlcq3o0w8r6'
+  BranchName:
+    Type: String
+    Default: demo
+  BranchStage:
+    Type: String
+    Default: PRODUCTION
+
+Resources:
+  App:
+    Type: AWS::Amplify::App
+    Properties:
+      Name: !Sub '${NamePrefix}-${Environment}-docs'
+      Platform: WEB
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+  Branch:
+    Type: AWS::Amplify::Branch
+    Properties:
+      AppId: !GetAtt App.AppId
+      BranchName: !Ref BranchName
+      Stage: !Ref BranchStage
+      EnableAutoBuild: true
+      Tags:
+        - { Key: aws-apn-id, Value: !Ref ProjectApnId }
+        - { Key: Environment, Value: !Ref Environment }
+
+Outputs:
+  DocsAppId:
+    Value: !GetAtt App.AppId
+  DocsDomain:
+    Value: !GetAtt App.DefaultDomain
