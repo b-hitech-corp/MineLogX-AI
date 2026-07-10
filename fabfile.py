@@ -1047,8 +1047,8 @@ def _find_pnpm(c) -> str:
 def _frontend_build_and_deploy(c, env, api_url=""):
     """Build the React/Vite app with a live API URL, then upload to Amplify.
 
-    Injects VITE_API_BASE_URL dynamically so it always reflects the current
-    stack — safe even after env.down + env.up (API GW ID changes).
+    Injects VITE_API_BASE_URL and VITE_CHAT_ENDPOINT dynamically so they
+    always reflect the current stack — safe even after env.down + env.up.
     Writes a friendly log to .fab-logs/frontend-deploy-<env>-<ts>.log.
     """
     import time as _time
@@ -1062,12 +1062,15 @@ def _frontend_build_and_deploy(c, env, api_url=""):
         print(msg)
         lines.append(msg)
 
+    chat_url = f"{api_url.rstrip('/')}/chat" if api_url else ""
     _log(f"==> [frontend] build+deploy  env={env}  region={REGION}")
     _log(f"==> [frontend] VITE_API_BASE_URL={api_url or '(empty — will use mock)'}")
+    _log(f"==> [frontend] VITE_CHAT_ENDPOINT={chat_url or '(empty)'}")
 
     build_env = {
         **os.environ,
         "VITE_API_BASE_URL": api_url,
+        "VITE_CHAT_ENDPOINT": chat_url,
         "VITE_USE_MOCK": "false" if api_url else "true",
     }
 
