@@ -4,12 +4,12 @@ const CHAT_ENDPOINT =
     ? '/chat-proxy/'
     : 'https://szfoqv25uftblx6xpowrslzi3y0yumcy.lambda-url.us-east-1.on.aws/')
 
-export async function sendChatPrompt(query: string, model?: string): Promise<string> {
-  console.log(`Sending chat prompt: ${JSON.stringify({ query, model })}`)
+export async function sendChatPrompt(query: string, model?: string, client: string = 'C1'): Promise<string> {
+  console.log(`Sending chat prompt: ${JSON.stringify({ query, model, client })}`)
   const res = await fetch(CHAT_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, model }),
+    body: JSON.stringify({ query, model, client }),
   })
   if (!res.ok) throw new Error(`Chat API error: ${res.status}`)
   const data = await res.json()

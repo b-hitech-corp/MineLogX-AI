@@ -7,11 +7,15 @@ import { getFuelRecords, getFuelTrend } from '../services/fuel'
 import type { FuelRecord } from '../types/fuel'
 import { SectionDataLoader } from '../components/ui/SectionDataLoader'
 import { JsonSectionBlock } from '../components/modules/shared/JsonSectionBlock'
+import { SearchInput } from '../components/ui/SearchInput'
+import { Pagination } from '../components/ui/Pagination'
+import { usePagination } from '../hooks/usePagination'
 import { useCompanyData } from '../context/CompanyDataContext'
 
 export function FuelPage() {
   const [records, setRecords] = useState<FuelRecord[]>([])
   const [trend, setTrend] = useState<Array<{ hour: string; consumption: number }>>([])
+  const [search, setSearch] = useState('')
   const { data } = useCompanyData()
 
   useEffect(() => {
@@ -21,6 +25,9 @@ export function FuelPage() {
 
   const totalConsumed = records.reduce((s, r) => s + r.fuelUsedLitres, 0)
   const anomalies = records.filter((r) => r.anomaly)
+
+  const filtered = records.filter((r) => r.assetName.toLowerCase().includes(search.toLowerCase()))
+  const { page, setPage, totalPages, pageItems } = usePagination(filtered, 10)
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
@@ -59,15 +66,19 @@ export function FuelPage() {
         </div>
 
         <div className="break-inside-avoid mb-4 sm:mb-6">
-          <FuelTable records={records} />
-        </div>
-
-        <div className="break-inside-avoid mb-4 sm:mb-6">
           <SectionDataLoader>
             {data && <JsonSectionBlock section={data.fuel} title="Fuel Analytics" />}
           </SectionDataLoader>
         </div>
 
+      </div>
+
+      <div className="flex h-[65vh] min-h-[420px] flex-col gap-3">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search by asset..." />
+        <div className="flex-1 min-h-0">
+          <FuelTable records={pageItems} />
+        </div>
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
       </div>
     </div>
   )

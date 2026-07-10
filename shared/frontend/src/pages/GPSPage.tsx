@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { PageHeader } from '../components/layout/PageHeader'
-import { GPSMap } from '../components/modules/gps/GPSMap'
+import { GPSMap, MAP_HEIGHT } from '../components/modules/gps/GPSMap'
 import { StatusPill } from '../components/ui/StatusPill'
 import { getGPSAssets, getPitZones } from '../services/telemetry'
 import { formatRelativeTime } from '../utils/formatters'
@@ -32,9 +32,9 @@ export function GPSPage() {
           <GPSMap assets={assets} zones={zones} selectedAsset={selected} onSelectAsset={setSelected} />
         </div>
 
-        <div className="col-span-1">
-          <div className="flex flex-col gap-2">
-            <h3 className="text-sm font-semibold text-content-secondary uppercase tracking-wide mb-1">Asset List</h3>
+        <div className="col-span-1 rounded-xl border border-surface-border bg-surface-card p-4">
+          <h3 className="mb-3 text-sm font-semibold text-content-primary">Asset List</h3>
+          <div className="flex flex-col gap-2 overflow-y-auto" style={{ height: MAP_HEIGHT }}>
             {assets.map((a) => (
               <button
                 key={a.id}

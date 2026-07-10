@@ -4,10 +4,10 @@ import type { FuelRecord } from '../../../types/fuel'
 
 export function FuelTable({ records }: { records: FuelRecord[] }) {
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-card overflow-hidden">
-      <div className="overflow-x-auto">
+    <div className="flex h-full flex-col rounded-xl border border-surface-border bg-surface-card overflow-hidden">
+      <div className="flex-1 overflow-auto">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10 bg-surface-card">
             <tr className="border-b border-surface-border">
               {['Asset', 'Location', 'Fuel Used (L)', 'L/h (Current)', '7-Day Avg L/h', 'L/t', 'Status'].map(
                 (h) => (

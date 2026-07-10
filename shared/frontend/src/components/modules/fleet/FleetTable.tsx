@@ -15,10 +15,10 @@ function typeLabel(type: string) {
 
 export function FleetTable({ assets }: { assets: FleetAsset[] }) {
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-card overflow-hidden">
-      <div className="overflow-x-auto">
+    <div className="flex h-full flex-col rounded-xl border border-surface-border bg-surface-card overflow-hidden">
+      <div className="flex-1 overflow-auto">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10 bg-surface-card">
             <tr className="border-b border-surface-border">
               {['Asset', 'Type', 'Status', 'Location', 'Operator', 'Fuel', 'Speed', 'Cycles', 'Fuel L/h', 'AI Flag'].map(
                 (h) => (
