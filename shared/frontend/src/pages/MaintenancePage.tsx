@@ -6,12 +6,16 @@ import { getMaintenanceItems, getWorkOrders } from '../services/maintenance'
 import type { MaintenanceItem, WorkOrder } from '../types/maintenance'
 import { SectionDataLoader } from '../components/ui/SectionDataLoader'
 import { JsonSectionBlock } from '../components/modules/shared/JsonSectionBlock'
+import { SearchInput } from '../components/ui/SearchInput'
+import { Pagination } from '../components/ui/Pagination'
+import { usePagination } from '../hooks/usePagination'
 import { useCompanyData } from '../context/CompanyDataContext'
 
 export function MaintenancePage() {
   const [items, setItems] = useState<MaintenanceItem[]>([])
   const [orders, setOrders] = useState<WorkOrder[]>([])
   const [filter, setFilter] = useState<string>('all')
+  const [search, setSearch] = useState('')
   const { data } = useCompanyData()
 
   useEffect(() => {
@@ -19,8 +23,11 @@ export function MaintenancePage() {
     getWorkOrders().then(setOrders).catch((err) => console.error('Failed to load work orders:', err))
   }, [])
 
-  const filtered =
-    filter === 'all' ? items : items.filter((i) => i.status === filter || i.priority === filter)
+  const filtered = items
+    .filter((i) => filter === 'all' || i.status === filter || i.priority === filter)
+    .filter((i) => i.assetName.toLowerCase().includes(search.toLowerCase()))
+
+  const { page, setPage, totalPages, pageItems } = usePagination(filtered, 10)
 
   const predictive = items.filter((i) => i.predictiveFlag)
   const overdue = items.filter((i) => i.status === 'overdue')
@@ -62,7 +69,13 @@ export function MaintenancePage() {
         ))}
       </div>
 
-      <MaintenanceTable items={filtered} />
+      <div className="flex h-[65vh] min-h-[420px] flex-col gap-3">
+        <SearchInput value={search} onChange={setSearch} placeholder="Search by asset..." />
+        <div className="flex-1 min-h-0">
+          <MaintenanceTable items={pageItems} />
+        </div>
+        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+      </div>
 
       {orders.length > 0 && (
         <div>

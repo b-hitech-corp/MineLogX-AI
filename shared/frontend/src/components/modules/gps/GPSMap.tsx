@@ -1,15 +1,16 @@
 import { StatusPill } from '../../ui/StatusPill'
 import type { GPSAsset, PitZone } from '../../../types/gps'
 
-const MAP_WIDTH = 780
-const MAP_HEIGHT = 520
+export const MAP_HEIGHT = 520
+// API returns x/y/width/height normalized to a 0-100 scale, independent of the pixel container size
+const MAP_VIEWBOX_SIZE = 100
 
-const zoneColors: Record<string, { fill: string; stroke: string; label: string }> = {
-  pit: { fill: '#1B6FEB15', stroke: '#1B6FEB40', label: 'text-blue-500' },
-  dump: { fill: '#1D9E7515', stroke: '#1D9E7540', label: 'text-green-500' },
-  workshop: { fill: '#30363D80', stroke: '#484F58', label: 'text-content-secondary' },
-  'fuel-bay': { fill: '#EF9F2715', stroke: '#EF9F2740', label: 'text-amber-500' },
-  'haul-road': { fill: '#21262D60', stroke: '#30363D', label: 'text-content-tertiary' },
+const zoneColors: Record<string, { fill: string; stroke: string; text: string }> = {
+  pit: { fill: '#1B6FEB40', stroke: '#1B6FEB', text: '#5B9AF5' },
+  dump: { fill: '#1D9E7540', stroke: '#1D9E75', text: '#3DD68C' },
+  workshop: { fill: '#8B949E40', stroke: '#8B949E', text: '#C3CAD4' },
+  'fuel-bay': { fill: '#EF9F2740', stroke: '#EF9F27', text: '#F5B94F' },
+  'haul-road': { fill: '#A371F740', stroke: '#A371F7', text: '#BC96FA' },
 }
 
 const assetIcons: Record<string, string> = {
@@ -31,7 +32,13 @@ export function GPSMap({ assets, zones, selectedAsset, onSelectAsset }: GPSMapPr
     <div className="rounded-xl border border-surface-border bg-surface-card p-4">
       <h3 className="mb-3 text-sm font-semibold text-content-primary">Pit Map — Live Asset Positions</h3>
       <div className="relative overflow-hidden rounded-lg bg-surface" style={{ height: MAP_HEIGHT }}>
-        <svg width="100%" height="100%" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} className="absolute inset-0">
+        <svg
+          width="100%"
+          height="100%"
+          viewBox={`0 0 ${MAP_VIEWBOX_SIZE} ${MAP_VIEWBOX_SIZE}`}
+          preserveAspectRatio="none"
+          className="absolute inset-0"
+        >
           {zones.map((z) => {
             const cfg = zoneColors[z.type]
             return (
@@ -43,17 +50,17 @@ export function GPSMap({ assets, zones, selectedAsset, onSelectAsset }: GPSMapPr
                   height={z.height}
                   fill={cfg.fill}
                   stroke={cfg.stroke}
-                  strokeWidth={1}
-                  rx={6}
+                  strokeWidth={0.4}
+                  rx={1.2}
                 />
                 <text
                   x={z.x + z.width / 2}
                   y={z.y + z.height / 2}
                   textAnchor="middle"
                   dominantBaseline="middle"
-                  fill={cfg.label.includes('blue') ? '#3B82F6' : cfg.label.includes('green') ? '#22C55E' : cfg.label.includes('amber') ? '#F59E0B' : '#484F58'}
-                  fontSize={10}
-                  fontWeight={500}
+                  fill={cfg.text}
+                  fontSize={2}
+                  fontWeight={600}
                 >
                   {z.name}
                 </text>
@@ -69,24 +76,42 @@ export function GPSMap({ assets, zones, selectedAsset, onSelectAsset }: GPSMapPr
                 key={asset.id}
                 transform={`translate(${asset.x}, ${asset.y})`}
                 className="cursor-pointer"
+                opacity={isSelected ? 1 : 0.3}
                 onClick={() => onSelectAsset(isSelected ? null : asset.id)}
               >
                 {isSelected && (
-                  <circle r={20} fill="none" stroke="#1B6FEB" strokeWidth={2} strokeDasharray="4 2" opacity={0.8} />
+                  <circle r={3.8} fill="none" stroke="#1B6FEB" strokeWidth={0.4} strokeDasharray="0.8 0.4" opacity={0.8} />
                 )}
                 <circle
-                  r={14}
+                  r={2.7}
                   fill={isIdle ? '#EF9F2720' : '#1B6FEB20'}
                   stroke={isIdle ? '#EF9F27' : '#1B6FEB'}
-                  strokeWidth={isSelected ? 2 : 1.5}
+                  strokeWidth={isSelected ? 0.4 : 0.3}
                 />
-                <text textAnchor="middle" dominantBaseline="middle" fontSize={14}>
+                <text textAnchor="middle" dominantBaseline="middle" fontSize={2.7}>
                   {assetIcons[asset.assetType] ?? '⚙️'}
                 </text>
               </g>
             )
           })}
         </svg>
+
+        {zones.length > 0 && (
+          <div className="absolute bottom-3 right-3 rounded-lg border border-surface-border bg-surface-card/90 px-3 py-2 backdrop-blur-sm">
+            <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-content-tertiary">Zones</p>
+            <div className="flex flex-col gap-1">
+              {zones.map((z) => (
+                <div key={z.id} className="flex items-center gap-2">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                    style={{ backgroundColor: zoneColors[z.type].stroke }}
+                  />
+                  <span className="text-xs text-content-secondary">{z.name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {selectedAsset && (() => {

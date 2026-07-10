@@ -19,10 +19,10 @@ const statusVariant: Record<string, 'critical' | 'warning' | 'healthy' | 'info' 
 
 export function MaintenanceTable({ items }: { items: MaintenanceItem[] }) {
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-card overflow-hidden">
-      <div className="overflow-x-auto">
+    <div className="flex h-full flex-col rounded-xl border border-surface-border bg-surface-card overflow-hidden">
+      <div className="flex-1 overflow-auto">
         <table className="w-full text-sm">
-          <thead>
+          <thead className="sticky top-0 z-10 bg-surface-card">
             <tr className="border-b border-surface-border">
               {['Asset', 'Type', 'Status', 'Priority', 'Scheduled', 'Est. Hours', 'Assigned To', 'AI Prediction'].map(
                 (h) => (
