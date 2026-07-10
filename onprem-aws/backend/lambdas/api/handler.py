@@ -527,6 +527,9 @@ def lambda_handler(event: dict, context) -> dict:  # noqa: ARG001
     elif stage and path == f"/{stage}":
         path = "/"
 
+    if method == "OPTIONS":
+        return {"statusCode": 200, "headers": {}, "body": ""}
+
     if path.rstrip("/") in ("", "/health", "/healthz"):
         return _ok(
             {
