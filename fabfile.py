@@ -2402,6 +2402,9 @@ def pdf_async_status(c, env, last=60, follow=False, verbose=False):
             ts = rows[0]["ts"]
             has_error = any("[ERROR]" in m for m in msgs)
             no_sections = any("No sections extracted" in m for m in msgs)
+            has_timeout = any("Task timed out" in m for m in msgs)
+            has_report = any("REPORT RequestId" in m for m in msgs)
+            is_skip = any("Skipping non-PDF object" in m for m in msgs)
             # Try to extract file_key from any JSON payload in logs
             file_key = None
             sections = pages = duration = None
@@ -2442,7 +2445,21 @@ def pdf_async_status(c, env, last=60, follow=False, verbose=False):
                         snippet = snippet.split("\t")[-1]
                     error_snippets.append(snippet[:140])
 
-            status = "error" if (has_error or no_sections) else "ok"
+            has_success_evidence = file_key is not None
+            if has_timeout:
+                status = "timeout"
+            elif has_error or no_sections:
+                status = "error"
+            elif has_success_evidence or is_skip:
+                status = "ok"
+            elif has_report:
+                # REPORT line present (invocation finished) but no error, timeout,
+                # or success evidence — likely a Lambda hard-kill that didn't emit
+                # "Task timed out" in time to be captured, or an untraced failure.
+                status = "unknown"
+            else:
+                # No REPORT line yet — still in-flight within this query window.
+                status = "ok"
             invocations.append(
                 {
                     "req": req,
@@ -2483,6 +2500,8 @@ def pdf_async_status(c, env, last=60, follow=False, verbose=False):
 
         ok_count = sum(1 for i in invocations if i["status"] == "ok")
         err_count = sum(1 for i in invocations if i["status"] == "error")
+        timeout_count = sum(1 for i in invocations if i["status"] == "timeout")
+        unknown_count = sum(1 for i in invocations if i["status"] == "unknown")
 
         for inv in invocations:
             label = (
@@ -2502,6 +2521,22 @@ def pdf_async_status(c, env, last=60, follow=False, verbose=False):
                 print(
                     f"  {_green('OK')}  {_dim(inv['ts'])}  {label}{_dim(secs + pgs + dur)}"
                 )
+            elif inv["status"] == "timeout":
+                print(f"  {_yellow('TIMEOUT')}  {_dim(inv['ts'])}  {label}{_dim(dur)}")
+                if verbose:
+                    print(
+                        _dim(
+                            "       Lambda hit its hard timeout ceiling before completing"
+                        )
+                    )
+            elif inv["status"] == "unknown":
+                print(f"  {_dim('UNKNOWN')}  {_dim(inv['ts'])}  {label}{_dim(dur)}")
+                if verbose:
+                    print(
+                        _dim(
+                            "       REPORT line present but no success/error/timeout evidence"
+                        )
+                    )
             else:
                 print(f"  {_red('ERR')} {_dim(inv['ts'])}  {label}{_dim(dur)}")
                 for snippet in inv["errors"][:1]:
@@ -2517,16 +2552,29 @@ def pdf_async_status(c, env, last=60, follow=False, verbose=False):
                     print(_dim(f"       req: {inv['req']}"))
 
         print()
-        if err_count == 0 and ok_count > 0:
+        if err_count == 0 and timeout_count == 0 and unknown_count == 0 and ok_count > 0:
             print(_green(f"  All {ok_count} invocation(s) completed successfully."))
         else:
             status_str = (
                 _green(f"{ok_count} ok")
                 + "  "
                 + (_red(f"{err_count} failed") if err_count else _dim("0 failed"))
+                + "  "
+                + (
+                    _yellow(f"{timeout_count} timed out")
+                    if timeout_count
+                    else _dim("0 timed out")
+                )
+                + "  "
+                + (
+                    _dim(f"{unknown_count} unknown")
+                    if unknown_count
+                    else _dim("0 unknown")
+                )
             )
-            print(f"  {ok_count + err_count} invocation(s) total  —  {status_str}")
-            if err_count and not verbose:
+            total = ok_count + err_count + timeout_count + unknown_count
+            print(f"  {total} invocation(s) total  —  {status_str}")
+            if (err_count or timeout_count or unknown_count) and not verbose:
                 print(_dim("  Use --verbose for full error details and raw logs"))
 
         if verbose:
@@ -2547,6 +2595,7 @@ def pdf_async_status(c, env, last=60, follow=False, verbose=False):
         "fields @timestamp, @requestId, @message "
         "| filter @message like /ERROR/ or @message like /sections_indexed/ "
         "    or @message like /No sections extracted/ or @message like /REPORT RequestId/ "
+        "    or @message like /Task timed out/ or @message like /Skipping non-PDF object/ "
         "| sort @timestamp asc "
         "| limit 500"
     )

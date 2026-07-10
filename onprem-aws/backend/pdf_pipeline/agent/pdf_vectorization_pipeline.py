@@ -50,10 +50,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import boto3
+from botocore.config import Config as BotoConfig
 
 from pdf_pipeline.config.pdf_pipeline_settings import PdfPipelineConfig
 from pdf_pipeline.tools.pdf_classifier import classify, ClassificationResult
 from pdf_pipeline.tools.pdf_claude_extractor import (
+    MaxTokensTruncationError,
     build_carry_over_context,
     extract_with_claude,
 )
@@ -143,10 +145,10 @@ def _run_textract_path(
     classification: ClassificationResult,
     config: PdfPipelineConfig,
     textract_client: Any,
-) -> tuple[list[dict], str, int, int, int]:
+) -> tuple[list[dict], str, int, int, int, list[str]]:
     """Run the Textract extraction path.
 
-    Returns (raw_sections, extraction_method, batches_used, input_tokens, output_tokens).
+    Returns (raw_sections, extraction_method, batches_used, input_tokens, output_tokens, errors).
     """
     result = extract_with_textract(
         bucket=bucket,
@@ -156,7 +158,7 @@ def _run_textract_path(
         config=config,
         textract_client=textract_client,
     )
-    return result.raw_sections, "textract", 1, 0, 0
+    return result.raw_sections, "textract", 1, 0, 0, result.errors
 
 
 def _run_claude_single_path(
@@ -166,10 +168,11 @@ def _run_claude_single_path(
     classification: ClassificationResult,
     config: PdfPipelineConfig,
     bedrock_client: Any,
-) -> tuple[list[dict], str, int, int, int]:
+    deadline_ts: float | None = None,
+) -> tuple[list[dict], str, int, int, int, list[str]]:
     """Run the Claude single-call path (≤550 pages, ≤18MB).
 
-    Returns (raw_sections, extraction_method, batches_used, input_tokens, output_tokens).
+    Returns (raw_sections, extraction_method, batches_used, input_tokens, output_tokens, errors).
     """
     result = extract_with_claude(
         pdf_bytes=pdf_bytes,
@@ -182,6 +185,7 @@ def _run_claude_single_path(
         page_start_offset=1,
         batch_index=0,
         context_note="",
+        deadline_ts=deadline_ts,
     )
     return (
         result.raw_sections,
@@ -189,6 +193,7 @@ def _run_claude_single_path(
         1,
         result.input_tokens,
         result.output_tokens,
+        result.errors,
     )
 
 
@@ -199,7 +204,8 @@ def _run_claude_minibatch_path(
     classification: ClassificationResult,
     config: PdfPipelineConfig,
     bedrock_client: Any,
-) -> tuple[list[dict], str, int, int, int]:
+    deadline_ts: float | None = None,
+) -> tuple[list[dict], str, int, int, int, list[str]]:
     """Run the Claude mini-batch path (>550 pages OR >18MB).
 
     Steps:
@@ -208,7 +214,7 @@ def _run_claude_minibatch_path(
       3. Call Claude sequentially per batch with carry-over context.
       4. Merge all batch outputs in order.
 
-    Returns (raw_sections, extraction_method, batches_used, input_tokens, output_tokens).
+    Returns (raw_sections, extraction_method, batches_used, input_tokens, output_tokens, errors).
     """
     logger.info("Mini-batch path: scanning section boundaries...")
     section_map = scan_section_boundaries(pdf_bytes, config)
@@ -220,6 +226,7 @@ def _run_claude_minibatch_path(
     all_raw_sections: list[dict] = []
     total_input_tokens = 0
     total_output_tokens = 0
+    batch_errors: list[str] = []
     context_note = ""
 
     for batch_slice in batches:
@@ -232,21 +239,32 @@ def _run_claude_minibatch_path(
             batch_slice.size_mb,
         )
 
-        result = extract_with_claude(
-            pdf_bytes=batch_slice.pdf_bytes,
-            bucket=bucket,
-            key=key,
-            file_size_bytes=classification.file_size_bytes,
-            total_pages=classification.page_count,
-            config=config,
-            bedrock_client=bedrock_client,
-            page_start_offset=batch_slice.page_start,
-            batch_index=batch_slice.batch_index,
-            context_note=context_note,
-        )
+        try:
+            result = extract_with_claude(
+                pdf_bytes=batch_slice.pdf_bytes,
+                bucket=bucket,
+                key=key,
+                file_size_bytes=classification.file_size_bytes,
+                total_pages=classification.page_count,
+                config=config,
+                bedrock_client=bedrock_client,
+                page_start_offset=batch_slice.page_start,
+                batch_index=batch_slice.batch_index,
+                context_note=context_note,
+                deadline_ts=deadline_ts,
+            )
+        except MaxTokensTruncationError as exc:
+            error_msg = f"Batch {batch_slice.batch_index} truncated at max_tokens: {exc}"
+            logger.error(error_msg)
+            batch_errors.append(error_msg)
+            # Can't build carry-over from a batch that produced no sections —
+            # continue processing remaining batches (partial indexing beats none).
+            context_note = ""
+            continue
 
         if result.errors:
             logger.error("Batch %d failed: %s", batch_slice.batch_index, result.errors)
+            batch_errors.extend(result.errors)
             # Continue processing remaining batches — partial indexing is better than none
 
         all_raw_sections.extend(result.raw_sections)
@@ -265,6 +283,7 @@ def _run_claude_minibatch_path(
         len(batches),
         total_input_tokens,
         total_output_tokens,
+        batch_errors,
     )
 
 
@@ -283,6 +302,7 @@ def run_pipeline(
     bedrock_client: Any = None,
     bedrock_runtime_client: Any = None,
     opensearch_client: Any = None,
+    deadline_ts: float | None = None,
 ) -> PdfPipelineResult:
     """Run the full PDF vectorization pipeline for a single document.
 
@@ -297,6 +317,8 @@ def run_pipeline(
         bedrock_runtime_client: Reusable boto3 bedrock-runtime client for Titan Embed.
             If None, bedrock_client is reused (same service).
         opensearch_client: Reusable OpenSearch client.
+        deadline_ts: Optional Lambda invocation deadline (time.time()-based),
+            forwarded to the Claude extraction paths to bound their read timeout.
 
     Returns:
         PdfPipelineResult with complete execution metrics.
@@ -310,6 +332,19 @@ def run_pipeline(
     textract = textract_client or boto3.client("textract", region_name=cfg.aws_region)
     bedrock = bedrock_client or boto3.client(
         "bedrock-runtime", region_name=cfg.aws_region
+    )
+    # Dedicated client for Claude extraction only — separate Config (longer
+    # read timeout, single app-owned retry attempt) from the shared client
+    # used for Haiku classification and Titan embedding above/below.
+    bedrock_claude = bedrock_client or boto3.client(
+        "bedrock-runtime",
+        region_name=cfg.aws_region,
+        config=BotoConfig(
+            connect_timeout=cfg.bedrock_connect_timeout_s,
+            read_timeout=cfg.bedrock_read_timeout_s,
+            retries={"max_attempts": 1},
+            max_pool_connections=cfg.bedrock_max_pool_connections,
+        ),
     )
     bedrock_rt = (
         bedrock_runtime_client or bedrock
@@ -378,6 +413,7 @@ def run_pipeline(
                 batches_used,
                 input_tokens,
                 output_tokens,
+                path_errors,
             ) = _run_textract_path(
                 bucket=bucket,
                 key=key,
@@ -397,13 +433,15 @@ def run_pipeline(
                     batches_used,
                     input_tokens,
                     output_tokens,
+                    path_errors,
                 ) = _run_claude_single_path(
                     pdf_bytes=pdf_bytes,
                     bucket=bucket,
                     key=key,
                     classification=classification,
                     config=cfg,
-                    bedrock_client=bedrock,
+                    bedrock_client=bedrock_claude,
+                    deadline_ts=deadline_ts,
                 )
             else:
                 pdf_bytes = _download_pdf(bucket, key, s3)
@@ -413,14 +451,18 @@ def run_pipeline(
                     batches_used,
                     input_tokens,
                     output_tokens,
+                    path_errors,
                 ) = _run_claude_minibatch_path(
                     pdf_bytes=pdf_bytes,
                     bucket=bucket,
                     key=key,
                     classification=classification,
                     config=cfg,
-                    bedrock_client=bedrock,
+                    bedrock_client=bedrock_claude,
+                    deadline_ts=deadline_ts,
                 )
+
+        errors.extend(path_errors)
 
         logger.info(
             "Extraction complete: %d raw sections | method=%s | batches=%d",

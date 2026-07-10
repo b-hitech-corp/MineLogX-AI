@@ -42,6 +42,9 @@ from pdf_pipeline.tools.pdf_textract_extractor import (
     _reconstruct_sections,
 )
 from pdf_pipeline.tools.pdf_claude_extractor import (
+    MaxTokensTruncationError,
+    _call_claude_with_retry,
+    _effective_read_timeout,
     _parse_claude_sections,
     _sanitize_doc_name,
     build_carry_over_context,
@@ -548,6 +551,105 @@ class TestClaudeExtractor:
         assert len(result.errors) == 1
         assert "ThrottlingException" in result.errors[0]
 
+    def test_retry_recovers_from_throttling(self, config):
+        """A ThrottlingException on the first attempt should retry and succeed."""
+        from botocore.exceptions import ClientError
+
+        call_count = 0
+
+        def mock_converse(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise ClientError(
+                    {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}},
+                    "Converse",
+                )
+            return {
+                "output": {
+                    "message": {
+                        "content": [
+                            {
+                                "toolUse": {
+                                    "name": "emit_sections",
+                                    "input": {
+                                        "sections": [
+                                            {
+                                                "title": "S1",
+                                                "body": "Body",
+                                                "page_start": 1,
+                                                "page_end": 1,
+                                            }
+                                        ]
+                                    },
+                                }
+                            }
+                        ]
+                    }
+                },
+                "usage": {"inputTokens": 100, "outputTokens": 50},
+            }
+
+        mock_bedrock = MagicMock()
+        mock_bedrock.converse.side_effect = mock_converse
+
+        with patch("pdf_pipeline.tools.pdf_claude_extractor.time.sleep"):
+            sections, input_tokens, output_tokens = _call_claude_with_retry(
+                pdf_bytes=b"%PDF-1.4",
+                doc_name="doc",
+                context_note="",
+                config=config,
+                bedrock_client=mock_bedrock,
+            )
+
+        assert call_count == 2
+        assert len(sections) == 1
+        assert input_tokens == 100
+        assert output_tokens == 50
+
+    def test_retry_raises_max_tokens_truncation_without_retrying(self, config):
+        """A ValidationException matching a truncation marker must not be retried."""
+        from botocore.exceptions import ClientError
+
+        mock_bedrock = MagicMock()
+        mock_bedrock.converse.side_effect = ClientError(
+            {
+                "Error": {
+                    "Code": "ValidationException",
+                    "Message": "The model returned the following errors: max_tokens exceeded",
+                }
+            },
+            "Converse",
+        )
+
+        with pytest.raises(MaxTokensTruncationError):
+            _call_claude_with_retry(
+                pdf_bytes=b"%PDF-1.4",
+                doc_name="doc",
+                context_note="",
+                config=config,
+                bedrock_client=mock_bedrock,
+            )
+
+        assert mock_bedrock.converse.call_count == 1
+
+    def test_effective_read_timeout_shrinks_near_deadline(self, config):
+        """The Bedrock read timeout should tighten as the Lambda deadline approaches."""
+        now = 1_000_000.0
+        with patch("pdf_pipeline.tools.pdf_claude_extractor.time.time", return_value=now):
+            assert _effective_read_timeout(config, None) is None
+
+            far_deadline = now + config.bedrock_read_timeout_s + 100
+            far_timeout = _effective_read_timeout(config, far_deadline)
+            assert far_timeout == pytest.approx(config.bedrock_read_timeout_s)
+
+            near_deadline = now + 15  # only 15s left
+            near_timeout = _effective_read_timeout(config, near_deadline)
+            assert near_timeout == pytest.approx(
+                15 - config.bedrock_deadline_safety_margin_s
+            )
+            assert near_timeout < far_timeout
+
 
 # ===========================================================================
 # Tests: pdf_textract_extractor — block reconstruction
@@ -825,6 +927,7 @@ class TestOrchestrator:
                 1,
                 0,
                 0,
+                [],
             )
             mock_embed.return_value = [
                 (
@@ -904,6 +1007,7 @@ class TestOrchestrator:
                 1,
                 5000,
                 1200,
+                [],
             )
             mock_embed.return_value = [
                 (
@@ -937,6 +1041,79 @@ class TestOrchestrator:
         assert result.input_tokens == 5000
         assert result.overall_success
 
+    def test_run_pipeline_propagates_extraction_path_errors(self, config):
+        """Errors surfaced by an extraction path (e.g. one truncated batch) must
+        reach PdfPipelineResult.errors instead of being silently dropped."""
+        classification = self._mock_classification(
+            doc_class="complex_legal", page_count=100, file_size=10_000_000
+        )
+
+        with (
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.classify",
+                return_value=classification,
+            ),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline._download_pdf",
+                return_value=b"%PDF-1.4",
+            ),
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline._run_claude_single_path"
+            ) as mock_claude,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.embed_sections_batch"
+            ) as mock_embed,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.ingest_sections"
+            ) as mock_ingest,
+            patch(
+                "pdf_pipeline.agent.pdf_vectorization_pipeline.build_opensearch_client",
+                return_value=MagicMock(),
+            ),
+        ):
+            mock_claude.return_value = (
+                [
+                    {
+                        "title": "Part 1",
+                        "body": "Preliminary.",
+                        "page_start": 1,
+                        "page_end": 5,
+                    }
+                ],
+                "claude_native",
+                1,
+                5000,
+                1200,
+                ["Batch 0 truncated at max_tokens: ValidationException"],
+            )
+            mock_embed.return_value = [
+                (
+                    MagicMock(
+                        section_id="s0",
+                        body="...",
+                        title="Part 1",
+                        page_start=1,
+                        page_end=5,
+                        extraction_method="claude_native",
+                        batch_index=0,
+                        tables=[],
+                        citations=[],
+                        metadata=MagicMock(),
+                    ),
+                    [0.1] * 1024,
+                )
+            ]
+            mock_ingest.return_value = IngestResult(
+                index_name="pdf_legal_vecs_test",
+                documents_indexed=1,
+                documents_failed=0,
+                documents_skipped=0,
+            )
+
+            result = run_pipeline("bucket", "legal/complex.pdf", config=config)
+
+        assert any("truncated at max_tokens" in e for e in result.errors)
+
     def test_run_pipeline_classification_failure_returns_error(self, config):
         """Classification exception → pipeline returns error result, does not crash."""
         with patch(
@@ -969,7 +1146,7 @@ class TestOrchestrator:
                 return_value=MagicMock(),
             ),
         ):
-            mock_claude.return_value = ([], "claude_native", 1, 0, 0)
+            mock_claude.return_value = ([], "claude_native", 1, 0, 0, [])
             result = run_pipeline("bucket", "key.pdf", config=config)
 
         assert result.sections_extracted == 0
