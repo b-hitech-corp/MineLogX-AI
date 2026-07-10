@@ -155,7 +155,7 @@ env_ns      → env.*        (up, plan, down, list, bootstrap, endpoints, health
 lambda_ns   → lambda.*     (invoke, invoke-all, set-env, logs, status, build-layer, pull, pdf-async-status)
 bedrock_ns  → bedrock.*    (model-access)
 opensearch_ns → opensearch.* (status)
-frontend_ns → frontend.*   (deploy)
+frontend_ns → frontend.*   (deploy, validate)
 ollama_ns   → ollama.*     (health-check, restart-ollama, pull-model, logs)
 ```
 
@@ -195,9 +195,14 @@ uv run fab opensearch.status                          # collection health + doc 
 
 # --- Frontend (frontend.*) ---
 uv run fab frontend.deploy dev                        # build React/Vite + push to Amplify (standalone)
+uv run fab frontend.validate dev                      # validate API GW routes + CORS + Lambda Function URL drift
 uv run fab env.up dev                                 # full-stack: infra + frontend en un solo comando
 uv run fab env.up dev --skip-frontend                 # solo infra, sin rebuild del frontend
 # VITE_API_BASE_URL is injected dynamically from the stack outputs (never hardcoded)
+# WARNING: VITE_CHAT_ENDPOINT and VITE_COMPANY_ENDPOINT are NOT injected — services/chat.ts and
+#          services/company.ts contain hardcoded Lambda Function URL fallbacks. If the stack is
+#          re-created, those URLs change and the frontend breaks silently. Use frontend.validate
+#          to detect drift. Long-term fix: add LambdaFunctionUrl to CFN outputs and inject it.
 
 # --- Ollama demo remote ops (ollama.*) ---
 uv run fab ollama.health-check                        # check all instances

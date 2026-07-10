@@ -205,6 +205,7 @@ Saves a formatted log to `.fab-logs/opensearch-status-dev-<ts>.log`.
 ```bash
 uv run fab frontend.deploy dev        # build React/Vite app and push to Amplify
 uv run fab frontend.deploy dev --skip-build  # re-deploy using an existing dist/
+uv run fab frontend.validate dev      # validate API GW routes, CORS, and Lambda Function URL drift
 ```
 
 ### ollama.* — Demo EC2 remote ops (demo only)
