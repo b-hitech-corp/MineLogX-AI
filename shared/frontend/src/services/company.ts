@@ -1,4 +1,5 @@
 import type { CompanyJSON } from '../types/companyData'
+import { apiFetch } from './api'
 
 const COMPANY_ENDPOINT = import.meta.env.VITE_COMPANY_ENDPOINT ?? (
   import.meta.env.DEV
@@ -7,11 +8,10 @@ const COMPANY_ENDPOINT = import.meta.env.VITE_COMPANY_ENDPOINT ?? (
 )
 
 export async function fetchCompanyData(companyId: string): Promise<CompanyJSON> {
-  const res = await fetch(COMPANY_ENDPOINT, {
+  return apiFetch<CompanyJSON>(COMPANY_ENDPOINT, {
+    baseUrl: '',
+    requireJsonContentType: false,
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ company: companyId.toLowerCase() }),
   })
-  if (!res.ok) throw new Error(`Company data fetch failed: ${res.status}`)
-  return res.json() as Promise<CompanyJSON>
 }

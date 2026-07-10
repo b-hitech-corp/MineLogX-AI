@@ -1,21 +1,14 @@
-const CHAT_ENDPOINT =
-  import.meta.env.VITE_CHAT_ENDPOINT ??
-  (import.meta.env.DEV
-    ? '/chat-proxy/'
-    : 'https://szfoqv25uftblx6xpowrslzi3y0yumcy.lambda-url.us-east-1.on.aws/')
+import { apiFetch } from './api'
 
-export async function sendChatPrompt(query: string, model?: string, client: string = 'C1'): Promise<string> {
+export async function sendChatPrompt(query: string, model: string, client: string): Promise<string> {
   console.log(`Sending chat prompt: ${JSON.stringify({ query, model, client })}`)
-  const res = await fetch(CHAT_ENDPOINT, {
+  const data = await apiFetch<unknown>('/chat', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, model, client }),
   })
-  if (!res.ok) throw new Error(`Chat API error: ${res.status}`)
-  const data = await res.json()
   if (typeof data === 'string') return data
-  if (typeof data?.answer === 'string') return data.answer
-  if (typeof data?.response === 'string') return data.response
-  if (typeof data?.message === 'string') return data.message
+  if (typeof (data as { answer?: unknown })?.answer === 'string') return (data as { answer: string }).answer
+  if (typeof (data as { response?: unknown })?.response === 'string') return (data as { response: string }).response
+  if (typeof (data as { message?: unknown })?.message === 'string') return (data as { message: string }).message
   return JSON.stringify(data)
 }
