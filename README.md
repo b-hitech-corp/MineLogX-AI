@@ -217,6 +217,46 @@ uv run fab ollama.pull-model --host qwen3 --model qwen3:8b
 uv run fab ollama.logs --host gemma3
 ```
 
+### 🧑‍💻 Developer onboarding (first time on this project)
+
+```bash
+# 1. Clone and install tooling
+git clone git@github.com:b-hitech-corp/MineLogX-AI.git
+cd MineLogX-AI
+bash scripts/dev-setup.sh          # Windows: ./scripts/dev-setup.ps1
+
+# 2. Configure AWS SSO (once per machine)
+aws configure sso --profile minelogx-admin
+# SSO start URL : https://d-9067e84741.awsapps.com/start
+# SSO region    : us-east-1
+# Account       : 586928288932 (MineLogX POC)
+# Role          : AvahiAdminAccess
+
+# 3. Log in (token expires every ~8 h)
+aws sso login --profile minelogx-admin
+
+# 4. Verify access
+uv run fab env.list                # should list minelogx-dev (and others if present)
+uv run fab env.endpoints dev       # prints live API + Amplify URLs
+
+# 5. Check stack health
+uv run fab opensearch.status dev   # doc counts for csv_telemetry_vecs + pdf_legal_vecs
+uv run fab lambda.status           # runtime config for all Lambdas
+
+# 6. (Optional) Spin up your own ephemeral stack
+uv run fab env.up dev-<yourname> --seed
+```
+
+**Day-to-day deploy flows:**
+
+| What changed | Command |
+|---|---|
+| Lambda handler code only (no new deps) | `uv run fab lambda.redeploy <api\|csv\|pdf> dev` |
+| Lambda + new `requirements-*.txt` dep | `uv run fab lambda.build-layer <csv\|pdf>` → `uv run fab env.up dev --skip-frontend` |
+| CloudFormation / infra change | `uv run fab env.up dev --skip-frontend` |
+| Frontend only | `uv run fab frontend.deploy dev` |
+| Full stack (infra + frontend) | `uv run fab env.up dev` |
+
 ### Activity logs
 
 Fabric writes structured, human-readable logs to `.fab-logs/` (git-ignored):

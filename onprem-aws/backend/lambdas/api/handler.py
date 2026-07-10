@@ -506,7 +506,7 @@ def _handle_chat(event: dict) -> dict:
     """
     body = _parse_body(event)
     message = (
-        body.get("query") or body.get("message") or body.get("question") or ""
+        body.get("message") or body.get("question") or body.get("query") or ""
     ).strip()
     model = body.get("model")
     if not message:
@@ -545,6 +545,9 @@ def lambda_handler(event: dict, context) -> dict:  # noqa: ARG001
         path = path[len(f"/{stage}") :]
     elif stage and path == f"/{stage}":
         path = "/"
+
+    if method == "OPTIONS":
+        return {"statusCode": 200, "headers": {}, "body": ""}
 
     if path.rstrip("/") in ("", "/health", "/healthz"):
         return _ok(
