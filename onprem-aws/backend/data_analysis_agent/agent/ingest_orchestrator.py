@@ -20,7 +20,10 @@ Both are invoked by the Fabric `analysis.*` tasks.
 
 from __future__ import annotations
 
+import argparse
+import json
 import logging
+import sys
 from typing import Any, Optional
 
 import boto3
@@ -204,3 +207,69 @@ def _discover_clients(local_mode: bool, s3_client: Any = None) -> list[str]:
         if name:
             clients.append(name)
     return sorted(clients)
+
+
+# ---------------------------------------------------------------------------
+# CLI entrypoint — manual / onboarding trigger
+# ---------------------------------------------------------------------------
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run analysis vectorization from the command line (manual/onboarding run).
+
+    Examples
+    --------
+        python -m data_analysis_agent.agent.ingest_orchestrator --client C1
+        python -m data_analysis_agent.agent.ingest_orchestrator --all --force
+        python -m data_analysis_agent.agent.ingest_orchestrator --client C1 --local
+
+    Environment (read via settings): OPENSEARCH_HOST (target AOSS endpoint),
+    FLEET_S3_BUCKET (telemetry + ledger bucket), AWS creds for the target
+    account. ANALYSIS_INDEX defaults to "analysis_vecs".
+
+    Exit code is non-zero if any client errored, so callers/CI can detect failure.
+    """
+    parser = argparse.ArgumentParser(
+        prog="ingest_orchestrator",
+        description=(
+            "Vectorize data-analysis results into the analysis OpenSearch index "
+            "(ledger-gated; already-ingested, unchanged clients are skipped)."
+        ),
+    )
+    target = parser.add_mutually_exclusive_group(required=True)
+    target.add_argument("--client", help="Single client folder to ingest, e.g. C1")
+    target.add_argument(
+        "--all", action="store_true", help="Ingest all discovered client folders"
+    )
+    parser.add_argument(
+        "--clients",
+        help="Comma-separated subset to use with --all, e.g. C1,C2 (default: discover all)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-ingest even if the ledger says the client is up to date",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Read sample_data/ instead of S3 (dry run; no ETag change-detection)",
+    )
+    args = parser.parse_args(argv)
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
+    )
+
+    if args.client:
+        results = [ingest_client(args.client, force=args.force, local_mode=args.local)]
+    else:
+        subset = args.clients.split(",") if args.clients else None
+        results = ingest_all(clients=subset, force=args.force, local_mode=args.local)
+
+    print(json.dumps(results, indent=2, default=str))
+    return 1 if any(r.get("action") == "error" for r in results) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

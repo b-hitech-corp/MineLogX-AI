@@ -83,7 +83,9 @@ HOST = os.getenv("OPENSEARCH_HOST", "")
 PDF_INDEX = os.getenv("PDF_INDEX", "pdf_legal_vecs")
 CSV_INDEX = os.getenv("CSV_INDEX", "minelogx-telemetry-v1")
 # Vectorized data-analysis results (computed KPIs / insights), client-scoped.
-ANALYSIS_INDEX = os.getenv("ANALYSIS_INDEX", "minelogx-analysis-v1")
+# "_vecs" convention (cf. csv_telemetry_vecs / pdf_legal_vecs); the CFN
+# ApiFunction sets ANALYSIS_INDEX to this same value.
+ANALYSIS_INDEX = os.getenv("ANALYSIS_INDEX", "analysis_vecs")
 DIM = 1024
 COHERE_MODEL = os.getenv("COHERE_EMBED_MODEL_ID", "cohere.embed-v4:0")
 TITAN_MODEL = os.getenv("TITAN_EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0")

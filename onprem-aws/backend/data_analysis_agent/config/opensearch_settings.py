@@ -53,8 +53,11 @@ class OpenSearchConfig:
 
     # Dedicated index for the vectorized data-analysis results (KPIs / insights).
     # Separate from the raw-telemetry index; queried by the RAG agent (ANALYSIS_INDEX).
+    # Name follows the collection's "_vecs" convention (csv_telemetry_vecs /
+    # pdf_legal_vecs). The code default equals the CFN ApiFunction env value, so
+    # the ingestor (Fabric) and the RAG agent (Lambda) agree with or without env.
     analysis_index_name: str = field(
-        default_factory=lambda: os.getenv("ANALYSIS_INDEX", "minelogx-analysis-v1")
+        default_factory=lambda: os.getenv("ANALYSIS_INDEX", "analysis_vecs")
     )
 
     # Embedding — must match the values used at query time in the RAG agent
