@@ -10,7 +10,7 @@ MineLogX AI is an operational intelligence platform for mining operations built 
 
 The infrastructure is defined primarily in **CloudFormation** (`onprem-aws/infrastructure/cloudformation/`). **Fabric is the orchestration layer**: it drives environment lifecycle (`--engine=terraform|cloudformation`) and handles remote operations on the demo EC2 instances.
 
-> **Current status (2026-07-09):** Stack `minelogx-dev` is live (`CREATE_COMPLETE`) in `us-east-1`. HTTP API Gateway at `https://f81kmc7x2d.execute-api.us-east-1.amazonaws.com/dev`, 8 GET endpoints returning real data, frontend deployed to Amplify. CSV pipeline run (15/15 SUCCEEDED). PDF pipeline pending re-run. See `PLAN-ARCHITECTURE-GOAL.md` for full pending task list.
+> **Current status (2026-07-10):** Stack `minelogx-dev` is live (`CREATE_COMPLETE`) in `us-east-1`. HTTP API Gateway at `https://f81kmc7x2d.execute-api.us-east-1.amazonaws.com/dev`, 8 GET endpoints + POST /chat (RAG, client-scoped) + POST /analyze. Frontend and docs site both deployed to Amplify. CSV pipeline 15/15 SUCCEEDED. mkdocs-material documentation site live at `https://demo.d32u4u4ml05s48.amplifyapp.com`. See `PLAN-ARCHITECTURE-GOAL.md` for full pending task list.
 
 ---
 
@@ -196,8 +196,14 @@ uv run fab opensearch.status                          # collection health + doc 
 # --- Frontend (frontend.*) ---
 uv run fab frontend.deploy dev                        # build React/Vite + push to Amplify (standalone)
 uv run fab frontend.validate dev                      # validate API GW routes + CORS + Lambda Function URL drift
-uv run fab env.up dev                                 # full-stack: infra + frontend en un solo comando
-uv run fab env.up dev --skip-frontend                 # solo infra, sin rebuild del frontend
+uv run fab env.up dev                                 # full-stack: infra + frontend + docs en un solo comando
+uv run fab env.up dev --skip-frontend                 # solo infra + docs, sin rebuild del frontend
+
+# --- Documentation (docs.*) ---
+uv run fab docs.build                                 # build mkdocs-material site into site/
+uv run fab docs.deploy dev                            # build + push to Amplify docs app (hash-based, skips if no changes)
+uv run fab docs.deploy dev --force                    # force deploy even if no source files changed
+# docs are also deployed automatically as step 6 of env.up (same hash check applies)
 # VITE_API_BASE_URL is injected dynamically from the stack outputs (never hardcoded)
 # WARNING: VITE_CHAT_ENDPOINT and VITE_COMPANY_ENDPOINT are NOT injected — services/chat.ts and
 #          services/company.ts contain hardcoded Lambda Function URL fallbacks. If the stack is

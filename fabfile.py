@@ -501,6 +501,9 @@ def up(
                 "[warn] Sin outputs de CloudFormation — omitiendo resumen de endpoints."
             )
 
+        _frontend_url = ""
+        _docs_url = ""
+
         # --- 5. Frontend build + deploy (inyecta VITE_API_BASE_URL dinámicamente) ---
         if not skip_frontend:
             api_url = next(
@@ -512,13 +515,59 @@ def up(
                 "",
             )
             _frontend_build_and_deploy(c, env, api_url=api_url)
-            # Show the live Amplify branch URL after deploy.
             _frontend_url = _amplify_frontend_url(c, env)
             if _frontend_url:
                 print(f"\n  {_bold('Frontend URL:')} {_cyan(_frontend_url)}")
-            # Re-save endpoints-<env>.md with the FrontendUrl row included.
-            if outputs and _frontend_url:
-                _show_and_save_endpoints(env, outputs, frontend_url=_frontend_url)
+
+        # --- 6. Docs deploy (mkdocs → Amplify docs app, app_id from CFN outputs) ---
+        docs_app_id = next(
+            (
+                o["OutputValue"]
+                for o in (outputs or [])
+                if o["OutputKey"] == "AmplifyDocsAppId"
+            ),
+            "",
+        )
+        print()
+        if not docs_app_id:
+            print(
+                "==> [docs] Skipped — AmplifyDocsAppId not in stack outputs (run env.up to provision the docs Amplify app first)."
+            )
+        else:
+            hash_file = LOGS_DIR / f"docs-deploy-{env}.hash"
+            current_hash = _docs_content_hash()
+            last_hash = (
+                hash_file.read_text(encoding="utf-8").strip()
+                if hash_file.exists()
+                else ""
+            )
+            if current_hash == last_hash:
+                print(
+                    f"==> [docs] Skipped — no changes detected since last deploy (env={env}). Use `fab docs.deploy {env} --force` to override."
+                )
+            else:
+                print("==> [docs] Building documentation...")
+                mkdocs_bin = REPO_ROOT / ".venv" / "Scripts" / "mkdocs.exe"
+                result = c.run(f'"{mkdocs_bin}" build --strict', hide=True, warn=True)
+                if not result.ok:
+                    print(
+                        f"[warn] mkdocs build failed — skipping docs deploy:\n{result.stderr}"
+                    )
+                else:
+                    dist_dir = REPO_ROOT / "site"
+                    print(f"==> [docs] Deploying to Amplify app={docs_app_id}...")
+                    _amplify_upload_and_poll(
+                        c, env, dist_dir, lambda m: print(m), app_id=docs_app_id
+                    )
+                    hash_file.write_text(current_hash, encoding="utf-8")
+                    _docs_url = f"https://demo.{docs_app_id}.amplifyapp.com"
+                    print(f"\n  {_bold('Docs URL:')} {_cyan(_docs_url)}")
+
+        # Re-save endpoints-<env>.md with FrontendUrl + DocsUrl rows.
+        if outputs:
+            _show_and_save_endpoints(
+                env, outputs, frontend_url=_frontend_url, docs_url=_docs_url
+            )
 
     except Exception as exc:
         msg = f"env.up failed: {exc}"
@@ -957,11 +1006,11 @@ def _amplify_branch(c, app_id):
     return branch
 
 
-def _amplify_upload_and_poll(c, env, dist_dir, log):
+def _amplify_upload_and_poll(c, env, dist_dir, log, app_id=None):
     """Zip dist/, upload to Amplify via presigned URL, poll until SUCCEED/FAILED.
 
     Returns the deployed URL on success; raises SystemExit on failure.
-    This is the shared upload logic used by both frontend.deploy and env.up.
+    Pass app_id to skip the automatic discovery (used by docs.deploy).
     """
     import json as _json
     import time as _time
@@ -975,7 +1024,8 @@ def _amplify_upload_and_poll(c, env, dist_dir, log):
                 if f.is_file():
                     zf.write(f, f.relative_to(dist_dir))
 
-        app_id = _amplify_app_id(c, env)
+        if app_id is None:
+            app_id = _amplify_app_id(c, env)
         branch = _amplify_branch(c, app_id)
         log(f"==> [frontend] Amplify app={app_id} branch={branch}")
 
@@ -1005,7 +1055,14 @@ def _amplify_upload_and_poll(c, env, dist_dir, log):
         )
         log("==> [frontend] Polling deployment status...")
         status = "PENDING"
-        for _ in range(60):
+        elapsed = 0
+        max_poll = 300  # 5 min hard cap
+        bar_width = 28
+        GREEN = "\033[32m"
+        RESET = "\033[0m"
+        TICK = 5
+
+        for _ in range(max_poll // TICK):
             res = c.run(
                 f"aws amplify get-job --app-id {app_id} "
                 f"--branch-name {branch} --job-id {job_id} --region {REGION} "
@@ -1015,12 +1072,27 @@ def _amplify_upload_and_poll(c, env, dist_dir, log):
             status = res.stdout.strip()
             if status in ("SUCCEED", "FAILED", "CANCELLED"):
                 break
-            log(f"    status={status} — waiting 5s...")
-            _time.sleep(5)
+            elapsed += TICK
+            pct = min(int(elapsed / max_poll * 100), 99)
+            filled = int(bar_width * pct / 100)
+            bar = "█" * filled + "░" * (bar_width - filled)
+            sys.stdout.write(
+                f"\r    {GREEN}[{bar}]{RESET} {pct:>3}%  {elapsed}s elapsed  "
+            )
+            sys.stdout.flush()
+            _time.sleep(TICK)
+
+        # Clear the progress line
+        sys.stdout.write(f"\r{' ' * (bar_width + 30)}\r")
+        sys.stdout.flush()
 
         url = f"https://{branch}.{app_id}.amplifyapp.com"
         if status == "SUCCEED":
-            log(f"\n==> [frontend] DEPLOYED  status={status}\n    URL: {url}")
+            elapsed += TICK
+            bar = "█" * bar_width
+            sys.stdout.write(f"    {GREEN}[{bar}]{RESET} 100%  {elapsed}s  ✓\n")
+            sys.stdout.flush()
+            log(f"    URL: {url}")
             return url
         raise SystemExit(f"Amplify deployment {status}. Check the console for logs.")
     finally:
@@ -1357,8 +1429,8 @@ def _endpoints_data(c, env):
     return stack.get("Outputs") or [], stack.get("StackStatus", "UNKNOWN")
 
 
-def _amplify_frontend_url(c, env):
-    """Return the live branch URL for the Amplify app, or '' if not found."""
+def _amplify_branch_url(c, app_name):
+    """Return the live branch URL for an Amplify app by name, or '' if not found."""
     import json as _json
 
     r = c.run(
@@ -1369,7 +1441,7 @@ def _amplify_frontend_url(c, env):
     if not r.ok:
         return ""
     apps = _json.loads(r.stdout).get("apps", [])
-    app = next((a for a in apps if a["name"] == f"{NAME_PREFIX}-{env}-frontend"), None)
+    app = next((a for a in apps if a["name"] == app_name), None)
     if not app:
         return ""
     app_id = app["appId"]
@@ -1383,7 +1455,15 @@ def _amplify_frontend_url(c, env):
     return f"https://{branch}.{app_id}.amplifyapp.com"
 
 
-def _show_and_save_endpoints(env, outputs, frontend_url=""):
+def _amplify_frontend_url(c, env):
+    return _amplify_branch_url(c, f"{NAME_PREFIX}-{env}-frontend")
+
+
+def _amplify_docs_url(c, env):
+    return _amplify_branch_url(c, f"{NAME_PREFIX}-{env}-docs")
+
+
+def _show_and_save_endpoints(env, outputs, frontend_url="", docs_url=""):
     """Pretty-print CFN outputs and write endpoints-<env>.md to the repo root."""
     import datetime as _dt
     from tabulate import tabulate as _tabulate
@@ -1396,6 +1476,8 @@ def _show_and_save_endpoints(env, outputs, frontend_url=""):
         rows.append([key, display_val])
     if frontend_url:
         rows.append(["FrontendUrl", _cyan(frontend_url)])
+    if docs_url:
+        rows.append(["DocsUrl", _cyan(docs_url)])
 
     table = _tabulate(
         rows, headers=["Resource", "Value"], tablefmt="simple", disable_numparse=True
@@ -1428,6 +1510,8 @@ def _show_and_save_endpoints(env, outputs, frontend_url=""):
         lines.append(
             f"| `FrontendUrl` | {frontend_url} | Frontend Amplify (branch URL) |"
         )
+    if docs_url:
+        lines.append(f"| `DocsUrl` | {docs_url} | Documentation site (branch URL) |")
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"  Guardado → {md_path.name}")
 
@@ -1621,7 +1705,12 @@ def endpoints(c, env):
             "      Si está en ROLLBACK_COMPLETE: `uv run fab env.up {env}` (auto-recover)."
         )
     frontend_url = _amplify_frontend_url(c, env)
-    _show_and_save_endpoints(env, outputs, frontend_url=frontend_url)
+    # Build docs URL from CFN output (already fetched) — avoids a second list-apps call
+    docs_app_id = next(
+        (o["OutputValue"] for o in outputs if o["OutputKey"] == "AmplifyDocsAppId"), ""
+    )
+    docs_url = f"https://demo.{docs_app_id}.amplifyapp.com" if docs_app_id else ""
+    _show_and_save_endpoints(env, outputs, frontend_url=frontend_url, docs_url=docs_url)
 
 
 # --------------------------------------------------------------------------- #
@@ -3243,6 +3332,130 @@ def rollback(c, name, env, version=None):
     print(_green(f"==> [rollback] alias 'live' on {fn_name} → version {version}"))
 
 
+# --------------------------------------------------------------------------- #
+# docs.* — mkdocs-material build and Amplify deploy
+# --------------------------------------------------------------------------- #
+DOCS_DIR = REPO_ROOT / "docs"
+
+
+def _docs_content_hash() -> str:
+    """SHA-256 of all docs source files + mkdocs.yml.
+
+    Used to skip Amplify uploads when nothing has changed since the last deploy.
+    """
+    import hashlib
+
+    h = hashlib.sha256()
+    sources = sorted(
+        [*DOCS_DIR.rglob("*.md"), *DOCS_DIR.rglob("*.png"), REPO_ROOT / "mkdocs.yml"],
+        key=lambda p: str(p),
+    )
+    for path in sources:
+        if path.is_file():
+            h.update(str(path.relative_to(REPO_ROOT)).encode())
+            h.update(path.read_bytes())
+    return h.hexdigest()
+
+
+def _amplify_docs_app_id(c, env):
+    """Discover the Amplify docs app ID for the given environment."""
+    app_name = f"{NAME_PREFIX}-{env}-docs"
+    result = c.run(
+        f"aws amplify list-apps --region {REGION} "
+        '--query "apps[?name==`' + app_name + '`].appId" --output text',
+        hide=True,
+        warn=True,
+    )
+    app_id = result.stdout.strip() if result.ok else ""
+    if not app_id:
+        raise SystemExit(
+            f"Amplify docs app '{app_name}' not found in {REGION}. "
+            "Run `fab env.up <env> --skip-frontend` first to create the infrastructure."
+        )
+    return app_id
+
+
+@task(positional=["env"])
+def docs_build(c, env="dev"):
+    """Build the mkdocs-material documentation site into site/."""
+    c.run(
+        f'"{REPO_ROOT / ".venv" / "Scripts" / "mkdocs.exe"}" build --strict', warn=False
+    )
+    print("==> [docs] Built to site/")
+
+
+@task(
+    positional=["env"],
+    help={
+        "env": "Environment name (dev|qa|prod). Default: dev.",
+        "force": "Deploy even if no source files changed since the last deploy.",
+    },
+)
+def docs_deploy(c, env="dev", force=False):
+    """Build the mkdocs site and push it to the docs Amplify app.
+
+    Skips the Amplify upload if no docs source files (*.md, *.png, mkdocs.yml)
+    have changed since the last successful deploy. Use --force to override.
+
+    Requires the AmplifyDocs stack to exist:
+      uv run fab env.up dev --skip-frontend
+
+    Examples:
+      uv run fab docs.deploy dev
+      uv run fab docs.deploy dev --force
+    """
+    import time as _time
+
+    _ensure_aws(c)
+
+    # --- Change detection ---
+    LOGS_DIR.mkdir(exist_ok=True)
+    hash_file = LOGS_DIR / f"docs-deploy-{env}.hash"
+    current_hash = _docs_content_hash()
+    last_hash = (
+        hash_file.read_text(encoding="utf-8").strip() if hash_file.exists() else ""
+    )
+
+    if not force and current_hash == last_hash:
+        print(
+            f"==> [docs] No changes detected since last deploy (env={env}). "
+            "Skipping. Use --force to deploy anyway."
+        )
+        return
+
+    print(f"==> docs.deploy: env={env} region={REGION}  {'(forced)' if force else ''}")
+
+    # --- Build ---
+    print("==> [docs] Building documentation...")
+    mkdocs_bin = REPO_ROOT / ".venv" / "Scripts" / "mkdocs.exe"
+    result = c.run(f'"{mkdocs_bin}" build --strict', hide=True, warn=True)
+    if not result.ok:
+        raise SystemExit(f"[docs] Build failed:\n{result.stderr}")
+    dist_dir = REPO_ROOT / "site"
+    if not (dist_dir / "index.html").exists():
+        raise SystemExit(f"[docs] Build failed — {dist_dir}/index.html not found")
+    print("==> [docs] Build OK")
+
+    # --- Upload ---
+    ts = _time.strftime("%Y%m%d-%H%M%S")
+    log_path = LOGS_DIR / f"docs-deploy-{env}-{ts}.log"
+    lines: list[str] = []
+
+    def _log(msg):
+        print(msg)
+        lines.append(msg)
+
+    app_id = _amplify_docs_app_id(c, env)
+    url = _amplify_upload_and_poll(c, env, dist_dir, _log, app_id=app_id)
+    log_path.write_text("\n".join(lines), encoding="utf-8")
+
+    # --- Save hash only on successful deploy ---
+    hash_file.write_text(current_hash, encoding="utf-8")
+
+    print(f"==> [docs] Live: {url}")
+    print(f"==> [docs] Log: {log_path}")
+
+
 lambda_ns = Collection("lambda")
 lambda_ns.add_task(pull)
 lambda_ns.add_task(build_layer, name="build-layer")
@@ -3266,6 +3479,10 @@ opensearch_ns.add_task(reindex)
 sfn_ns = Collection("step-functions")
 sfn_ns.add_task(sf_history, name="history")
 
+docs_ns = Collection("docs")
+docs_ns.add_task(docs_build, name="build")
+docs_ns.add_task(docs_deploy, name="deploy")
+
 ns = Collection()
 ns.add_collection(env)
 ns.add_collection(frontend_ns)
@@ -3274,3 +3491,4 @@ ns.add_collection(lambda_ns)
 ns.add_collection(bedrock_ns)
 ns.add_collection(opensearch_ns)
 ns.add_collection(sfn_ns)
+ns.add_collection(docs_ns)
