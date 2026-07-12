@@ -11,8 +11,9 @@ Key differences from the CSV ingestor:
   * Two doc levels — only CHILD docs are embedded; PARENT docs carry the full
     section text + key_findings and are stored with no vector.
   * Idempotent client replacement — because AOSS VECTORSEARCH uses
-    server-generated IDs (no upsert by _id), a client's prior docs are removed
-    with delete_by_query {term: client_id} before re-indexing.
+    server-generated IDs (no upsert by _id) and does not support
+    _delete_by_query at all, a client's prior docs are found via search
+    {term: client_id} and removed with a bulk delete-by-_id before re-indexing.
 
 Public API
 ----------
@@ -166,18 +167,40 @@ def _delete_client_docs(client: OpenSearch, index_name: str, client_id: str) -> 
     """Remove a client's prior analysis docs (idempotent re-ingest).
 
     Required because AOSS VECTORSEARCH assigns server-generated IDs, so we
-    cannot overwrite by _id. Returns the deleted count (0 if index absent).
+    cannot overwrite by _id — and AOSS does not support _delete_by_query at
+    all (it 404s unconditionally, regardless of index or document state), so
+    matching docs are found via search and removed with a bulk delete-by-_id
+    instead. Returns the deleted count (0 if index absent or no matches).
     """
     if not client.indices.exists(index=index_name):
         return 0
-    resp = client.delete_by_query(
+    resp = client.search(
         index=index_name,
-        body={"query": {"term": {"client_id": client_id}}},
-        params={"conflicts": "proceed"},
+        body={
+            "query": {"term": {"client_id": client_id}},
+            "_source": False,
+            "size": 10_000,
+        },
     )
-    deleted = int(resp.get("deleted", 0))
+    hits = resp.get("hits", {}).get("hits", [])
+    if not hits:
+        return 0
+    actions = [
+        {"_op_type": "delete", "_index": index_name, "_id": hit["_id"]} for hit in hits
+    ]
+    deleted, errors = os_bulk(
+        client, actions, raise_on_error=False, raise_on_exception=False
+    )
+    if errors:
+        logger.warning(
+            "[analysis_ingestor] %d delete error(s) for client '%s'",
+            len(errors),
+            client_id,
+        )
     logger.info(
-        "[analysis_ingestor] Deleted %d prior doc(s) for client '%s'", deleted, client_id
+        "[analysis_ingestor] Deleted %d prior doc(s) for client '%s'",
+        deleted,
+        client_id,
     )
     return deleted
 
@@ -255,7 +278,7 @@ def replace_client(
     try:
         result.documents_deleted = _delete_client_docs(os_client, idx, client_id)
     except Exception as exc:  # noqa: BLE001
-        result.errors.append(f"delete_by_query failed: {exc}")
+        result.errors.append(f"delete prior docs failed: {exc}")
 
     # Bulk index parents + embedded children.
     actions = [{"_index": idx, "_source": _doc_source(c)} for c in chunks]

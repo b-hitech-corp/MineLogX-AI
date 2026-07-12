@@ -17,6 +17,8 @@ Stages 1–3 use S3 artifact presence as the idempotency signal.
 Stage 4 deletes existing documents for source_file before re-indexing so that
 repeated runs never accumulate duplicates (AOSS NextGen vector collections do
 not support custom document IDs, so delete-before-index is the clean pattern).
+AOSS also does not support _delete_by_query at all (unconditional 404), so the
+delete step searches for matching _ids and bulk-deletes them instead.
 
 Per-stage error isolation
 -------------------------
@@ -59,6 +61,7 @@ from typing import Optional
 
 import boto3
 from botocore.exceptions import ClientError
+from opensearchpy.helpers import bulk as os_bulk
 
 from csv_pipeline.config.settings import settings
 from csv_pipeline.tools.format_normalizer import normalize
@@ -496,17 +499,34 @@ def _try_load_schema(
 def _delete_existing_docs(file_path: str, index_name: str) -> None:
     """
     Delete all documents in the index where source_file matches file_path.
-    Silently no-ops if the index does not exist yet or the query finds nothing.
+
+    AOSS does not support _delete_by_query (it 404s unconditionally, regardless
+    of index or document state), so matching docs are found via search and
+    removed with a bulk delete-by-_id instead. Silently no-ops if the index
+    does not exist yet or the query finds nothing.
     """
     try:
         client = _build_aoss_client()
         if not client.indices.exists(index=index_name):
             return
-        resp = client.delete_by_query(
+        resp = client.search(
             index=index_name,
-            body={"query": {"term": {"source_file": file_path}}},
+            body={
+                "query": {"term": {"source_file": file_path}},
+                "_source": False,
+                "size": 10_000,
+            },
         )
-        deleted = resp.get("deleted", 0)
+        hits = resp.get("hits", {}).get("hits", [])
+        if not hits:
+            return
+        actions = [
+            {"_op_type": "delete", "_index": index_name, "_id": hit["_id"]}
+            for hit in hits
+        ]
+        deleted, errors = os_bulk(
+            client, actions, raise_on_error=False, raise_on_exception=False
+        )
         if deleted:
             logger.info(
                 "[pipeline] Deleted %d existing doc(s) for '%s' from index '%s'",
@@ -514,10 +534,14 @@ def _delete_existing_docs(file_path: str, index_name: str) -> None:
                 file_path,
                 index_name,
             )
+        if errors:
+            logger.warning(
+                "[pipeline] %d delete error(s) for '%s'", len(errors), file_path
+            )
     except Exception as exc:
         # Non-fatal: log and continue — worst case we accumulate duplicates.
         logger.warning(
-            "[pipeline] delete_by_query failed for '%s': %s — continuing ingest",
+            "[pipeline] delete failed for '%s': %s — continuing ingest",
             file_path,
             exc,
         )

@@ -202,23 +202,47 @@ def _delete_existing_by_source(
     """Delete previously-indexed sections for these source documents (dedup).
 
     AOSS NextGen auto-assigns _id and forbids a custom one, so we cannot upsert by
-    a stable section_id. Instead we delete the prior sections of each source
-    document before re-indexing — the same delete-before-index pattern the CSV
-    pipeline uses. Non-fatal: a missing index or zero matches is fine.
+    a stable section_id — and AOSS does not support _delete_by_query at all (it
+    404s unconditionally, regardless of index or document state), so matching
+    docs are found via search and removed with a bulk delete-by-_id instead —
+    the same delete-before-index pattern the CSV pipeline uses. Non-fatal: a
+    missing index or zero matches is fine.
     """
-    for sk in source_keys:
-        try:
-            resp = client.delete_by_query(
-                index=index_name,
-                body={"query": {"term": {"source_key": sk}}},
+    if not source_keys:
+        return
+    try:
+        resp = client.search(
+            index=index_name,
+            body={
+                "query": {"terms": {"source_key": list(source_keys)}},
+                "_source": False,
+                "size": 10_000,
+            },
+        )
+        hits = resp.get("hits", {}).get("hits", [])
+        if not hits:
+            return
+        actions = [
+            {"_op_type": "delete", "_index": index_name, "_id": hit["_id"]}
+            for hit in hits
+        ]
+        deleted, errors = os_bulk(
+            client, actions, raise_on_error=False, raise_on_exception=False
+        )
+        if deleted:
+            logger.info(
+                "Deleted %d existing section(s) for %d source key(s)",
+                deleted,
+                len(source_keys),
             )
-            deleted = resp.get("deleted", 0)
-            if deleted:
-                logger.info(
-                    "Deleted %d existing section(s) for source_key=%s", deleted, sk
-                )
-        except Exception:
-            logger.debug("delete_by_query failed for %s (non-fatal)", sk, exc_info=True)
+        if errors:
+            logger.debug(
+                "%d delete error(s) for source_keys=%s", len(errors), source_keys
+            )
+    except Exception:
+        logger.debug(
+            "delete failed for source_keys=%s (non-fatal)", source_keys, exc_info=True
+        )
 
 
 # ---------------------------------------------------------------------------

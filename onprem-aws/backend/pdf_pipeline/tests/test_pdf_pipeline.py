@@ -579,7 +579,12 @@ class TestClaudeExtractor:
             call_count += 1
             if call_count == 1:
                 raise ClientError(
-                    {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}},
+                    {
+                        "Error": {
+                            "Code": "ThrottlingException",
+                            "Message": "Rate exceeded",
+                        }
+                    },
                     "Converse",
                 )
             return {
@@ -680,7 +685,9 @@ class TestClaudeExtractor:
     def test_effective_read_timeout_shrinks_near_deadline(self, config):
         """The Bedrock read timeout should tighten as the Lambda deadline approaches."""
         now = 1_000_000.0
-        with patch("pdf_pipeline.tools.pdf_claude_extractor.time.time", return_value=now):
+        with patch(
+            "pdf_pipeline.tools.pdf_claude_extractor.time.time", return_value=now
+        ):
             assert _effective_read_timeout(config, None) is None
 
             far_deadline = now + config.bedrock_read_timeout_s + 100
@@ -856,7 +863,7 @@ class TestOpenSearchIngestor:
 
         mock_client = MagicMock()
         mock_client.indices.exists.return_value = True
-        mock_client.delete_by_query.return_value = {"deleted": 0}
+        mock_client.search.return_value = {"hits": {"hits": []}}
 
         with patch(
             "pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])
@@ -878,7 +885,9 @@ class TestOpenSearchIngestor:
 
         mock_client = MagicMock()
         mock_client.indices.exists.return_value = True
-        mock_client.delete_by_query.return_value = {"deleted": 2}
+        mock_client.search.return_value = {
+            "hits": {"hits": [{"_id": "old1"}, {"_id": "old2"}]}
+        }
 
         with patch(
             "pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])
@@ -890,9 +899,10 @@ class TestOpenSearchIngestor:
                 force=False,
             )
 
-        # delete-before-index ran for the document's source_key, then bulk indexed.
-        mock_client.delete_by_query.assert_called()
-        mock_bulk.assert_called_once()
+        # delete-before-index searched for the document's source_key, bulk-deleted
+        # the matches, then bulk indexed the fresh set (bulk called twice).
+        mock_client.search.assert_called()
+        assert mock_bulk.call_count == 2
         assert result.documents_indexed == 2
 
     def test_ingest_force_overwrites(self, config, sample_sections):
@@ -900,7 +910,7 @@ class TestOpenSearchIngestor:
 
         mock_client = MagicMock()
         mock_client.indices.exists.return_value = True
-        mock_client.delete_by_query.return_value = {"deleted": 0}
+        mock_client.search.return_value = {"hits": {"hits": []}}
 
         with patch(
             "pdf_pipeline.tools.pdf_opensearch_ingestor.os_bulk", return_value=(2, [])

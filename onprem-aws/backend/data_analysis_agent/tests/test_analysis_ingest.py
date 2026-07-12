@@ -16,7 +16,6 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 # Backend root on sys.path (mirrors the other data_analysis_agent tests).
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -116,7 +115,11 @@ class TestSerializer:
         assert all(c.client_id == "C1" for c in chunks)
 
     def test_fuel_parent_holds_full_section(self):
-        fuel = next(c for c in _render() if c.parent_id == "C1:fuel" and c.chunk_level == "parent")
+        fuel = next(
+            c
+            for c in _render()
+            if c.parent_id == "C1:fuel" and c.chunk_level == "parent"
+        )
         kf = fuel.key_findings
         assert len(kf["kpis"]) == 2
         assert len(kf["outliers"]) == 1
@@ -124,12 +127,20 @@ class TestSerializer:
         assert len(kf["headline_stats"]) == 1
 
     def test_errored_kpi_retained_with_reason(self):
-        fuel = next(c for c in _render() if c.parent_id == "C1:fuel" and c.chunk_level == "parent")
+        fuel = next(
+            c
+            for c in _render()
+            if c.parent_id == "C1:fuel" and c.chunk_level == "parent"
+        )
         errored = [k for k in fuel.key_findings["kpis"] if k.get("status") == "error"]
         assert errored and "distance_km" in errored[0]["error"]
 
     def test_each_finding_carries_source_files(self):
-        fuel = next(c for c in _render() if c.parent_id == "C1:fuel" and c.chunk_level == "parent")
+        fuel = next(
+            c
+            for c in _render()
+            if c.parent_id == "C1:fuel" and c.chunk_level == "parent"
+        )
         for group in fuel.key_findings.values():
             for finding in group:
                 assert finding.get("source_files") == ["C1/fuel_management_events.csv"]
@@ -138,8 +149,7 @@ class TestSerializer:
         child = next(
             c
             for c in _render()
-            if c.chunk_level == "child"
-            and c.kpi_names == ["fuel_consumption_rate"]
+            if c.chunk_level == "child" and c.kpi_names == ["fuel_consumption_rate"]
         )
         assert list(child.key_findings.keys()) == ["kpis"]
         assert len(child.key_findings["kpis"]) == 1
@@ -231,18 +241,21 @@ class TestIngestor:
         chunks = self._chunks()
         mock_os = MagicMock()
         mock_os.indices.exists.return_value = True
-        mock_os.delete_by_query.return_value = {"deleted": 5}
+        mock_os.search.return_value = {
+            "hits": {"hits": [{"_id": f"old{i}"} for i in range(5)]}
+        }
 
-        # Record call order across delete_by_query and the bulk helper.
+        # Record call order across search (finds docs to delete) and bulk
+        # (first call deletes them by _id, second call indexes the fresh set).
         order = MagicMock()
-        order.attach_mock(mock_os.delete_by_query, "delete")
+        order.attach_mock(mock_os.search, "search")
 
         with (
             patch.object(
                 analysis_ingestor, "_embed_texts", return_value=[[0.5] * 1024]
             ) as mock_embed,
             patch.object(
-                analysis_ingestor, "os_bulk", return_value=(2, [])
+                analysis_ingestor, "os_bulk", side_effect=[(5, []), (2, [])]
             ) as mock_bulk,
         ):
             order.attach_mock(mock_bulk, "bulk")
@@ -256,19 +269,28 @@ class TestIngestor:
 
         # Only the child was embedded (one text in, one vector out).
         assert mock_embed.call_count == 1
-        assert mock_embed.call_args[0][1] == ["C1 fuel — fuel_consumption_rate = 124.0 L/hr"]
+        assert mock_embed.call_args[0][1] == [
+            "C1 fuel — fuel_consumption_rate = 124.0 L/hr"
+        ]
         child = next(c for c in chunks if c.chunk_level == "child")
         parent = next(c for c in chunks if c.chunk_level == "parent")
         assert child.embedding == [0.5] * 1024
         assert parent.embedding == []
 
-        # delete_by_query filtered by client_id, and it ran BEFORE the bulk index.
-        mock_os.delete_by_query.assert_called_once()
-        assert mock_os.delete_by_query.call_args.kwargs["body"] == {
-            "query": {"term": {"client_id": "C1"}}
+        # Prior docs found via search filtered by client_id (AOSS has no
+        # _delete_by_query), then removed with a bulk delete-by-_id — before
+        # the fresh bulk index.
+        mock_os.search.assert_called_once()
+        assert mock_os.search.call_args.kwargs["body"]["query"] == {
+            "term": {"client_id": "C1"}
         }
+        delete_actions = mock_bulk.call_args_list[0][0][1]
+        assert delete_actions == [
+            {"_op_type": "delete", "_index": "analysis_vecs", "_id": f"old{i}"}
+            for i in range(5)
+        ]
         call_names = [name for name, _, _ in order.mock_calls]
-        assert call_names.index("delete") < call_names.index("bulk")
+        assert call_names.index("search") < call_names.index("bulk")
 
         assert result.documents_indexed == 2
         assert result.documents_deleted == 5
