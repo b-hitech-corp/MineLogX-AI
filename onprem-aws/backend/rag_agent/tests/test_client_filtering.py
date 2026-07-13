@@ -29,7 +29,7 @@ sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
-from rag_agent.bedrock_rag_agent import BedrockRAGAgent, Hit  # noqa: E402
+from rag_agent.bedrock_rag_agent import BedrockRAGAgent  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +44,9 @@ def _make_agent(search_impl):
     """
     os_client = MagicMock()
     os_client.search.side_effect = lambda index, body: search_impl(index, body)
+    # _knn issues a count() to bound its ANN reach; a small value makes the
+    # filtered retry-loop resolve in a single round for these fixed-result mocks.
+    os_client.count.return_value = {"count": 2}
 
     agent = BedrockRAGAgent(
         opensearch_host="test.aoss.example.com",
@@ -58,8 +61,9 @@ def _make_agent(search_impl):
     return agent, os_client
 
 
-def _hit(source: dict, score: float = 1.0) -> dict:
-    return {"_score": score, "_source": source}
+def _hit(source: dict, score: float = 1.0, id_: str = "doc") -> dict:
+    # _id must be present and distinct — _knn dedups paged results by _id.
+    return {"_id": id_, "_score": score, "_source": source}
 
 
 def _empty(_index, _body):
@@ -73,7 +77,7 @@ def _empty(_index, _body):
 
 class TestRetrievalClientFilter:
     def test_csv_query_is_filtered_pdf_is_not(self):
-        """The CSV index query carries the client prefix filter; PDF does not."""
+        """The CSV query carries the client prefix filter; PDF uses match_all."""
         calls: dict[str, dict] = {}
 
         def search_impl(index, body):
@@ -83,13 +87,20 @@ class TestRetrievalClientFilter:
         agent, _ = _make_agent(search_impl)
         agent._retrieve("some question", client="C1")
 
-        pdf_knn = calls["pdf_legal_vecs"]["query"]["knn"]["text_embedding"]
-        csv_knn = calls["minelogx-telemetry-v1"]["query"]["knn"]["text_embedding"]
+        # Both indices use the bool post-filter form (AOSS NMSLIB rejects an
+        # in-clause knn filter): the knn lives in bool.must, the filter in
+        # bool.filter — the filter is always present, never optional.
+        pdf_q = calls["pdf_legal_vecs"]["query"]["bool"]
+        csv_q = calls["minelogx-telemetry-v1"]["query"]["bool"]
 
-        assert "filter" not in pdf_knn  # regulatory index never filtered
-        assert csv_knn["filter"] == {
-            "bool": {"filter": [{"prefix": {"source_file": "C1/"}}]}
-        }
+        assert "knn" in pdf_q["must"][0]
+        assert "knn" in csv_q["must"][0]
+        # regulatory: permissive filter (shared, never client-scoped)
+        assert pdf_q["filter"] == [{"match_all": {}}]
+        # telemetry: client prefix filter, applied server-side
+        assert csv_q["filter"] == [
+            {"bool": {"filter": [{"prefix": {"source_file": "C1/"}}]}}
+        ]
 
     def test_fail_closed_when_no_client_skips_csv(self):
         """No valid client → telemetry index is never queried."""
@@ -115,8 +126,14 @@ class TestRetrievalClientFilter:
                 return {
                     "hits": {
                         "hits": [
-                            _hit({"source_file": "C2/fuel.csv", "text": "secret C2"}),
-                            _hit({"source_file": "C1/fuel.csv", "text": "ok C1"}),
+                            _hit(
+                                {"source_file": "C2/fuel.csv", "text": "secret C2"},
+                                id_="c2",
+                            ),
+                            _hit(
+                                {"source_file": "C1/fuel.csv", "text": "ok C1"},
+                                id_="c1",
+                            ),
                         ]
                     }
                 }
@@ -136,7 +153,9 @@ class TestRetrievalClientFilter:
         def search_impl(index, body):
             if index == "minelogx-telemetry-v1":
                 return {
-                    "hits": {"hits": [_hit({"source_file": "C12/fuel.csv", "text": "x"})]}
+                    "hits": {
+                        "hits": [_hit({"source_file": "C12/fuel.csv", "text": "x"})]
+                    }
                 }
             return {"hits": {"hits": []}}
 
@@ -144,6 +163,94 @@ class TestRetrievalClientFilter:
         hits = agent._retrieve("q", client="C1")
 
         assert not any(h.index == "minelogx-telemetry-v1" for h in hits)
+
+    def test_rrf_keeps_all_indices_despite_score_scale(self):
+        """Cross-index rerank uses RRF, not raw score: telemetry/analysis hits
+        (Cohere int8 scores ~3e-7) must survive top_n even against PDF hits with
+        Titan scores ~10^6 larger — a raw-score sort would truncate them out."""
+
+        def search_impl(index, body):
+            must = body.get("query", {}).get("bool", {}).get("must", [])
+            if index == "pdf_legal_vecs":
+                # top_n-or-more high-scored PDF hits: a raw-score sort would fill
+                # every top_n slot with these and drop the rest entirely.
+                return {
+                    "hits": {
+                        "hits": [
+                            _hit(
+                                {
+                                    "title": f"Reg{i}",
+                                    "body": "b",
+                                    "source_key": f"{i}.pdf",
+                                    "page_start": i,
+                                    "page_end": i,
+                                },
+                                score=0.4 - i * 0.01,
+                                id_=f"p{i}",
+                            )
+                            for i in range(4)
+                        ]
+                    }
+                }
+            if index == "minelogx-telemetry-v1":
+                return {
+                    "hits": {
+                        "hits": [
+                            _hit(
+                                {
+                                    "source_file": "C1/fuel.csv",
+                                    "text": "telem",
+                                    "chunk_index": 0,
+                                },
+                                score=3e-7,
+                                id_="t1",
+                            )
+                        ]
+                    }
+                }
+            if index == "analysis_vecs":
+                if any("knn" in m for m in must):
+                    return {
+                        "hits": {
+                            "hits": [
+                                _hit(
+                                    {
+                                        "client_id": "C1",
+                                        "parent_id": "C1:fuel",
+                                        "chunk_level": "child",
+                                        "text": "a",
+                                    },
+                                    score=3e-7,
+                                    id_="a1",
+                                )
+                            ]
+                        }
+                    }
+                return {
+                    "hits": {
+                        "hits": [
+                            {
+                                "_id": "par",
+                                "_source": {
+                                    "client_id": "C1",
+                                    "parent_id": "C1:fuel",
+                                    "chunk_level": "parent",
+                                    "section": "fuel",
+                                    "text": "C1 fuel section",
+                                    "key_findings": {},
+                                    "source_files": ["C1/fuel.csv"],
+                                },
+                            }
+                        ]
+                    }
+                }
+            return {"hits": {"hits": []}}
+
+        agent, _ = _make_agent(search_impl)
+        indices = {h.index for h in agent._retrieve("fuel", client="C1")}
+        assert "pdf_legal_vecs" in indices
+        assert "minelogx-telemetry-v1" in indices  # survived despite ~10^6 lower score
+        assert "analysis_vecs" in indices
 
     def test_client_is_per_call_not_stored(self):
         """Two calls with different clients filter independently on one agent."""
@@ -157,13 +264,17 @@ class TestRetrievalClientFilter:
         agent._retrieve("q", client="C1")
         agent._retrieve("q", client="C2")
 
-        csv_bodies = [
-            b["query"]["knn"]["text_embedding"]["filter"]
+        csv_filters = [
+            b["query"]["bool"]["filter"]
             for idx, b in calls
             if idx == "minelogx-telemetry-v1"
         ]
-        assert csv_bodies[0] == {"bool": {"filter": [{"prefix": {"source_file": "C1/"}}]}}
-        assert csv_bodies[1] == {"bool": {"filter": [{"prefix": {"source_file": "C2/"}}]}}
+        assert csv_filters[0] == [
+            {"bool": {"filter": [{"prefix": {"source_file": "C1/"}}]}}
+        ]
+        assert csv_filters[1] == [
+            {"bool": {"filter": [{"prefix": {"source_file": "C2/"}}]}}
+        ]
 
 
 # ---------------------------------------------------------------------------
