@@ -74,7 +74,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const text = await sendChatPrompt(content, selectedModel.id, selectedCompany.id.toLowerCase())
+      const text = await sendChatPrompt(content, selectedModel.id, selectedCompany.id)
       setMessages((prev) => [
         ...prev,
         { id: `resp-${Date.now()}`, role: 'assistant', content: text, timestamp: new Date().toISOString() },
