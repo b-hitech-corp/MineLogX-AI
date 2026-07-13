@@ -90,6 +90,19 @@ DIM = 1024
 COHERE_MODEL = os.getenv("COHERE_EMBED_MODEL_ID", "cohere.embed-v4:0")
 TITAN_MODEL = os.getenv("TITAN_EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0")
 
+# Filtered-kNN paging (see BedrockRAGAgent._knn). AOSS's NMSLIB vector engine
+# rejects an in-clause knn filter, so filtered searches post-filter inside a
+# bool query and page the nearest-neighbour ordering until k matches are
+# collected or the ANN reach has spanned the whole index. These bound that paging.
+_KNN_MAX_ROUNDS = 8  # safety cap on paging rounds
+_KNN_DEPTH_GROWTH = 4  # ANN-reach multiplier applied each round
+
+# Cross-index rerank (see BedrockRAGAgent._retrieve). Raw kNN scores are NOT
+# comparable across indices — Titan cosine (~0.3) and Cohere int8 (~3e-7) differ
+# by ~6 orders of magnitude — so we fuse result lists by within-index RANK using
+# Reciprocal Rank Fusion rather than by raw score. 60 is the standard RRF constant.
+_RRF_K = 60
+
 
 # ---------------------------------------------------------------------------
 # Model registry — the ONLY model-dependent seam
@@ -297,28 +310,68 @@ class BedrockRAGAgent:
         index: str,
         vector: list[float],
         k: int,
-        filter_: dict | None = None,
+        filter_: dict,
     ) -> list[dict]:
-        """kNN search over one index, with an optional metadata pre-filter.
+        """Filtered kNN over one index — the filter is always applied, server-side.
 
-        When ``filter_`` is given it is placed *inside* the knn clause, so
-        OpenSearch applies it during the ANN traversal (efficient k-NN
-        filtering) and still returns up to ``k`` matching hits — rather than
-        post-filtering, which could return fewer than ``k``.
+        AOSS's NMSLIB vector engine rejects an *in-clause* knn filter
+        ("Engine [NMSLIB] does not support filters"), so the filter is applied
+        as a post-filter inside a bool query. Post-filtering can return fewer
+        than ``k`` matches (the filter is applied after the ANN retrieves its
+        nearest set), so we page the nearest-neighbour ordering: each round
+        pulls the next-nearest matches, excluding ids already collected and
+        widening the ANN depth, until we have ``k`` matches or the index is
+        exhausted. Nearest-first order is preserved across rounds.
+
+        ``filter_`` is required — there is no unfiltered path. A search that
+        should span everything (e.g. shared regulatory docs) passes a permissive
+        filter such as ``{"match_all": {}}``, which resolves in a single round.
+
+        An empty round is NOT treated as exhaustion: a client's matches can sit
+        arbitrarily deep in the global nearest-neighbour ordering (e.g. one
+        client's fuel docs ranking below another's near-identical ones), so we
+        keep widening the ANN reach until we have ``k`` matches or the reach has
+        spanned the whole index — at which point nothing deeper can exist. The
+        index doc count bounds that reach.
         """
-        knn_clause: dict[str, Any] = {"vector": vector, "k": k}
-        if filter_:
-            knn_clause["filter"] = filter_
-        body = {
-            "size": k,
-            "query": {"knn": {"text_embedding": knn_clause}},
-        }
-        return (
-            self._client()
-            .search(index=index, body=body)
-            .get("hits", {})
-            .get("hits", [])
-        )
+        try:
+            total = int(self._client().count(index=index).get("count", 0))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "[RAGAgent] count(%s) failed (%s); capping reach at k", index, exc
+            )
+            total = 0
+        collected: list[dict] = []
+        seen: set[str] = set()
+        depth = k  # ANN reach; widened each round to surface deeper matches
+        for _ in range(_KNN_MAX_ROUNDS):
+            if len(collected) >= k:
+                break
+            eff_depth = min(depth, total) if total else depth
+            bool_query: dict[str, Any] = {
+                "must": [
+                    {"knn": {"text_embedding": {"vector": vector, "k": eff_depth}}}
+                ],
+                "filter": [filter_],
+            }
+            if seen:
+                bool_query["must_not"] = [{"ids": {"values": list(seen)}}]
+            body = {"size": k - len(collected), "query": {"bool": bool_query}}
+            batch = (
+                self._client()
+                .search(index=index, body=body)
+                .get("hits", {})
+                .get("hits", [])
+            )
+            for h in batch:
+                if h.get("_id") not in seen:
+                    collected.append(h)
+                    seen.add(h.get("_id"))
+            # Once the reach spans the whole index, a deeper round is impossible.
+            if total and eff_depth >= total:
+                break
+            depth *= _KNN_DEPTH_GROWTH
+        return collected[:k]
 
     def _fetch_parent(self, parent_id: str, client: str) -> dict | None:
         """Fetch the parent (section) doc for a matched child, by parent_id.
@@ -360,10 +413,16 @@ class BedrockRAGAgent:
         """
         hits: list[Hit] = []
 
-        # --- PDF / regulatory: shared across all clients, never filtered ---
+        # --- PDF / regulatory: shared across all clients, no client scope ---
+        # Not client-filtered (regulatory docs are shared), but _knn always takes
+        # a filter, so we pass match_all — structurally filtered, matches every
+        # doc, resolves in one round.
         try:
             for h in self._knn(
-                self.pdf_index, self._embed_query_titan(question), self.top_k
+                self.pdf_index,
+                self._embed_query_titan(question),
+                self.top_k,
+                filter_={"match_all": {}},
             ):
                 s = h.get("_source", {})
                 hits.append(
@@ -482,15 +541,27 @@ class BedrockRAGAgent:
                 "indexes (regulatory documents only)."
             )
 
-        # Rerank: dedup by (index, locator), sort by score desc, keep top_n.
+        # Rerank across indices with Reciprocal Rank Fusion. Raw scores are NOT
+        # comparable across indices — Titan cosine (~0.3) vs Cohere int8 (~3e-7)
+        # differ by ~10^6 — so sorting by raw score lets the PDF index dominate
+        # and top_n truncation silently drops every telemetry/analysis hit. RRF
+        # ignores raw scores and fuses by each hit's rank WITHIN its own index,
+        # so each index gets fair representation. `hits` is accumulated per index
+        # in score-descending order, so a hit's position among same-index hits is
+        # its rank. Dedup by (index, locator), keeping the best-ranked instance.
         seen: set[tuple[str, str]] = set()
-        unique: list[Hit] = []
-        for h in sorted(hits, key=lambda x: x.score, reverse=True):
+        rank_by_index: dict[str, int] = {}
+        fused: list[tuple[float, Hit]] = []
+        for h in hits:
             sig = (h.index, h.locator)
-            if sig not in seen:
-                seen.add(sig)
-                unique.append(h)
-        return unique[: self.top_n]
+            if sig in seen:
+                continue
+            seen.add(sig)
+            rank = rank_by_index.get(h.index, 0)
+            rank_by_index[h.index] = rank + 1
+            fused.append((1.0 / (_RRF_K + rank), h))
+        fused.sort(key=lambda t: t[0], reverse=True)
+        return [h for _, h in fused[: self.top_n]]
 
     # ------------------------------------------------------------------
     # Converse — the single generation path for all three models
@@ -575,9 +646,7 @@ class BedrockRAGAgent:
         if not hits:
             return "No relevant context was retrieved from either index."
 
-        context = "\n\n".join(
-            self._context_block(i + 1, h) for i, h in enumerate(hits)
-        )
+        context = "\n\n".join(self._context_block(i + 1, h) for i, h in enumerate(hits))
         # Prior turns as Converse messages, then the grounded current turn.
         messages = self._history_as_messages()
         messages.append(

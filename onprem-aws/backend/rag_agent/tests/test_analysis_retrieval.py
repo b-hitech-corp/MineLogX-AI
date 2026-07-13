@@ -18,7 +18,6 @@ import os
 import sys
 from unittest.mock import MagicMock
 
-import pytest
 
 sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -32,6 +31,9 @@ ANALYSIS = "analysis_test"
 def _make_agent(search_impl):
     os_client = MagicMock()
     os_client.search.side_effect = lambda index, body: search_impl(index, body)
+    # _knn issues a count() to bound its ANN reach; a small value makes the
+    # filtered retry-loop resolve in a single round for these fixed-result mocks.
+    os_client.count.return_value = {"count": 2}
     agent = BedrockRAGAgent(
         opensearch_host="test.aoss.example.com",
         pdf_index="pdf_legal_vecs",
@@ -46,10 +48,38 @@ def _make_agent(search_impl):
 
 
 # Child hits: two C1 children of the same parent + one foreign C2 child.
+# Distinct _id on each — _knn dedups paged results by _id.
 _CHILDREN = [
-    {"_score": 0.9, "_source": {"client_id": "C1", "parent_id": "C1:fuel", "chunk_level": "child", "text": "c1-a"}},
-    {"_score": 0.8, "_source": {"client_id": "C1", "parent_id": "C1:fuel", "chunk_level": "child", "text": "c1-b"}},
-    {"_score": 0.95, "_source": {"client_id": "C2", "parent_id": "C2:fuel", "chunk_level": "child", "text": "c2-secret"}},
+    {
+        "_id": "c1a",
+        "_score": 0.9,
+        "_source": {
+            "client_id": "C1",
+            "parent_id": "C1:fuel",
+            "chunk_level": "child",
+            "text": "c1-a",
+        },
+    },
+    {
+        "_id": "c1b",
+        "_score": 0.8,
+        "_source": {
+            "client_id": "C1",
+            "parent_id": "C1:fuel",
+            "chunk_level": "child",
+            "text": "c1-b",
+        },
+    },
+    {
+        "_id": "c2a",
+        "_score": 0.95,
+        "_source": {
+            "client_id": "C2",
+            "parent_id": "C2:fuel",
+            "chunk_level": "child",
+            "text": "c2-secret",
+        },
+    },
 ]
 
 _PARENTS = {
@@ -60,7 +90,11 @@ _PARENTS = {
             "chunk_level": "parent",
             "section": "fuel",
             "text": "Client C1 — fuel section.",
-            "key_findings": {"kpis": [{"name": "fuel_consumption_rate", "value": 124.006, "unit": "L/hr"}]},
+            "key_findings": {
+                "kpis": [
+                    {"name": "fuel_consumption_rate", "value": 124.006, "unit": "L/hr"}
+                ]
+            },
             "source_files": ["C1/fuel_management_events.csv"],
         }
     }
@@ -68,17 +102,24 @@ _PARENTS = {
 
 
 def _analysis_search_impl(index, body):
-    """Serve child kNN and parent-fetch for the analysis index; empty elsewhere."""
+    """Serve child kNN and parent-fetch for the analysis index; empty elsewhere.
+
+    Both queries are now bool queries (the filtered child kNN post-filters
+    inside a bool; the parent fetch is a pure bool filter), so we distinguish
+    them by whether a knn clause is present in bool.must.
+    """
     if index != ANALYSIS:
         return {"hits": {"hits": []}}
-    q = body.get("query", {})
-    if "knn" in q:
+    bool_q = body.get("query", {}).get("bool", {})
+    must = bool_q.get("must", [])
+    # Child kNN: knn clause inside bool.must → return the child hits.
+    if any("knn" in m for m in must):
         return {"hits": {"hits": _CHILDREN}}
-    if "bool" in q:
-        filters = q["bool"]["filter"]
-        pid = next(f["term"]["parent_id"] for f in filters if "parent_id" in f.get("term", {}))
-        parent = _PARENTS.get(pid)
-        return {"hits": {"hits": [parent] if parent else []}}
+    # Parent fetch: pure bool filter carrying a parent_id term.
+    for f in bool_q.get("filter", []):
+        if "parent_id" in f.get("term", {}):
+            parent = _PARENTS.get(f["term"]["parent_id"])
+            return {"hits": {"hits": [parent] if parent else []}}
     return {"hits": {"hits": []}}
 
 
@@ -97,7 +138,9 @@ class TestAnalysisRetrieval:
         parent_hit = analysis_hits[0]
         assert parent_hit.text == "Client C1 — fuel section."
         assert parent_hit.findings == {
-            "kpis": [{"name": "fuel_consumption_rate", "value": 124.006, "unit": "L/hr"}]
+            "kpis": [
+                {"name": "fuel_consumption_rate", "value": 124.006, "unit": "L/hr"}
+            ]
         }
         assert "analysis:fuel" in parent_hit.locator
 
