@@ -85,8 +85,10 @@ class AnalysisIngestConfig:
     """
 
     # Bumped when the serializer / chunking logic changes → forces re-ingest.
+    # v2: FolderPipeline's per-file analysis moved from a fixed heuristic
+    # sequence to a Strands agent on Bedrock (agent/pipeline.py).
     pipeline_version: str = field(
-        default_factory=lambda: os.getenv("ANALYSIS_PIPELINE_VERSION", "1")
+        default_factory=lambda: os.getenv("ANALYSIS_PIPELINE_VERSION", "2")
     )
 
     # S3 location of the ledger (control log). Defaults to the telemetry bucket

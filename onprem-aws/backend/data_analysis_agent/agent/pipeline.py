@@ -1,9 +1,19 @@
 """
-pipeline.py — Deterministic Folder Analysis Pipeline
+pipeline.py — Folder Analysis Pipeline
 
-Processes every CSV in an S3 folder through a fixed, ordered sequence of
-analytics steps. Chart specs are always built by calling chart_spec_builder
-functions directly — the LLM is never asked to decide whether to call them.
+Processes every CSV in an S3 folder through the same fixed set of analytics
+categories every run: KPIs, statistics, ranking, time series, outliers,
+trends, performance summary, and charts. Schema discovery and dashboard
+assembly stay deterministic Python; the analysis itself (which columns,
+thresholds, and chart pairings to use) is driven by a Strands agent on
+Bedrock (_FileAnalysisAgent, below) with a Python safety net that fills in
+any mandatory category the agent skips — so coverage never regresses below
+what a fully deterministic run would produce.
+
+Called both offline by agent/ingest_orchestrator.py (populates the
+analysis_vecs OpenSearch index) and live by the /analyze route in
+backend/lambdas/api/handler.py (feeds the dashboard when a user selects a
+Client in the UI).
 
 Usage
 -----
@@ -15,7 +25,7 @@ Usage
     report = pipeline.run("C1")                         # returns dict
     report = pipeline.run("C1", output_path="out.json") # also writes JSON
 
-The report schema is documented in _FILE_REPORT_SCHEMA at the bottom of
+The report schema is documented in _DASHBOARD_REPORT_SCHEMA at the bottom of
 this file and is designed to be consumed directly by the front-end dashboard.
 """
 
@@ -27,6 +37,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from strands import Agent, tool
+from strands.models.bedrock import BedrockModel
+from strands.types.agent import Limits
+
+from data_analysis_agent.agent.prompts import (
+    FILE_ANALYSIS_SYSTEM_PROMPT,
+    build_file_analysis_prompt,
+)
+from data_analysis_agent.config.settings import settings
 from data_analysis_agent.tools import (
     chart_spec_builder,
     csv_loader,
@@ -155,27 +174,378 @@ def _col_section(col_name: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Per-file Strands agent — tool wrappers + capture state
+#
+# One _FileAnalysisAgent runs per already-loaded CSV file (schema already
+# discovered by _process_file before the agent starts). file_path/column
+# mapping never need to be tool parameters — they're bound via _capture,
+# which _reset_capture() replaces before each per-file run. _process_file's
+# calls are sequential (a plain list comprehension in FolderPipeline.run()),
+# never concurrent, so this module-level capture is safe — the same pattern
+# agent/orchestrator.py already uses for its `_run_charts` list.
+# ---------------------------------------------------------------------------
+
+_capture: dict = {}
+
+
+def _reset_capture(
+    file_path: str, column_mapping: dict, direct_kpi_mapping: dict
+) -> None:
+    global _capture
+    _capture = {
+        "file_path": file_path,
+        "column_mapping": column_mapping,
+        "direct_kpi_mapping": direct_kpi_mapping,
+        "kpi_raw": None,
+        "stats_raw": None,
+        "ranking_raw": None,
+        "ts_raw": None,
+        "outliers": [],
+        "trends": [],
+        "performance_summary": None,
+        "charts": [],
+    }
+
+
+@tool
+def kpi_engine__calculate_kpi(
+    kpi_names: list[str],
+    group_by: Optional[str] = None,
+    filter_expr: Optional[str] = None,
+) -> dict:
+    """
+    Calculate one or more KPIs for the current file using pre-defined formulas.
+    Pass kpi_names=['*'] to compute every feasible KPI. Column name mapping is
+    applied automatically from the discovered schema.
+    """
+    result = kpi_engine.calculate_kpi(
+        _capture["file_path"],
+        kpi_names,
+        group_by=group_by,
+        filter_expr=filter_expr,
+        column_mapping=_capture["column_mapping"],
+        direct_kpi_mapping=_capture["direct_kpi_mapping"],
+    )
+    _capture["kpi_raw"] = result
+    return result
+
+
+@tool
+def kpi_engine__available_kpis() -> dict:
+    """Return the catalogue of available KPI formulas."""
+    return kpi_engine.available_kpis()
+
+
+@tool
+def stats_analyzer__describe_columns(columns: Optional[list[str]] = None) -> dict:
+    """Descriptive statistics (mean, std, percentiles, skewness) for numeric columns."""
+    result = stats_analyzer.describe_columns(_capture["file_path"], columns=columns)
+    _capture["stats_raw"] = result
+    return result
+
+
+@tool
+def stats_analyzer__rank_entities(
+    metric_column: str,
+    entity_column: str,
+    top_n: int = 10,
+    ascending: bool = False,
+    agg_func: str = "mean",
+) -> dict:
+    """Rank entities (vehicles, drivers, routes) by a metric column."""
+    result = stats_analyzer.rank_entities(
+        _capture["file_path"],
+        metric_column,
+        entity_column,
+        top_n=top_n,
+        ascending=ascending,
+        agg_func=agg_func,
+    )
+    _capture["ranking_raw"] = result
+    return result
+
+
+@tool
+def stats_analyzer__time_series_aggregation(
+    date_column: str,
+    value_columns: list[str],
+    freq: str = "W",
+    agg_func: str = "sum",
+    group_by: Optional[str] = None,
+) -> dict:
+    """Aggregate numeric columns over time. freq options: D, W, ME, QE."""
+    result = stats_analyzer.time_series_aggregation(
+        _capture["file_path"],
+        date_column,
+        value_columns,
+        freq=freq,
+        agg_func=agg_func,
+        group_by=group_by,
+    )
+    _capture["ts_raw"] = result
+    return result
+
+
+@tool
+def stats_analyzer__correlation_matrix(columns: Optional[list[str]] = None) -> dict:
+    """
+    Pearson correlation matrix for numeric columns — useful for deciding which
+    metric pairs are worth ranking or trending together. Not a report section
+    on its own.
+    """
+    return stats_analyzer.correlation_matrix(_capture["file_path"], columns=columns)
+
+
+@tool
+def insight_extractor__detect_outliers(
+    column: str,
+    method: str = "iqr",
+    threshold: float = 1.5,
+    entity_column: Optional[str] = None,
+) -> dict:
+    """Detect statistical outliers in a numeric column. method: iqr or zscore."""
+    result = insight_extractor.detect_outliers(
+        _capture["file_path"],
+        column,
+        method=method,
+        threshold=threshold,
+        entity_column=entity_column,
+    )
+    if "error" not in result:
+        _capture["outliers"].append(
+            {
+                "column": column,
+                "method": result.get("method", method),
+                "outlier_count": result.get("outlier_count", 0),
+                "samples": (result.get("outlier_samples") or [])[:5],
+            }
+        )
+    return result
+
+
+@tool
+def insight_extractor__detect_trend(
+    date_column: str,
+    value_column: str,
+    freq: str = "W",
+) -> dict:
+    """Fit a linear trend to a time-aggregated series; classify as increasing/decreasing/stable."""
+    result = insight_extractor.detect_trend(
+        _capture["file_path"], date_column, value_column, freq=freq
+    )
+    if "error" not in result:
+        _capture["trends"].append(
+            {
+                "date_column": date_column,
+                "value_column": value_column,
+                "direction": result.get("direction"),
+                "r_squared": result.get("r_squared"),
+                "slope": result.get("slope_per_period"),
+            }
+        )
+    return result
+
+
+@tool
+def insight_extractor__check_thresholds(rules: list[dict]) -> dict:
+    """
+    Check rule-based thresholds and return breaching rows. Each rule:
+    {column, operator (>, <, >=, <=, ==), value, label (optional)}. Use this to
+    inform which columns are worth flagging as outliers — not a report section
+    on its own.
+    """
+    return insight_extractor.check_thresholds(_capture["file_path"], rules)
+
+
+@tool
+def insight_extractor__fleet_performance_summary(
+    metric_column: str,
+    entity_column: str,
+    top_n: int = 5,
+) -> dict:
+    """Return top and bottom N performers for a metric. Good for executive summaries."""
+    result = insight_extractor.fleet_performance_summary(
+        _capture["file_path"], metric_column, entity_column, top_n=top_n
+    )
+    if "error" not in result:
+        _capture["performance_summary"] = result
+    return result
+
+
+@tool
+def chart_spec_builder__build_line_chart(
+    title: str,
+    data: list[dict],
+    x_key: str,
+    y_keys: list[str],
+    y_label: Optional[str] = None,
+    x_label: Optional[str] = None,
+    description: Optional[str] = None,
+) -> dict:
+    """Build a Recharts-compatible JSON spec for a line/time-series chart."""
+    spec = chart_spec_builder.build_line_chart(
+        title=title,
+        data=data,
+        x_key=x_key,
+        y_keys=y_keys,
+        y_label=y_label,
+        x_label=x_label,
+        description=description,
+    )
+    _capture["charts"].append(spec)
+    return spec
+
+
+@tool
+def chart_spec_builder__build_bar_chart(
+    title: str,
+    data: list[dict],
+    x_key: str,
+    y_keys: list[str],
+    layout: str = "vertical",
+    stacked: bool = False,
+    y_label: Optional[str] = None,
+    description: Optional[str] = None,
+) -> dict:
+    """Build a Recharts-compatible JSON spec for a bar chart. layout: vertical or horizontal."""
+    spec = chart_spec_builder.build_bar_chart(
+        title=title,
+        data=data,
+        x_key=x_key,
+        y_keys=y_keys,
+        layout=layout,
+        stacked=stacked,
+        y_label=y_label,
+        description=description,
+    )
+    _capture["charts"].append(spec)
+    return spec
+
+
+@tool
+def chart_spec_builder__build_kpi_cards(
+    title: str,
+    kpis: list[dict],
+    description: Optional[str] = None,
+) -> dict:
+    """Build a KPI summary card layout spec. Each kpi: {label, value, unit, trend}."""
+    spec = chart_spec_builder.build_kpi_cards(
+        title=title, kpis=kpis, description=description
+    )
+    _capture["charts"].append(spec)
+    return spec
+
+
+@tool
+def chart_spec_builder__build_pie_chart(
+    title: str,
+    data: list[dict],
+    name_key: str = "name",
+    value_key: str = "value",
+    donut: bool = True,
+    description: Optional[str] = None,
+) -> dict:
+    """Build a Recharts-compatible JSON spec for a pie or donut chart."""
+    spec = chart_spec_builder.build_pie_chart(
+        title=title,
+        data=data,
+        name_key=name_key,
+        value_key=value_key,
+        donut=donut,
+        description=description,
+    )
+    _capture["charts"].append(spec)
+    return spec
+
+
+@tool
+def chart_spec_builder__chart_from_time_series(
+    title: str,
+    description: Optional[str] = None,
+) -> dict:
+    """Build a line chart directly from the most recent time_series_aggregation result."""
+    if _capture["ts_raw"] is None:
+        return {"error": "Call stats_analyzer__time_series_aggregation first."}
+    spec = chart_spec_builder.chart_from_time_series(
+        _capture["ts_raw"], title=title, description=description
+    )
+    _capture["charts"].append(spec)
+    return spec
+
+
+_FILE_ANALYSIS_TOOLS = [
+    kpi_engine__available_kpis,
+    kpi_engine__calculate_kpi,
+    stats_analyzer__describe_columns,
+    stats_analyzer__rank_entities,
+    stats_analyzer__time_series_aggregation,
+    stats_analyzer__correlation_matrix,
+    insight_extractor__detect_outliers,
+    insight_extractor__detect_trend,
+    insight_extractor__check_thresholds,
+    insight_extractor__fleet_performance_summary,
+    chart_spec_builder__build_line_chart,
+    chart_spec_builder__build_bar_chart,
+    chart_spec_builder__build_kpi_cards,
+    chart_spec_builder__build_pie_chart,
+    chart_spec_builder__chart_from_time_series,
+]
+
+
+class _FileAnalysisAgent:
+    """
+    Strands + Bedrock agent that analyses one already-loaded CSV file.
+
+    Covers the same categories FolderPipeline has always covered (KPIs,
+    statistics, ranking, time series, outliers, trends, performance summary,
+    charts), but lets Claude choose which columns/thresholds/chart pairings
+    matter most instead of always taking the first N columns. Its tool calls
+    are captured into the module-level `_capture` dict as they happen, so the
+    report shape stays fully Python-controlled regardless of what the model
+    says in its final text response.
+    """
+
+    def __init__(self) -> None:
+        self._model = BedrockModel(
+            model_id=settings.bedrock.model_id,
+            region_name=settings.bedrock.region,
+        )
+
+    def run(self, advisor: dict) -> None:
+        agent = Agent(
+            model=self._model,
+            tools=_FILE_ANALYSIS_TOOLS,
+            system_prompt=FILE_ANALYSIS_SYSTEM_PROMPT,
+        )
+        agent(
+            build_file_analysis_prompt(advisor),
+            limits=Limits(turns=settings.bedrock.max_agent_turns),
+        )
+
+
+# ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
 
 
 class FolderPipeline:
     """
-    Runs a fixed analytics sequence on every CSV in a folder and returns
-    a single structured JSON-serialisable report.
+    Runs every CSV in a folder through the same fixed analytics categories and
+    returns a single structured JSON-serialisable report.
 
     Steps per file
     --------------
-    1  load_csv           — fetch & parse, build DataFrame cache
-    2  discover_schema    — classify columns, assess KPI feasibility
-    3  calculate_kpis     — all feasible KPIs
-    4  describe_columns   — full descriptive statistics
-    5  rank_entities      — top/bottom N by primary metric
-    6  time_series        — weekly aggregation of primary metrics
-    7  detect_outliers    — IQR outliers for each metric column
-    8  detect_trends      — linear trend for each (datetime, metric) pair
-    9  performance_summary— fleet top/bottom performers
-    10 build_charts       — KPI cards + bar + line (always called, never described)
+    1  load_csv           — fetch & parse, build DataFrame cache (deterministic)
+    2  discover_schema    — classify columns, assess KPI feasibility (deterministic —
+                             dashboard section-routing depends on exact column names)
+    3–9 _FileAnalysisAgent — a Strands agent on Bedrock covers KPIs, statistics,
+                             ranking, time series, outliers, trends, and performance
+                             summary, choosing columns/thresholds itself instead of
+                             always taking the first N; a Python safety net fills in
+                             any mandatory category the agent skipped
+    10 build_charts       — uses whatever charts the agent built; falls back to the
+                             deterministic KPI-cards + bar + line charts only if it
+                             built none
     """
 
     MAX_METRIC_COLS = 5
@@ -185,6 +555,12 @@ class FolderPipeline:
     def __init__(self, local_mode: bool = False, backend: str = "bedrock") -> None:
         self.local_mode = local_mode
         self.backend = backend
+        self._file_agent: Optional[_FileAnalysisAgent] = None
+
+    def _agent(self) -> _FileAnalysisAgent:
+        if self._file_agent is None:
+            self._file_agent = _FileAnalysisAgent()
+        return self._file_agent
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -291,9 +667,22 @@ class FolderPipeline:
             "preview_rows": raw_schema.get("preview_rows", []),
         }
 
-        # ── Step 3: KPIs ──────────────────────────────────────────────
-        kpi_raw = None
-        if feasible_kpis:
+        # ── Steps 3–9: agent-driven analysis ───────────────────────────
+        # A Strands agent covers KPIs, statistics, ranking, time series,
+        # outliers, trends, and performance summary, choosing columns and
+        # thresholds itself. Its tool calls land directly in the module-level
+        # _capture dict (see _reset_capture/_FILE_ANALYSIS_TOOLS above), so
+        # nothing here depends on the LLM formatting a report correctly.
+        _reset_capture(file_path, column_mapping, direct_kpi_mapping)
+        try:
+            self._agent().run(advisor)
+        except Exception as exc:
+            ctx["errors"]["agent"] = str(exc)
+            logger.exception("  ✗ file-analysis agent raised: %s", exc)
+
+        # KPIs — fall back only if the agent skipped a feasible calculation.
+        kpi_raw = _capture["kpi_raw"]
+        if kpi_raw is None and feasible_kpis:
             kpi_raw = self._call(
                 ctx,
                 "kpi_calculation",
@@ -308,8 +697,9 @@ class FolderPipeline:
             "infeasible": advisor["infeasible_kpis"],
         }
 
-        # ── Step 4: Statistics ────────────────────────────────────────
-        if metric_cols:
+        # Statistics — fall back only if the agent never described any columns.
+        stats_raw = _capture["stats_raw"]
+        if stats_raw is None and metric_cols:
             stats_raw = self._call(
                 ctx,
                 "statistics",
@@ -317,11 +707,11 @@ class FolderPipeline:
                 file_path,
                 metric_cols,
             )
-            ctx["statistics"] = stats_raw.get("statistics") if stats_raw else None
+        ctx["statistics"] = stats_raw.get("statistics") if stats_raw else None
 
-        # ── Step 5: Ranking ───────────────────────────────────────────
-        ranking_raw = None
-        if metric_cols and entity_cols:
+        # Ranking — only feeds the fallback bar chart below; no ctx field of its own.
+        ranking_raw = _capture["ranking_raw"]
+        if ranking_raw is None and metric_cols and entity_cols:
             ranking_raw = self._call(
                 ctx,
                 "ranking",
@@ -332,9 +722,9 @@ class FolderPipeline:
                 top_n=self.TOP_N,
             )
 
-        # ── Step 6: Time series ───────────────────────────────────────
-        ts_raw = None
-        if dt_cols and metric_cols:
+        # Time series — only feeds the fallback line chart below; no ctx field of its own.
+        ts_raw = _capture["ts_raw"]
+        if ts_raw is None and dt_cols and metric_cols:
             ts_raw = self._call(
                 ctx,
                 "time_series",
@@ -345,9 +735,14 @@ class FolderPipeline:
                 freq=self.TREND_FREQ,
             )
 
-        # ── Step 7: Outliers ──────────────────────────────────────────
+        # Outliers — keep every agent-found outlier, then fill in any metric
+        # column the agent never checked.
         entity_col = entity_cols[0] if entity_cols else None
+        ctx["insights"]["outliers"] = list(_capture["outliers"])
+        covered_outlier_cols = {o["column"] for o in _capture["outliers"]}
         for col in metric_cols:
+            if col in covered_outlier_cols:
+                continue
             result = self._call(
                 ctx,
                 f"outliers_{col}",
@@ -366,9 +761,14 @@ class FolderPipeline:
                     }
                 )
 
-        # ── Step 8: Trends ────────────────────────────────────────────
+        # Trends — same keep-then-fill-gaps pattern, scoped to metric_cols[:2]
+        # like the original fixed pipeline.
+        ctx["insights"]["trends"] = list(_capture["trends"])
+        covered_trend_cols = {t["value_column"] for t in _capture["trends"]}
         if dt_cols:
             for col in metric_cols[:2]:
+                if col in covered_trend_cols:
+                    continue
                 result = self._call(
                     ctx,
                     f"trend_{col}",
@@ -385,12 +785,13 @@ class FolderPipeline:
                             "value_column": col,
                             "direction": result.get("direction"),
                             "r_squared": result.get("r_squared"),
-                            "slope": result.get("slope"),
+                            "slope": result.get("slope_per_period"),
                         }
                     )
 
-        # ── Step 9: Performance summary ───────────────────────────────
-        if metric_cols and entity_col:
+        # Performance summary — fall back only if the agent never built one.
+        perf = _capture["performance_summary"]
+        if perf is None and metric_cols and entity_col:
             perf = self._call(
                 ctx,
                 "performance_summary",
@@ -400,17 +801,19 @@ class FolderPipeline:
                 entity_col,
                 top_n=5,
             )
-            ctx["insights"]["performance_summary"] = perf
+        ctx["insights"]["performance_summary"] = perf
 
-        # ── Step 10: Charts (always built programmatically) ───────────
-        ctx["charts"] = self._build_charts(
-            kpi_raw,
-            ranking_raw,
-            ts_raw,
-            entity_cols,
-            metric_cols,
-            dt_cols,
-        )
+        # ── Step 10: Charts — use the agent's; fall back only if it built none ──
+        ctx["charts"] = list(_capture["charts"])
+        if not ctx["charts"]:
+            ctx["charts"] = self._build_charts(
+                kpi_raw,
+                ranking_raw,
+                ts_raw,
+                entity_cols,
+                metric_cols,
+                dt_cols,
+            )
 
         ctx["status"] = "success" if not ctx["errors"] else "partial"
         return ctx
