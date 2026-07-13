@@ -82,6 +82,10 @@ REGION = os.getenv("AWS_REGION", "us-east-1")
 HOST = os.getenv("OPENSEARCH_HOST", "")
 PDF_INDEX = os.getenv("PDF_INDEX", "pdf_legal_vecs")
 CSV_INDEX = os.getenv("CSV_INDEX", "minelogx-telemetry-v1")
+# Vectorized data-analysis results (computed KPIs / insights), client-scoped.
+# "_vecs" convention (cf. csv_telemetry_vecs / pdf_legal_vecs); the CFN
+# ApiFunction sets ANALYSIS_INDEX to this same value.
+ANALYSIS_INDEX = os.getenv("ANALYSIS_INDEX", "analysis_vecs")
 DIM = 1024
 COHERE_MODEL = os.getenv("COHERE_EMBED_MODEL_ID", "cohere.embed-v4:0")
 TITAN_MODEL = os.getenv("TITAN_EMBED_MODEL_ID", "amazon.titan-embed-text-v2:0")
@@ -141,6 +145,7 @@ class Hit:
     text: str
     locator: str  # human-readable source reference for citations
     source_file: str = ""  # raw provenance key (telemetry client-scope check)
+    findings: dict | None = None  # structured key_findings (analysis hits only)
 
 
 # ---------------------------------------------------------------------------
@@ -175,9 +180,11 @@ class BedrockRAGAgent:
         opensearch_host: str = HOST,
         pdf_index: str = PDF_INDEX,
         csv_index: str = CSV_INDEX,
+        analysis_index: str = ANALYSIS_INDEX,
         default_model: str = DEFAULT_MODEL,
         top_k: int = 4,
         top_n: int = 4,
+        analysis_top_k: int = 10,
         max_history_turns: int = 10,
         temperature: float = 0.2,
         bedrock_client: Any | None = None,
@@ -187,9 +194,13 @@ class BedrockRAGAgent:
         self.opensearch_host = opensearch_host
         self.pdf_index = pdf_index
         self.csv_index = csv_index
+        self.analysis_index = analysis_index
         self.default_model = default_model if default_model in MODELS else DEFAULT_MODEL
         self.top_k = top_k
         self.top_n = top_n
+        # Child hits collapse to fewer parents, so search more children than the
+        # final top_n (per AWS hierarchical-chunking guidance).
+        self.analysis_top_k = analysis_top_k
         self.max_history_turns = max_history_turns
         self.temperature = temperature
 
@@ -309,6 +320,32 @@ class BedrockRAGAgent:
             .get("hits", [])
         )
 
+    def _fetch_parent(self, parent_id: str, client: str) -> dict | None:
+        """Fetch the parent (section) doc for a matched child, by parent_id.
+
+        Scoped to the client and chunk_level=parent as defense-in-depth. Returns
+        the parent's `_source` (full section text + key_findings) or None.
+        """
+        body = {
+            "size": 1,
+            "query": {
+                "bool": {
+                    "filter": [
+                        {"term": {"parent_id": parent_id}},
+                        {"term": {"chunk_level": "parent"}},
+                        {"term": {"client_id": client}},
+                    ]
+                }
+            },
+        }
+        hits = (
+            self._client()
+            .search(index=self.analysis_index, body=body)
+            .get("hits", {})
+            .get("hits", [])
+        )
+        return hits[0].get("_source", {}) if hits else None
+
     def _retrieve(self, question: str, client: str | None = None) -> list[Hit]:
         """Embed with both models, kNN-search both indexes, merge and rerank.
 
@@ -382,10 +419,67 @@ class BedrockRAGAgent:
                     )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[RAGAgent] CSV index search failed: %s", exc)
+
+            # --- Analysis (computed KPIs/insights): client-scoped, hierarchical ---
+            # kNN matches CHILD docs (one per finding) for precision, then we
+            # collapse to the SECTION parent (full context) — the small-to-big
+            # pattern. Only reached when a valid client is present.
+            try:
+                analysis_filter = {
+                    "bool": {
+                        "filter": [
+                            {"term": {"client_id": client}},
+                            {"term": {"chunk_level": "child"}},
+                        ]
+                    }
+                }
+                child_hits = self._knn(
+                    self.analysis_index,
+                    self._embed_query_cohere(question),
+                    self.analysis_top_k,
+                    filter_=analysis_filter,
+                )
+                # Collapse children → best score per parent_id (dedup).
+                best_by_parent: dict[str, float] = {}
+                for h in child_hits:
+                    s = h.get("_source", {})
+                    # Defense-in-depth: never trust a hit outside the client scope.
+                    if s.get("client_id") != client:
+                        logger.warning(
+                            "[RAGAgent] Dropping analysis hit outside client "
+                            "scope '%s': client_id=%r",
+                            client,
+                            s.get("client_id"),
+                        )
+                        continue
+                    pid = s.get("parent_id")
+                    if not pid:
+                        continue
+                    score = h.get("_score", 0.0)
+                    if pid not in best_by_parent or score > best_by_parent[pid]:
+                        best_by_parent[pid] = score
+
+                for pid, score in best_by_parent.items():
+                    parent = self._fetch_parent(pid, client)
+                    if parent is None:
+                        continue
+                    section = parent.get("section", "?")
+                    srcs = ", ".join(parent.get("source_files") or [])
+                    hits.append(
+                        Hit(
+                            index=self.analysis_index,
+                            score=score,
+                            text=parent.get("text", ""),
+                            locator=f"analysis:{section} ({srcs})",
+                            findings=parent.get("key_findings"),
+                        )
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[RAGAgent] Analysis index search failed: %s", exc)
         else:
             logger.info(
-                "[RAGAgent] No valid client supplied — skipping telemetry index "
-                "(regulatory documents only)."
+                "[RAGAgent] No valid client supplied — skipping telemetry + analysis "
+                "indexes (regulatory documents only)."
             )
 
         # Rerank: dedup by (index, locator), sort by score desc, keep top_n.
@@ -463,6 +557,18 @@ class BedrockRAGAgent:
     # Answer generation with the SELECTED model
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _context_block(index: int, hit: Hit) -> str:
+        """One numbered context entry. For analysis hits, the structured
+        key_findings are appended verbatim so the model answers with the exact
+        computed numbers rather than paraphrasing them out of the prose."""
+        block = f"[{index}] (source: {hit.locator})\n{hit.text[:1500]}"
+        if hit.findings:
+            block += "\nExact values (verbatim): " + json.dumps(
+                hit.findings, ensure_ascii=False, default=str
+            )
+        return block
+
     def _generate_answer(
         self, user_message: str, hits: list[Hit], spec: ModelSpec
     ) -> str:
@@ -470,8 +576,7 @@ class BedrockRAGAgent:
             return "No relevant context was retrieved from either index."
 
         context = "\n\n".join(
-            f"[{i + 1}] (source: {h.locator})\n{h.text[:1500]}"
-            for i, h in enumerate(hits)
+            self._context_block(i + 1, h) for i, h in enumerate(hits)
         )
         # Prior turns as Converse messages, then the grounded current turn.
         messages = self._history_as_messages()
@@ -540,9 +645,9 @@ class BedrockRAGAgent:
                 "query": {"original": user_message, "optimized": search_query},
                 "answer": answer,
                 "retrieval": {
-                    # Telemetry (CSV) index is only searched for a valid client.
+                    # Telemetry (CSV) + analysis indexes are only searched for a valid client.
                     "indexes": [self.pdf_index]
-                    + ([self.csv_index] if client else []),
+                    + ([self.csv_index, self.analysis_index] if client else []),
                     "client": client,
                     "top_k": self.top_k,
                     "top_n": self.top_n,
@@ -572,7 +677,7 @@ class BedrockRAGAgent:
                 "answer": "An internal error occurred while processing your request.",
                 "retrieval": {
                     "indexes": [self.pdf_index]
-                    + ([self.csv_index] if client else []),
+                    + ([self.csv_index, self.analysis_index] if client else []),
                     "client": client,
                     "top_k": self.top_k,
                     "top_n": self.top_n,

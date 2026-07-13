@@ -82,6 +82,7 @@ Resources:
           FLEET_S3_BUCKET: !Ref TelemetryBucket
           FLEET_S3_PREFIX: ''
           CSV_INDEX: csv_telemetry_vecs
+          ANALYSIS_INDEX: analysis_vecs
       Tags:
         - { Key: Environment, Value: !Ref Environment }
 
