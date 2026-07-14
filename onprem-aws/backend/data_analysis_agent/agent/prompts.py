@@ -71,6 +71,93 @@ def build_task_prompt(user_question: str) -> str:
     return user_question
 
 
+# ---------------------------------------------------------------------------
+# FolderPipeline's per-file agent (agent/pipeline.py) — fixed report categories,
+# not an open question. The file is already loaded and its schema already
+# discovered before this prompt is built; the agent only decides *how* to
+# analyse it, never *whether* a category applies at all.
+# ---------------------------------------------------------------------------
+
+FILE_ANALYSIS_SYSTEM_PROMPT = """
+You are a Fleet Management Analytics Agent producing a structured analysis
+report for one already-loaded CSV file. Its schema has already been
+discovered for you — never invent or guess a column name that isn't listed
+below; if a column isn't listed, it does not exist in this file.
+
+## Your job
+
+Cover every one of these categories for this file, choosing the most
+meaningful columns/thresholds/pairings yourself instead of a fixed rule:
+
+1. **KPIs** — call kpi_engine__calculate_kpi with the feasible KPI names given
+   to you (or ['*'] for all of them).
+2. **Statistics** — call stats_analyzer__describe_columns for the metric
+   columns that matter most.
+3. **Ranking** — call stats_analyzer__rank_entities on the entity/metric pair
+   most useful for comparing performers, if entity columns exist.
+4. **Time series** — call stats_analyzer__time_series_aggregation on the
+   metric(s) most worth tracking over time, if datetime columns exist.
+5. **Outliers** — call insight_extractor__detect_outliers on every metric
+   column that plausibly has anomalies worth flagging.
+6. **Trends** — call insight_extractor__detect_trend on the metric(s) most
+   worth trending, if datetime columns exist.
+7. **Performance summary** — call insight_extractor__fleet_performance_summary
+   for the primary metric/entity pair, if both exist.
+8. **Charts** — always build at least one chart: a KPI-cards chart for the
+   computed KPIs, plus at least one of a bar chart (ranking) or line chart
+   (time series/trend). Use chart_spec_builder__chart_from_time_series right
+   after a time_series_aggregation call to turn it straight into a line chart.
+
+You may also use stats_analyzer__correlation_matrix and
+insight_extractor__check_thresholds to inform your choices above (e.g. to
+decide which metric pairs are worth ranking/trending together, or which
+threshold breaches make a column worth flagging as an outlier) — their
+results are for your own reasoning, not separate report sections.
+
+## Core principles
+
+1. **Never compute numbers yourself.** Always call the appropriate tool.
+2. **One tool call at a time.** Wait for each result before deciding the next.
+3. **Be precise.** Prefer columns with clear business meaning (e.g. a metric
+   with a name matching the file's domain) over arbitrary/near-empty ones.
+4. **Every mandatory category above must be attempted at least once** if the
+   required columns exist — do not skip a category just because you covered
+   others; you do not need to stop early once you've covered them all.
+
+When you've covered every applicable category, reply with a short one or two
+sentence summary of what you found — the actual report is built from your
+tool calls, not from this final text.
+""".strip()
+
+
+def build_file_analysis_prompt(advisor: dict) -> str:
+    """Build the per-file task prompt from a schema_advisor.discover_schema() result.
+
+    Feeds the agent everything it needs to ground its tool calls (feasible
+    KPIs, entity/datetime/metric columns) without it having to re-discover
+    the schema itself.
+    """
+    feasible_kpis = advisor.get("feasible_kpis") or []
+    lines = [
+        f"File: {advisor.get('file_path')} ({advisor.get('row_count')} rows).",
+        advisor.get("summary", ""),
+        "",
+        f"Entity columns: {advisor.get('entity_columns') or 'none'}",
+        f"Datetime columns: {advisor.get('datetime_columns') or 'none'}",
+        f"Metric columns: {advisor.get('metric_columns') or 'none'}",
+        f"Categorical columns: {advisor.get('categorical_columns') or 'none'}",
+        f"Feasible KPIs: {feasible_kpis or 'none'}",
+    ]
+    ts_pairs = advisor.get("timestamp_pairs") or []
+    if ts_pairs:
+        lines.append(f"Start/end timestamp pairs: {ts_pairs}")
+    recommended = advisor.get("recommended_analyses") or []
+    if recommended:
+        lines.append("Suggested starting points:")
+        lines.extend(f"- {r}" for r in recommended)
+    return "\n".join(lines)
+
+
 def build_chart_intent_prompt(analysis_summary: str) -> str:
     """Ask the model to decide which charts best communicate the analysis."""
     return (
@@ -104,9 +191,7 @@ def build_column_mapping_prompt(
     )
 
 
-def build_direct_kpi_prompt(
-    col_lines: str, kpi_lines: str, json_template: str
-) -> str:
+def build_direct_kpi_prompt(col_lines: str, kpi_lines: str, json_template: str) -> str:
     """Prompt for detecting CSV columns that already hold a pre-computed KPI value.
 
     Consumed by tools/column_mapper.map_direct_kpi_columns. The three arguments

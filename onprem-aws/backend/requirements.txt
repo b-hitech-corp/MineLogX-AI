@@ -14,6 +14,9 @@
 boto3==1.43.36
 botocore==1.43.36
 
+# --- Agentic tool-use loop (data_analysis_agent's FolderPipeline, Bedrock-backed) ---
+strands-agents==1.47.0
+
 # --- Amazon OpenSearch Serverless client ---
 opensearch-py==3.2.0
 

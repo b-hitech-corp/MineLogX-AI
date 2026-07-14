@@ -2,7 +2,7 @@
 Frontend & API Layer Lambda — request router behind API Gateway (HTTP API v2).
 
 Routes — LLM (POST, via Bedrock):
-    POST /analyze   → data_analysis_agent.FleetAgent
+    POST /analyze   → data_analysis_agent.FolderPipeline
     POST /chat      → rag_agent.BedrockRAGAgent
 
 Routes — Data (GET, direct from S3 via csv_loader + kpi_engine, no LLM):
@@ -43,17 +43,17 @@ _CLIENT_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 # Lazy singletons — LLM agents
 # ---------------------------------------------------------------------------
 
-_fleet_agent = None
+_folder_pipeline = None
 _rag_agent = None
 
 
-def _get_fleet_agent():
-    global _fleet_agent
-    if _fleet_agent is None:
-        from data_analysis_agent.agent.bedrock_orchestrator import FleetAgent
+def _get_folder_pipeline():
+    global _folder_pipeline
+    if _folder_pipeline is None:
+        from data_analysis_agent.agent.pipeline import FolderPipeline
 
-        _fleet_agent = FleetAgent()
-    return _fleet_agent
+        _folder_pipeline = FolderPipeline()
+    return _folder_pipeline
 
 
 def _get_rag_agent():
@@ -481,18 +481,22 @@ _GET_ROUTES: dict[str, Callable[[dict], dict]] = {
 
 
 def _handle_analyze(event: dict) -> dict:
-    """POST /analyze — telemetry KPI / fleet analysis via FleetAgent."""
+    """POST /analyze — full per-client analysis via FolderPipeline.
+
+    Triggered by the frontend when a user selects a Client; not a question —
+    just a client/company id. Returns the CompanyJSON-shaped report directly
+    (no wrapper), matching what shared/frontend/src/services/company.ts and
+    types/companyData.ts expect.
+    """
     body = _parse_body(event)
-    question = (body.get("question") or body.get("message") or "").strip()
-    if not question:
-        return _err("'question' field is required")
+    company = (body.get("company") or "").strip().upper()
+    if not _CLIENT_RE.fullmatch(company):
+        return _err("'company' field is required and must match ^[A-Za-z0-9_-]{1,64}$")
     try:
-        result = _get_fleet_agent().run(question)
-        return _ok(
-            {"success": True, "summary": result.summary, "charts": result.charts}
-        )
+        report = _get_folder_pipeline().run(company)
+        return _ok(json.dumps(report, ensure_ascii=False, default=str))
     except Exception:
-        logger.error("FleetAgent failed", exc_info=True)
+        logger.error("FolderPipeline failed", exc_info=True)
         return _err("Analysis pipeline error", 502)
 
 

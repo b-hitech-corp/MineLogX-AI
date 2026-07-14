@@ -2,6 +2,9 @@
 
 build/
 
+# === macOS ===
+.DS_Store
+
 # === Local session plan (never commit) ===
 PLAN-ARCHITECTURE-GOAL.md
 
