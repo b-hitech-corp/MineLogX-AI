@@ -97,16 +97,9 @@ All other Fabric environment variables and their defaults:
 
 ### ☁️ Choosing a Deployment Target
 
-MineLogX AI separates the **platform logic** (pipelines, schemas, agent contracts) from the **deployment target** (cloud or on-prem). Pick the folder matching your environment and follow its own `README.md` for provider-specific setup — each one walks through standing up the equivalent stack (storage, vector search, IaC, and an AI agent provider) for that environment:
+MineLogX AI separates the **platform logic** (pipelines, schemas, agent contracts) from the **deployment target** (cloud or on-prem). The AWS reference implementation lives in `onprem-aws/` — see its [`README.md`](onprem-aws/README.md) for provider-specific setup.
 
-```bash
-cd onprem-aws && cat README.md       # AWS reference implementation
-cd onprem-azure && cat README.md     # Azure implementation
-cd onprem-ibm && cat README.md       # IBM Cloud implementation
-cd onprem-only && cat README.md      # Fully on-prem, no cloud dependency
-```
-
-See [`docs/cloud-setup-guides/`](docs/cloud-setup-guides/) for a deeper walkthrough of each provider.
+Other deployment targets (`onprem-azure`, `onprem-ibm`, Snowflake-paired variants, `onprem-only`) are on the roadmap and will be added when a client needs them — we don't scaffold empty target trees.
 
 ---
 
@@ -122,7 +115,7 @@ MineLogX-AI/
 │   ├── workflows/lint.yml                       # CI: ruff, bandit, pip-audit, yamllint, gitleaks, web
 │   ├── ISSUE_TEMPLATE.md
 │   └── PULL_REQUEST_TEMPLATE.md
-├── docs/                                        # architecture, api, cloud-setup guides
+├── docs/                                        # architecture, api, operations, contributing
 ├── shared/                                      # cloud-agnostic core
 │   ├── modules/  connectors/  templates/
 │   ├── frontend/            # React app / AWS Amplify (cloud-agnostic UI)

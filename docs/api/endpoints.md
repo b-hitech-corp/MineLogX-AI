@@ -87,6 +87,13 @@ Returns geofence zone definitions and current occupancy.
 
 ## AI Endpoints (POST — Bedrock call)
 
+!!! note "Lambda Function URLs"
+    The frontend calls `/chat` and `/analyze` via **Lambda Function URLs** directly,
+    bypassing API Gateway, to avoid the 29-second API GW timeout. The API GW routes
+    for these paths exist but are not used by the production frontend.
+    Run `uv run fab frontend.validate dev` to detect URL drift between what the frontend
+    uses and what is currently deployed.
+
 ### `POST /chat`
 
 Compliance Q&A powered by the RAG Compliance Agent.
