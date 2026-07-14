@@ -27,7 +27,7 @@ export function ChatPanel() {
 
       {/* Panel */}
       <div
-        className={`fixed inset-y-0 right-0 z-50 flex w-[420px] flex-col border-l border-glass-border bg-glass-edge shadow-2xl backdrop-blur-xl transition-transform duration-300 ease-out ${
+        className={`fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-glass-border bg-glass-edge shadow-2xl backdrop-blur-xl transition-transform duration-300 ease-out md:w-[420px] ${
           isOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >

@@ -11,6 +11,7 @@ import {
   User,
   Sun,
   Moon,
+  Menu,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -20,6 +21,7 @@ import type { ActiveModule } from '../../context/AppContext'
 import { useTheme } from '../../context/ThemeContext'
 import { AlertButton } from './AlertButton'
 import { CompanySelector } from './CompanySelector'
+import { MobileMenu } from './MobileMenu'
 
 interface NavItem {
   id: ActiveModule
@@ -42,6 +44,7 @@ export function Header() {
   const { activeModule, setActiveModule, currentShift, currentUser } = useApp()
   const { isDark, toggleTheme } = useTheme()
   const [now, setNow] = useState(() => new Date())
+  const [isMobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000)
@@ -62,6 +65,38 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-stretch border-b border-glass-border bg-glass-edge backdrop-blur-xl">
+
+      {/* ── Mobile bar (<768px): hamburger · icon · alerts ── */}
+      <div className="flex w-full items-center justify-between px-4 md:hidden">
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          aria-label="Open menu"
+          className="flex h-9 w-9 items-center justify-center rounded-xl text-content-secondary transition-colors hover:bg-surface-muted hover:text-content-primary cursor-pointer"
+        >
+          <Menu size={20} />
+        </button>
+
+        <img
+          src={logo}
+          alt="MLX Ai"
+          className="h-8 w-auto object-contain"
+          style={{ filter: isDark ? 'invert(1) hue-rotate(180deg)' : undefined }}
+        />
+
+        <AlertButton compact />
+      </div>
+
+      <MobileMenu
+        isOpen={isMobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+        navItems={navItems}
+        clock={{ hh, mm, ss }}
+        shiftLabel={shiftLabel}
+        shiftColor={shiftColor}
+      />
+
+      {/* ── Desktop bar (≥768px) ── */}
+      <div className="hidden md:contents">
 
       {/* ── Logo ── */}
       <div className="flex shrink-0 items-center px-4">
@@ -107,7 +142,7 @@ export function Header() {
       {/* ── Controls ── */}
       <div className="flex shrink-0 items-center gap-2 px-4">
         <AlertButton />
-        <div className="hidden md:block"><CompanySelector /></div>
+        <CompanySelector />
 
         {/* User pill */}
         <div className="flex items-center gap-2 rounded-xl border border-glass-border bg-glass px-2.5 py-1.5 backdrop-blur-md">
@@ -152,6 +187,8 @@ export function Header() {
             <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-status-healthy" />
           </span>
         </div>
+      </div>
+
       </div>
     </header>
   )
