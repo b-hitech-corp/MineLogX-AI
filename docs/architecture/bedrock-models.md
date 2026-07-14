@@ -14,7 +14,7 @@ their pipeline assignment, and access requirements.
 | `deepseek.v3.2` | RAG Compliance Q&A (selectable via UI) | RAG Agent |
 | `cohere.embed-multilingual-v3` | Telemetry vectorization (1024 dimensions) | CSV Pipeline |
 | `amazon.titan-embed-text-v2:0` | Legal document vectorization (1536 dimensions) | PDF Pipeline |
-| `us.anthropic.claude-haiku-4-5-20251001-v1:0` | PDF document classification (Signal 1) | PDF Pipeline — GRANTED in this account |
+| `us.anthropic.claude-haiku-4-5-20251001-v1:0` | PDF document classification (Signal 3) | PDF Pipeline — GRANTED in this account |
 
 ---
 

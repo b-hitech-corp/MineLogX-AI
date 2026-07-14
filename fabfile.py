@@ -3358,18 +3358,14 @@ def _docs_content_hash() -> str:
 
 
 def _amplify_docs_app_id(c, env):
-    """Discover the Amplify docs app ID for the given environment."""
-    app_name = f"{NAME_PREFIX}-{env}-docs"
-    result = c.run(
-        f"aws amplify list-apps --region {REGION} "
-        '--query "apps[?name==`' + app_name + '`].appId" --output text',
-        hide=True,
-        warn=True,
+    """Return the Amplify docs app ID from CFN stack outputs (AmplifyDocsAppId)."""
+    outputs, status = _endpoints_data(c, env)
+    app_id = next(
+        (o["OutputValue"] for o in outputs if o["OutputKey"] == "AmplifyDocsAppId"), ""
     )
-    app_id = result.stdout.strip() if result.ok else ""
     if not app_id:
         raise SystemExit(
-            f"Amplify docs app '{app_name}' not found in {REGION}. "
+            f"AmplifyDocsAppId not found in stack outputs for env={env} (status={status}). "
             "Run `fab env.up <env> --skip-frontend` first to create the infrastructure."
         )
     return app_id
@@ -3391,7 +3387,7 @@ def docs_build(c, env="dev"):
         "force": "Deploy even if no source files changed since the last deploy.",
     },
 )
-def docs_deploy(c, env="dev", force=False):
+def docs_deploy(c, env, force=False):
     """Build the mkdocs site and push it to the docs Amplify app.
 
     Skips the Amplify upload if no docs source files (*.md, *.png, mkdocs.yml)
