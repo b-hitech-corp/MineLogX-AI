@@ -82,6 +82,17 @@ NAME_PREFIX = "minelogx"
 # PATH is mangled by a venv activate script or cmd.exe vs Git Bash differences.
 TERRAFORM = os.environ.get("TERRAFORM_BIN") or shutil.which("terraform") or "terraform"
 
+
+def _mkdocs_bin():
+    """Resolve mkdocs from the project venv (Windows Scripts/ vs POSIX bin/), falling back to PATH."""
+    venv_bin = (
+        REPO_ROOT
+        / ".venv"
+        / ("Scripts/mkdocs.exe" if os.name == "nt" else "bin/mkdocs")
+    )
+    return venv_bin if venv_bin.exists() else (shutil.which("mkdocs") or "mkdocs")
+
+
 # S3 bucket used by `cloudformation package` to upload nested templates.
 # Also reused by Terraform state if `--engine terraform` is ever needed.
 STATE_BUCKET = os.environ.get("CFN_TEMPLATE_BUCKET", "minelogx-poc-cfn-templates")
@@ -547,7 +558,7 @@ def up(
                 )
             else:
                 print("==> [docs] Building documentation...")
-                mkdocs_bin = REPO_ROOT / ".venv" / "Scripts" / "mkdocs.exe"
+                mkdocs_bin = _mkdocs_bin()
                 result = c.run(f'"{mkdocs_bin}" build --strict', hide=True, warn=True)
                 if not result.ok:
                     print(
@@ -3374,9 +3385,7 @@ def _amplify_docs_app_id(c, env):
 @task(positional=["env"])
 def docs_build(c, env="dev"):
     """Build the mkdocs-material documentation site into site/."""
-    c.run(
-        f'"{REPO_ROOT / ".venv" / "Scripts" / "mkdocs.exe"}" build --strict', warn=False
-    )
+    c.run(f'"{_mkdocs_bin()}" build --strict', warn=False)
     print("==> [docs] Built to site/")
 
 
@@ -3423,7 +3432,7 @@ def docs_deploy(c, env, force=False):
 
     # --- Build ---
     print("==> [docs] Building documentation...")
-    mkdocs_bin = REPO_ROOT / ".venv" / "Scripts" / "mkdocs.exe"
+    mkdocs_bin = _mkdocs_bin()
     result = c.run(f'"{mkdocs_bin}" build --strict', hide=True, warn=True)
     if not result.ok:
         raise SystemExit(f"[docs] Build failed:\n{result.stderr}")
