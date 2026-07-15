@@ -3592,14 +3592,16 @@ def analysis_ingest(c, env, clients=None, force=False):
 
     # Get OPENSEARCH_HOST and FLEET_S3_BUCKET from CFN outputs
     outputs, _ = _endpoints_data(c, env)
-    os_host = next(
+    os_endpoint = next(
         (
             o["OutputValue"]
             for o in (outputs or [])
-            if o["OutputKey"] == "OpenSearchHost"
+            if o["OutputKey"] == "OpenSearchEndpoint"
         ),
         "",
     )
+    # Strip the https:// scheme — the pipeline OPENSEARCH_HOST wants host only
+    os_host = os_endpoint.replace("https://", "").rstrip("/") if os_endpoint else ""
     fleet_bucket = next(
         (
             o["OutputValue"]
@@ -3611,7 +3613,7 @@ def analysis_ingest(c, env, clients=None, force=False):
 
     if not os_host:
         raise SystemExit(
-            f"OpenSearchHost not found in {NAME_PREFIX}-{env} stack outputs. "
+            f"OpenSearchEndpoint not found in {NAME_PREFIX}-{env} stack outputs. "
             "Run `fab env.up {env}` to create the stack first."
         )
 
@@ -3638,9 +3640,14 @@ def analysis_ingest(c, env, clients=None, force=False):
 
     # Parse JSON output to extract counts
     try:
-        results = _json.loads(
-            result.stdout.splitlines()[-1]
-        )  # Last line should be JSON
+        lines = result.stdout.splitlines()
+        # Find the line that starts with '[' (JSON array start)
+        json_start = next(
+            i for i, line in enumerate(lines) if line.strip().startswith("[")
+        )
+        # Join all lines from json_start to end
+        json_text = "\n".join(lines[json_start:])
+        results = _json.loads(json_text)
         ok = sum(1 for r in results if r.get("action") == "indexed")
         fail = sum(1 for r in results if r.get("action") == "error")
         skipped = sum(1 for r in results if r.get("action") == "skipped")
@@ -3650,7 +3657,7 @@ def analysis_ingest(c, env, clients=None, force=False):
             f"{skipped} skipped, {no_files} no files"
         )
         return ok, fail
-    except (ValueError, IndexError, KeyError):
+    except (ValueError, IndexError, KeyError, StopIteration):
         # Fallback: assume success if exit code was 0
         print("[warn] [analysis] Could not parse JSON output; assuming success")
         return 1, 0
