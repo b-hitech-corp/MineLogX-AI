@@ -978,7 +978,7 @@ def _amplify_app_id(c, env):
     app_name = f"{NAME_PREFIX}-{env}-frontend"
     result = c.run(
         f"aws amplify list-apps --region {REGION} "
-        '--query "apps[?name==`' + app_name + '`].appId" --output text',
+        f"--query 'apps[?name==`{app_name}`].appId' --output text",
         hide=True,
         warn=True,
     )
