@@ -196,14 +196,17 @@ uv run fab opensearch.status                          # collection health + doc 
 # --- Frontend (frontend.*) ---
 uv run fab frontend.deploy dev                        # build React/Vite + push to Amplify (standalone)
 uv run fab frontend.validate dev                      # validate API GW routes + CORS + Lambda Function URL drift
-uv run fab env.up dev                                 # full-stack: infra + frontend + docs en un solo comando
-uv run fab env.up dev --skip-frontend                 # solo infra + docs, sin rebuild del frontend
+uv run fab env.up dev                                 # full-stack: infra + frontend + docs + pipelines (end-to-end)
+uv run fab env.up dev --skip-frontend                 # skip frontend rebuild
+uv run fab env.up dev --skip-pipelines                # skip CSV/PDF ingestion pipelines (infra + frontend + docs only)
 
 # --- Documentation (docs.*) ---
 uv run fab docs.build                                 # build mkdocs-material site into site/
 uv run fab docs.deploy dev                            # build + push to Amplify docs app (hash-based, skips if no changes)
 uv run fab docs.deploy dev --force                    # force deploy even if no source files changed
 # docs are also deployed automatically as step 6 of env.up (same hash check applies)
+# pipelines (csv + pdf) are also run automatically at step 7 of env.up unless --skip-pipelines is passed
+# if --seed is not passed but dev buckets are empty, auto-seed is triggered before pipeline execution
 # VITE_API_BASE_URL is injected dynamically from the stack outputs (never hardcoded)
 # WARNING: VITE_CHAT_ENDPOINT and VITE_COMPANY_ENDPOINT are NOT injected — services/chat.ts and
 #          services/company.ts contain hardcoded Lambda Function URL fallbacks. If the stack is

@@ -307,6 +307,20 @@ def _s3_seed(c, env):
         c.run(f"aws s3 sync s3://{src}/ s3://{dst}/ --region {REGION}")
 
 
+def _s3_pipeline_data_present(c, env):
+    """True if the telemetry or legislation bucket already has files to ingest."""
+    for suffix, ext in (("telemetry-data", ".csv"), ("legislation-documents", ".pdf")):
+        bucket = f"{NAME_PREFIX}-{env}-{suffix}"
+        r = c.run(
+            f"aws s3 ls s3://{bucket}/ --recursive --query 'Contents[].Key' --output text",
+            hide=True,
+            warn=True,
+        )
+        if r.ok and any(k.lower().endswith(ext) for k in r.stdout.split()):
+            return True
+    return False
+
+
 def _cfn_extra_params(env):
     """Load env-specific parameter overrides from params/<env>.json if it exists.
 
@@ -431,10 +445,17 @@ def _cfn_down(c, env):
         "seed": "After deploy, sync data from demo buckets into the new buckets (dev only).",
         "no_rollback": "Skip automatic env.down on failure (keeps stack for manual inspection).",
         "skip_frontend": "Skip frontend build+deploy (infra only).",
+        "skip_pipelines": "Skip running the csv/pdf ingestion pipelines after deploy (infra + frontend + docs only).",
     },
 )
 def up(
-    c, env, engine="cloudformation", seed=False, no_rollback=False, skip_frontend=False
+    c,
+    env,
+    engine="cloudformation",
+    seed=False,
+    no_rollback=False,
+    skip_frontend=False,
+    skip_pipelines=False,
 ):
     """Create/update an environment. Builds Lambda layers, deploys infra, and deploys the frontend."""
     engine = _norm_engine(engine)
@@ -494,14 +515,18 @@ def up(
         else:
             _cfn(c, env, execute=True, build_pdf_layer=True, build_csv_layer=True)
 
-        # --- 3. Seed S3 (dev only) ---
-        if seed:
-            if env not in SEED_ALLOWED_ENVS:
-                print(
-                    f"[warn] --seed ignored for '{env}': only allowed in {SEED_ALLOWED_ENVS}."
-                )
-            else:
-                _s3_seed(c, env)
+        # --- 3. Seed S3 (dev only): explicit --seed, or auto-seed when empty ---
+        if seed and env not in SEED_ALLOWED_ENVS:
+            print(
+                f"[warn] --seed ignored for '{env}': only allowed in {SEED_ALLOWED_ENVS}."
+            )
+        elif seed:
+            _s3_seed(c, env)
+        elif env in SEED_ALLOWED_ENVS and not _s3_pipeline_data_present(c, env):
+            print(
+                "[info] --seed not passed but buckets are empty — auto-seeding demo data."
+            )
+            _s3_seed(c, env)
 
         # --- 4. Endpoints summary (includes ApiUrl for frontend build) ---
         outputs, _stack_status = _endpoints_data(c, env)
@@ -574,10 +599,37 @@ def up(
                     _docs_url = f"https://demo.{docs_app_id}.amplifyapp.com"
                     print(f"\n  {_bold('Docs URL:')} {_cyan(_docs_url)}")
 
-        # Re-save endpoints-<env>.md with FrontendUrl + DocsUrl rows.
+        # --- 7. Run ingestion pipelines (csv + pdf) so OpenSearch isn't left empty ---
+        _csv_status = ""
+        _pdf_status = ""
+        if skip_pipelines:
+            print("\n==> [pipelines] Skipped (--skip-pipelines).")
+        else:
+            print("\n==> [pipelines] Running csv ingestion...")
+            try:
+                ok, fail = invoke_all(c, "csv", env, parallel=True)
+                _csv_status = "OK" if fail == 0 else f"FAILED ({fail}/{ok + fail})"
+            except (SystemExit, Exception) as exc:
+                _csv_status = f"FAILED: {exc}"
+                print(f"[warn] csv pipeline failed: {exc}")
+
+            print("\n==> [pipelines] Running pdf ingestion...")
+            try:
+                ok, fail = invoke_all(c, "pdf", env)
+                _pdf_status = "OK" if fail == 0 else f"FAILED ({fail}/{ok + fail})"
+            except (SystemExit, Exception) as exc:
+                _pdf_status = f"FAILED: {exc}"
+                print(f"[warn] pdf pipeline failed: {exc}")
+
+        # Re-save endpoints-<env>.md with FrontendUrl + DocsUrl + pipeline status rows.
         if outputs:
             _show_and_save_endpoints(
-                env, outputs, frontend_url=_frontend_url, docs_url=_docs_url
+                env,
+                outputs,
+                frontend_url=_frontend_url,
+                docs_url=_docs_url,
+                csv_status=_csv_status,
+                pdf_status=_pdf_status,
             )
 
     except Exception as exc:
@@ -1474,7 +1526,9 @@ def _amplify_docs_url(c, env):
     return _amplify_branch_url(c, f"{NAME_PREFIX}-{env}-docs")
 
 
-def _show_and_save_endpoints(env, outputs, frontend_url="", docs_url=""):
+def _show_and_save_endpoints(
+    env, outputs, frontend_url="", docs_url="", csv_status="", pdf_status=""
+):
     """Pretty-print CFN outputs and write endpoints-<env>.md to the repo root."""
     import datetime as _dt
     from tabulate import tabulate as _tabulate
@@ -1489,6 +1543,14 @@ def _show_and_save_endpoints(env, outputs, frontend_url="", docs_url=""):
         rows.append(["FrontendUrl", _cyan(frontend_url)])
     if docs_url:
         rows.append(["DocsUrl", _cyan(docs_url)])
+    if csv_status:
+        rows.append(
+            ["CsvPipeline", csv_status if csv_status == "OK" else _red(csv_status)]
+        )
+    if pdf_status:
+        rows.append(
+            ["PdfPipeline", pdf_status if pdf_status == "OK" else _red(pdf_status)]
+        )
 
     table = _tabulate(
         rows, headers=["Resource", "Value"], tablefmt="simple", disable_numparse=True
@@ -1523,6 +1585,14 @@ def _show_and_save_endpoints(env, outputs, frontend_url="", docs_url=""):
         )
     if docs_url:
         lines.append(f"| `DocsUrl` | {docs_url} | Documentation site (branch URL) |")
+    if csv_status:
+        lines.append(
+            f"| `CsvPipeline` | {csv_status} | CSV telemetry ingestion result |"
+        )
+    if pdf_status:
+        lines.append(
+            f"| `PdfPipeline` | {pdf_status} | PDF legislation ingestion result |"
+        )
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"  Guardado → {md_path.name}")
 
@@ -2091,7 +2161,7 @@ def invoke(c, pipeline, env, file_path=None, force=False, wait=False, async_=Fal
         "pipeline": "csv or pdf",
         "env": "Deployment environment (e.g. dev).",
         "force": "For csv: re-ingest even if already processed.",
-        "parallel": "Launch all executions concurrently instead of waiting for each one (csv only).",
+        "parallel": "For csv: start all Step Functions executions concurrently (one per S3 CSV) and wait for all to complete. Without this flag, processes files sequentially.",
         "async_": "For pdf: fire-and-forget all files (InvocationType=Event). Returns 202 immediately per file. Use for large PDFs that exceed the CLI read timeout.",
         "verbose": "Print the full JSON response for each PDF invocation (pdf pipeline only).",
     },
@@ -2136,6 +2206,7 @@ def invoke_all(
         )
 
         exec_arns: list[tuple[str, str]] = []
+        failed: list[str] = []
         for key in keys:
             payload = _json.dumps({"file_path": key, "force": force})
             with tempfile.NamedTemporaryFile(
@@ -2176,6 +2247,7 @@ def invoke_all(
                 status_label = _green(status) if status == "SUCCEEDED" else _red(status)
                 print(f"    {icon} {status_label} {_dim(f'({elapsed:.0f}s)')} — {key}")
                 if status != "SUCCEEDED":
+                    failed.append(key)
                     print(
                         f"      Check: aws logs tail /aws/states/{NAME_PREFIX}-{env}-csv-pipeline --follow --region {REGION}"
                     )
@@ -2201,6 +2273,8 @@ def invoke_all(
                             _green(status) if status == "SUCCEEDED" else _red(status)
                         )
                         print(f"    {icon} {label} — {key}")
+                        if status != "SUCCEEDED":
+                            failed.append(key)
                     else:
                         still.append((key, exec_arn))
                 pending = still
@@ -2211,6 +2285,7 @@ def invoke_all(
                     )
                     _time.sleep(15)
             print(_green("==> All executions finished."))
+        return len(keys) - len(failed), len(failed)
 
     elif pipeline == "pdf":
         import urllib.parse as _urlparse
@@ -2328,6 +2403,7 @@ def invoke_all(
             print(
                 _dim(f"    Monitor: uv run fab lambda.pdf-async-status {env} --follow")
             )
+        return len(keys) - len(failed), len(failed)
 
     else:
         raise SystemExit(f"Unknown pipeline '{pipeline}'. Use: csv | pdf")
