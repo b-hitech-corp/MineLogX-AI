@@ -445,7 +445,7 @@ def _cfn_down(c, env):
         "seed": "After deploy, sync data from demo buckets into the new buckets (dev only).",
         "no_rollback": "Skip automatic env.down on failure (keeps stack for manual inspection).",
         "skip_frontend": "Skip frontend build+deploy (infra only).",
-        "skip_pipelines": "Skip running the csv/pdf ingestion pipelines after deploy (infra + frontend + docs only).",
+        "skip_pipelines": "Skip running ALL pipelines: csv, pdf, and analysis (infra + frontend + docs only).",
     },
 )
 def up(
@@ -621,6 +621,17 @@ def up(
                 _pdf_status = f"FAILED: {exc}"
                 print(f"[warn] pdf pipeline failed: {exc}")
 
+        # --- 8. Analysis pipeline (same skip flag as csv/pdf) ---
+        _analysis_status = ""
+        if not skip_pipelines:
+            print("\n==> [pipelines] Running analysis ingest...")
+            try:
+                ok, fail = analysis_ingest(c, env)
+                _analysis_status = "OK" if fail == 0 else f"FAILED ({fail}/{ok + fail})"
+            except (SystemExit, Exception) as exc:
+                _analysis_status = f"FAILED: {exc}"
+                print(f"[warn] analysis ingest failed: {exc}")
+
         # Re-save endpoints-<env>.md with FrontendUrl + DocsUrl + pipeline status rows.
         if outputs:
             _show_and_save_endpoints(
@@ -630,6 +641,7 @@ def up(
                 docs_url=_docs_url,
                 csv_status=_csv_status,
                 pdf_status=_pdf_status,
+                analysis_status=_analysis_status,
             )
 
     except Exception as exc:
@@ -1527,7 +1539,13 @@ def _amplify_docs_url(c, env):
 
 
 def _show_and_save_endpoints(
-    env, outputs, frontend_url="", docs_url="", csv_status="", pdf_status=""
+    env,
+    outputs,
+    frontend_url="",
+    docs_url="",
+    csv_status="",
+    pdf_status="",
+    analysis_status="",
 ):
     """Pretty-print CFN outputs and write endpoints-<env>.md to the repo root."""
     import datetime as _dt
@@ -1550,6 +1568,13 @@ def _show_and_save_endpoints(
     if pdf_status:
         rows.append(
             ["PdfPipeline", pdf_status if pdf_status == "OK" else _red(pdf_status)]
+        )
+    if analysis_status:
+        rows.append(
+            [
+                "AnalysisPipeline",
+                analysis_status if analysis_status == "OK" else _red(analysis_status),
+            ]
         )
 
     table = _tabulate(
@@ -1592,6 +1617,10 @@ def _show_and_save_endpoints(
     if pdf_status:
         lines.append(
             f"| `PdfPipeline` | {pdf_status} | PDF legislation ingestion result |"
+        )
+    if analysis_status:
+        lines.append(
+            f"| `AnalysisPipeline` | {analysis_status} | Data analysis results ingestion |"
         )
     md_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"  Guardado → {md_path.name}")
@@ -3537,6 +3566,96 @@ def docs_deploy(c, env, force=False):
     print(f"==> [docs] Log: {log_path}")
 
 
+@task(
+    positional=["env"],
+    help={
+        "env": "Environment name (dev|qa|prod).",
+        "clients": "Comma-separated client list to ingest (default: all discovered clients).",
+        "force": "Re-ingest even if ledger says up to date.",
+    },
+)
+def analysis_ingest(c, env, clients=None, force=False):
+    """Ingest all data-analysis results into the analysis_vecs OpenSearch index.
+
+    Runs the orchestrator CLI which:
+    - Discovers all client folders in the telemetry bucket (or --clients subset)
+    - Runs FolderPipeline (Strands agent) per client to analyze their telemetry
+    - Embeds findings chunks and bulk-indexes into analysis_vecs
+    - Tracks progress in a ledger (S3 NDJSON) to skip re-ingest if unchanged
+
+    Returns (ok_count, fail_count) tuple.
+    Raises SystemExit on CLI failure (exit code 1).
+    """
+    import json as _json
+
+    _ensure_aws(c)
+
+    # Get OPENSEARCH_HOST and FLEET_S3_BUCKET from CFN outputs
+    outputs, _ = _endpoints_data(c, env)
+    os_host = next(
+        (
+            o["OutputValue"]
+            for o in (outputs or [])
+            if o["OutputKey"] == "OpenSearchHost"
+        ),
+        "",
+    )
+    fleet_bucket = next(
+        (
+            o["OutputValue"]
+            for o in (outputs or [])
+            if o["OutputKey"] == "TelemetryDataBucket"
+        ),
+        f"{NAME_PREFIX}-{env}-telemetry-data",  # fallback to convention
+    )
+
+    if not os_host:
+        raise SystemExit(
+            f"OpenSearchHost not found in {NAME_PREFIX}-{env} stack outputs. "
+            "Run `fab env.up {env}` to create the stack first."
+        )
+
+    # Build the orchestrator CLI command
+    target = f"--clients {clients}" if clients else "--all"
+    extra = " --force" if force else ""
+
+    cmd = (
+        f"cd onprem-aws/backend && "
+        f"OPENSEARCH_HOST={os_host} "
+        f"FLEET_S3_BUCKET={fleet_bucket} "
+        f"uv run --with-requirements requirements.txt "
+        f"python -m data_analysis_agent.agent.ingest_orchestrator {target}{extra}"
+    )
+
+    print(f"==> [analysis] Running ingest orchestrator (env={env})...")
+    result = c.run(cmd, hide=False, warn=True)
+
+    if not result.ok:
+        raise SystemExit(
+            f"[analysis] Orchestrator exited {result.return_code}. "
+            f"Check logs above for details."
+        )
+
+    # Parse JSON output to extract counts
+    try:
+        results = _json.loads(
+            result.stdout.splitlines()[-1]
+        )  # Last line should be JSON
+        ok = sum(1 for r in results if r.get("action") == "indexed")
+        fail = sum(1 for r in results if r.get("action") == "error")
+        skipped = sum(1 for r in results if r.get("action") == "skipped")
+        no_files = sum(1 for r in results if r.get("action") == "no_files")
+        print(
+            f"==> [analysis] Complete: {ok} indexed, {fail} failed, "
+            f"{skipped} skipped, {no_files} no files"
+        )
+        return ok, fail
+    except (ValueError, IndexError, KeyError):
+        # Fallback: assume success if exit code was 0
+        print("[warn] [analysis] Could not parse JSON output; assuming success")
+        return 1, 0
+
+
 lambda_ns = Collection("lambda")
 lambda_ns.add_task(pull)
 lambda_ns.add_task(build_layer, name="build-layer")
@@ -3564,6 +3683,9 @@ docs_ns = Collection("docs")
 docs_ns.add_task(docs_build, name="build")
 docs_ns.add_task(docs_deploy, name="deploy")
 
+analysis_ns = Collection("analysis")
+analysis_ns.add_task(analysis_ingest, name="ingest")
+
 ns = Collection()
 ns.add_collection(env)
 ns.add_collection(frontend_ns)
@@ -3573,3 +3695,4 @@ ns.add_collection(bedrock_ns)
 ns.add_collection(opensearch_ns)
 ns.add_collection(sfn_ns)
 ns.add_collection(docs_ns)
+ns.add_collection(analysis_ns)
