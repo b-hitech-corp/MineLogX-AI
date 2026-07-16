@@ -1205,8 +1205,8 @@ def _find_pnpm(c) -> str:
 def _frontend_build_and_deploy(c, env, api_url=""):
     """Build the React/Vite app with a live API URL, then upload to Amplify.
 
-    Injects VITE_API_BASE_URL and VITE_CHAT_ENDPOINT dynamically so they
-    always reflect the current stack — safe even after env.down + env.up.
+    Injects VITE_API_BASE_URL dynamically so it always reflects the current
+    stack — safe even after env.down + env.up.
     Writes a friendly log to .fab-logs/frontend-deploy-<env>-<ts>.log.
     """
     import time as _time
@@ -1220,15 +1220,12 @@ def _frontend_build_and_deploy(c, env, api_url=""):
         print(msg)
         lines.append(msg)
 
-    chat_url = f"{api_url.rstrip('/')}/chat" if api_url else ""
     _log(f"==> [frontend] build+deploy  env={env}  region={REGION}")
     _log(f"==> [frontend] VITE_API_BASE_URL={api_url or '(empty — will use mock)'}")
-    _log(f"==> [frontend] VITE_CHAT_ENDPOINT={chat_url or '(empty)'}")
 
     build_env = {
         **os.environ,
         "VITE_API_BASE_URL": api_url,
-        "VITE_CHAT_ENDPOINT": chat_url,
         "VITE_USE_MOCK": "false" if api_url else "true",
     }
 
@@ -1301,13 +1298,11 @@ def deploy(c, env, skip_build=False, api_url=""):
     },
 )
 def validate(c, env, timeout=15):
-    """Validate that all frontend endpoints (API GW + Lambda Function URLs) are reachable.
+    """Validate that all frontend endpoints (API GW GET/POST) are reachable.
 
     Checks each API Gateway route for HTTP 200, JSON content-type, and CORS headers.
-    Discovers the Lambda Function URL dynamically and compares it against the URL
-    hardcoded in shared/frontend/src/services/chat.ts to detect stack re-creation drift.
+    Also validates LLM routes (/chat, /analyze) are reachable through the same gateway.
     """
-    import re as _re
     import time as _time
     import urllib.error as _ue
     import urllib.request as _ur
@@ -1412,73 +1407,36 @@ def validate(c, env, timeout=15):
         failed += 1
         print(f"  OPTIONS /fleet/assets                   ERR  {exc}   {elapsed} ms")
 
-    # --- Lambda Function URL (chat) ---
+    # --- LLM routes (chat/analyze) — via the same API Gateway as GET routes ---
     print()
-    print("  Lambda Function URL (chat/RAG)")
+    print("  LLM routes (chat/analyze) — API Gateway")
     print("  " + "─" * 65)
-
-    fn_name = f"{NAME_PREFIX}-{env}-api"
-    r = c.run(
-        f"aws lambda get-function-url-config --function-name {fn_name} --region {REGION} --output json",
-        hide=True,
-        warn=True,
-    )
-    live_url = ""
-    if r.ok:
-        live_url = json.loads(r.stdout).get("FunctionUrl", "")
-
-    # Extract hardcoded fallback from chat.ts
-    chat_ts = FRONTEND_DIR / "src" / "services" / "chat.ts"
-    hardcoded_url = ""
-    if chat_ts.exists():
-        m = _re.search(
-            r"https://[a-z0-9]+\.lambda-url\.[a-z0-9-]+\.on\.aws/",
-            chat_ts.read_text(encoding="utf-8"),
+    for route, payload in (
+        ("/chat", b'{"query":"ping","model":"nova","client":"C1"}'),
+        ("/analyze", b'{"company":"c1"}'),
+    ):
+        url = api_url.rstrip("/") + route
+        req = _req_get(
+            url,
+            method="POST",
+            data=payload,
+            headers={"Content-Type": "application/json"},
         )
-        if m:
-            hardcoded_url = m.group(0)
-
-    print(f"  Live URL (AWS):   {live_url or '(not found)'}")
-    print(f"  Hardcoded in src: {hardcoded_url or '(none)'}")
-
-    url_match = (
-        live_url and hardcoded_url and live_url.rstrip("/") == hardcoded_url.rstrip("/")
-    )
-    if url_match:
-        print("  Match: ✓")
-    elif not live_url:
-        print("  Match: ✗  (Lambda Function URL config not found)")
-        failed += 1
-    else:
-        print(
-            "  Match: ✗  DRIFT DETECTED — hardcoded URL is stale; update services/chat.ts or set VITE_CHAT_ENDPOINT"
-        )
-        failed += 1
-
-    if live_url:
-        req = _ur.Request(live_url, method="POST", data=b'{"query":"ping"}')
-        req.add_header("Content-Type", "application/json")
         t0 = _time.monotonic()
         try:
             with _ur.urlopen(req, timeout=timeout) as resp:  # nosec B310
                 elapsed = int((_time.monotonic() - t0) * 1000)
                 passed += 1
-                print(
-                    f"  POST /                                  {resp.status} ✓   {elapsed} ms"
-                )
+                print(f"  POST {route:<27}  {resp.status} ✓   {elapsed} ms")
         except _ue.HTTPError as exc:
+            # ponytail: 4xx/5xx still means the route is wired up — only network errors fail
             elapsed = int((_time.monotonic() - t0) * 1000)
-            # ponytail: 4xx/5xx still means Lambda is reachable — only network errors fail
             passed += 1
-            print(
-                f"  POST /                                  {exc.code} (Lambda reachable)   {elapsed} ms"
-            )
+            print(f"  POST {route:<27}  {exc.code} (reachable)   {elapsed} ms")
         except Exception as exc:
             elapsed = int((_time.monotonic() - t0) * 1000)
             failed += 1
-            print(
-                f"  POST /                                  ERR  {exc}   {elapsed} ms"
-            )
+            print(f"  POST {route:<27}  ERR  {exc}   {elapsed} ms")
 
     total = passed + failed
     print()

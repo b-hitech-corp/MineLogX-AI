@@ -195,7 +195,7 @@ uv run fab opensearch.status                          # collection health + doc 
 
 # --- Frontend (frontend.*) ---
 uv run fab frontend.deploy dev                        # build React/Vite + push to Amplify (standalone)
-uv run fab frontend.validate dev                      # validate API GW routes + CORS + Lambda Function URL drift
+uv run fab frontend.validate dev                      # validate API GW routes + CORS + LLM route reachability
 uv run fab env.up dev                                 # full-stack: infra + frontend + docs + pipelines (csv + pdf + analysis)
 uv run fab env.up dev --skip-frontend                 # skip frontend rebuild
 uv run fab env.up dev --skip-pipelines                # skip ALL pipelines: csv, pdf, and analysis (infra + frontend + docs only)
@@ -214,10 +214,7 @@ uv run fab analysis.ingest dev --force                # re-ingest even if ledger
 # pipelines (csv, pdf, and analysis) run automatically at steps 7-8 of env.up unless --skip-pipelines is passed
 # if --seed is not passed but dev buckets are empty, auto-seed is triggered before pipeline execution
 # VITE_API_BASE_URL is injected dynamically from the stack outputs (never hardcoded)
-# WARNING: VITE_CHAT_ENDPOINT and VITE_COMPANY_ENDPOINT are NOT injected — services/chat.ts and
-#          services/company.ts contain hardcoded Lambda Function URL fallbacks. If the stack is
-#          re-created, those URLs change and the frontend breaks silently. Use frontend.validate
-#          to detect drift. Long-term fix: add LambdaFunctionUrl to CFN outputs and inject it.
+# All frontend routes (/chat, /analyze, GET /fleet/assets, etc.) resolve through VITE_API_BASE_URL
 
 # --- Ollama demo remote ops (ollama.*) ---
 uv run fab ollama.health-check                        # check all instances
@@ -461,9 +458,8 @@ For Fabric, use environment variables or a `.env` file (gitignored).
 - Memory: 256MB default, 512MB+ for PDF processing
 - All Lambdas must log structured JSON to CloudWatch
 - S3 prefix routing must be strictly enforced — never read from `raw/` for Bedrock
-- Use Lambda Function URLs for LLM calls (API Gateway 29s timeout limitation)
-- Data endpoints (GET /fleet/assets, /kpis, /fuel/*, /maintenance/*, /telemetry/*) van por HTTP API v2 — respuesta < 5s sin LLM
-- Chat y Company usan Lambda Function URL directa (streaming futuro; ver TODO en apigw.yaml)
+- Data endpoints (GET /fleet/assets, /kpis, /fuel/*, /maintenance/*, /telemetry/*) go through HTTP API v2 — response < 5s no LLM
+- LLM endpoints (/chat, /analyze) also go through HTTP API v2 with the same 29s hard limit — future optimization: Lambda Function URLs + streaming to bypass the limit
 
 ```python
 # Required structured logging pattern
@@ -485,7 +481,7 @@ def lambda_handler(event, context):
 
 ## Critical Architecture Constraints
 
-1. **API Gateway timeout = 29s hard limit** — LLM calls (chat, analyze) usan Lambda Function URL; los GET de datos van por HTTP API v2 (< 5s)
+1. **API Gateway timeout = 29s hard limit** — all routes (/chat, /analyze, GET data endpoints) currently go through HTTP API v2 and share this limit; future work: Lambda Function URLs + streaming to bypass
 2. **OpenSearch uses hybrid search** — kNN (vector) + BM25 (lexical) for RAG queries
 3. **Raw data is untrusted** — validate before any Bedrock operation
 4. **Bedrock Guardrails are mandatory** at all AI touchpoints — never bypass
