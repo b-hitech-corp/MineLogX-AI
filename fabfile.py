@@ -541,6 +541,14 @@ def up(
         _docs_url = ""
 
         # --- 5. Frontend build + deploy (inyecta VITE_API_BASE_URL dinámicamente) ---
+        frontend_app_id = next(
+            (
+                o["OutputValue"]
+                for o in (outputs or [])
+                if o["OutputKey"] == "AmplifyAppId"
+            ),
+            "",
+        )
         if not skip_frontend:
             api_url = next(
                 (
@@ -552,8 +560,10 @@ def up(
             )
             _frontend_build_and_deploy(c, env, api_url=api_url)
             _frontend_url = _amplify_frontend_url(c, env)
-            if _frontend_url:
-                print(f"\n  {_bold('Frontend URL:')} {_cyan(_frontend_url)}")
+        elif frontend_app_id:
+            _frontend_url = f"https://demo.{frontend_app_id}.amplifyapp.com"
+        if _frontend_url:
+            print(f"\n  {_bold('Frontend URL:')} {_cyan(_frontend_url)}")
 
         # --- 6. Docs deploy (mkdocs → Amplify docs app, app_id from CFN outputs) ---
         docs_app_id = next(
@@ -570,6 +580,7 @@ def up(
                 "==> [docs] Skipped — AmplifyDocsAppId not in stack outputs (run env.up to provision the docs Amplify app first)."
             )
         else:
+            _docs_url = f"https://demo.{docs_app_id}.amplifyapp.com"
             hash_file = LOGS_DIR / f"docs-deploy-{env}.hash"
             current_hash = _docs_content_hash()
             last_hash = (
@@ -596,8 +607,8 @@ def up(
                         c, env, dist_dir, lambda m: print(m), app_id=docs_app_id
                     )
                     hash_file.write_text(current_hash, encoding="utf-8")
-                    _docs_url = f"https://demo.{docs_app_id}.amplifyapp.com"
-                    print(f"\n  {_bold('Docs URL:')} {_cyan(_docs_url)}")
+            if _docs_url:
+                print(f"\n  {_bold('Docs URL:')} {_cyan(_docs_url)}")
 
         # --- 7. Run ingestion pipelines (csv + pdf) so OpenSearch isn't left empty ---
         _csv_status = ""
