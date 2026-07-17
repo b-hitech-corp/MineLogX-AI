@@ -1,0 +1,16 @@
+# Runtime deps for the API Lambda (GET data routes, /chat, /analyze).
+# Packaged into a Lambda Layer by `fab lambda.build-layer api`.
+# Self-contained: this is the ONLY layer attached to ApiFunction (no CsvLayer
+# double-attach — that blew the combined 250MB Lambda code+layers limit).
+# opensearch-py pinned <3.0 to avoid its mandatory opensearch-protobufs/grpcio
+# transport dep (~20MB) — this codebase only ever uses the plain REST
+# transport (AWSV4SignerAuth + RequestsHttpConnection).
+
+boto3==1.43.36
+botocore==1.43.36
+opensearch-py==2.8.0
+pandas==2.3.2
+numpy==2.2.6
+requests==2.34.2
+python-dotenv==1.2.2
+strands-agents==1.47.0
