@@ -16,7 +16,7 @@ export function CompanySelector() {
     setIsClosing(true)
     setTimeout(() => { setOpen(false); setIsClosing(false) }, CLOSE_DUR)
   }
-  function toggleDropdown() { open ? closeDropdown() : openDropdown() }
+  function toggleDropdown() { if (open) closeDropdown(); else openDropdown() }
 
   useClickOutside(ref, closeDropdown)
 

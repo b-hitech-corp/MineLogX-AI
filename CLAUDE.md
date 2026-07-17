@@ -182,6 +182,9 @@ uv run fab lambda.invoke pdf dev --async              # fire-and-forget (Invocat
 uv run fab lambda.invoke-all csv dev --parallel       # process all S3 CSVs in parallel
 uv run fab lambda.invoke-all pdf dev --async          # queue all PDFs asynchronously
 uv run fab lambda.pdf-async-status                    # CloudWatch Logs Insights: per-PDF status table (default: dev)
+uv run fab lambda.build-layer api                    # build API deps layer (data_analysis_agent, rag_agent)
+uv run fab lambda.build-layer csv                    # build CSV deps layer (telemetry vectorization)
+uv run fab lambda.build-layer pdf                    # build PDF deps layer (document vectorization)
 uv run fab lambda.redeploy api dev                    # re-zip backend/ + update-function-code (no layer rebuild)
 uv run fab lambda.set-env pdf dev --key PDF_HAIKU_MODEL_ID --value us.anthropic.claude-haiku-4-5-20251001-v1:0
 uv run fab lambda.logs api dev --follow               # tail CloudWatch logs

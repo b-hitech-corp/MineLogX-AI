@@ -300,11 +300,13 @@ def _ensure_aws(c):
 
 
 def _s3_seed(c, env):
-    """Sync data from demo seed buckets into the minelogx-{env}-* buckets."""
+    """Sync data from demo seed buckets into the minelogx-{env}-* buckets (excluding operational logs)."""
     for suffix, src in DEMO_SEED_BUCKETS.items():
         dst = f"{NAME_PREFIX}-{env}-{suffix}"
         print(f"==> seeding s3://{src}/ -> s3://{dst}/")
-        c.run(f"aws s3 sync s3://{src}/ s3://{dst}/ --region {REGION}")
+        c.run(
+            f'aws s3 sync s3://{src}/ s3://{dst}/ --region {REGION} --exclude "logs/*"'
+        )
 
 
 def _s3_pipeline_data_present(c, env):
@@ -337,7 +339,9 @@ def _cfn_extra_params(env):
     return " ".join(f"{k}={v}" for k, v in data.items())
 
 
-def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
+def _cfn(
+    c, env, execute, build_pdf_layer=False, build_csv_layer=False, build_api_layer=False
+):
     """Package + deploy the single parent stack (nested children) as minelogx-<env>.
 
     `package` uploads the child templates to S3 and rewrites TemplateURLs.
@@ -347,6 +351,7 @@ def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
     fallback = "true" if env == "prod" else "false"
     pdf_layer = "true" if build_pdf_layer else "false"
     csv_layer = "true" if build_csv_layer else "false"
+    api_layer = "true" if build_api_layer else "false"
     extra = _cfn_extra_params(env)
     with c.cd(str(CFN_ROOT)):
         c.run(
@@ -357,7 +362,7 @@ def _cfn(c, env, execute, build_pdf_layer=False, build_csv_layer=False):
         overrides = (
             f"NamePrefix={NAME_PREFIX}-{env} Environment={env} "
             f"ProjectApnId={apn} EnableLlmFallback={fallback} "
-            f"BuildPdfLayer={pdf_layer} BuildCsvLayer={csv_layer}"
+            f"BuildPdfLayer={pdf_layer} BuildCsvLayer={csv_layer} BuildApiLayer={api_layer}"
         )
         if extra:
             overrides += f" {extra}"
@@ -490,7 +495,7 @@ def up(
 
     try:
         # --- 1. Build Lambda layers (always, so the zip is ready for CFN package) ---
-        for fn in ("csv", "pdf"):
+        for fn in ("api", "csv", "pdf"):
             reqs = TARGET_ROOT / "backend" / f"requirements-{fn}.txt"
             if reqs.exists():
                 print(f"==> building lambda layer: {fn}")
@@ -511,9 +516,17 @@ def up(
                 f'-var="project_apn_id={_apn(env)}"',
                 '-var="build_pdf_layer=true"',
                 '-var="build_csv_layer=true"',
+                '-var="build_api_layer=true"',
             )
         else:
-            _cfn(c, env, execute=True, build_pdf_layer=True, build_csv_layer=True)
+            _cfn(
+                c,
+                env,
+                execute=True,
+                build_pdf_layer=True,
+                build_csv_layer=True,
+                build_api_layer=True,
+            )
 
         # --- 3. Seed S3 (dev only): explicit --seed, or auto-seed when empty ---
         if seed and env not in SEED_ALLOWED_ENVS:
@@ -558,7 +571,15 @@ def up(
                 ),
                 "",
             )
-            _frontend_build_and_deploy(c, env, api_url=api_url)
+            analyze_url = next(
+                (
+                    o["OutputValue"]
+                    for o in (outputs or [])
+                    if o["OutputKey"] == "AnalyzeUrl"
+                ),
+                "",
+            )
+            _frontend_build_and_deploy(c, env, api_url=api_url, analyze_url=analyze_url)
             _frontend_url = _amplify_frontend_url(c, env)
         elif frontend_app_id:
             _frontend_url = f"https://demo.{frontend_app_id}.amplifyapp.com"
@@ -637,7 +658,7 @@ def up(
         if not skip_pipelines:
             print("\n==> [pipelines] Running analysis ingest...")
             try:
-                ok, fail = analysis_ingest(c, env)
+                ok, fail = analysis_ingest(c, env, force=True)
                 _analysis_status = "OK" if fail == 0 else f"FAILED ({fail}/{ok + fail})"
             except (SystemExit, Exception) as exc:
                 _analysis_status = f"FAILED: {exc}"
@@ -983,7 +1004,7 @@ def _dir_size(path):
 
 @task(
     help={
-        "fn": "Function whose deps to build: pdf | csv (each has its own requirements-<fn>.txt).",
+        "fn": "Function whose deps to build: api | csv | pdf (each has its own requirements-<fn>.txt).",
     },
 )
 def build_layer(c, fn):
@@ -1030,6 +1051,16 @@ def build_layer(c, fn):
     )
     print(" done")
 
+    # ponytail: hardcoded allowlist from grepping every boto3.client(...) call
+    # across backend/ — add the service here if a new one is introduced, or
+    # botocore raises UnknownServiceError at runtime.
+    _KEEP_BOTOCORE_SERVICES = {"s3", "s3vectors", "bedrock-runtime", "sts", "textract"}
+    botocore_data_dir = python_dir / "botocore" / "data"
+    if botocore_data_dir.exists():
+        for svc_dir in botocore_data_dir.iterdir():
+            if svc_dir.is_dir() and svc_dir.name not in _KEEP_BOTOCORE_SERVICES:
+                shutil.rmtree(svc_dir)
+
     size = _dir_size(build_dir)
     print(f"==> Layer '{fn}' built: {size / 1024 / 1024:.1f} MB decompressed")
     if size > LAYER_SIZE_WARN_BYTES:
@@ -1038,11 +1069,12 @@ def build_layer(c, fn):
             "limit — trim requirements or split further before deploying."
         )
     hash_file.write_text(current_hash)
-    next_msg = (
-        "Next: fab env.plan <env> --engine tf --build-pdf-layer (or --engine cf)."
-        if fn == "pdf"
-        else "Next: fab env.plan <env> --engine tf --build-csv-layer (or --engine cf)."
-    )
+    build_flag = {
+        "api": "--build-api-layer",
+        "csv": "--build-csv-layer",
+        "pdf": "--build-pdf-layer",
+    }.get(fn, f"--build-{fn}-layer")
+    next_msg = f"Next: fab env.plan <env> --engine tf {build_flag} (or --engine cf)."
     print(f"\n{next_msg}")
 
 
@@ -1202,7 +1234,7 @@ def _find_pnpm(c) -> str:
     raise SystemExit("[frontend] pnpm not found — install with: npm install -g pnpm")
 
 
-def _frontend_build_and_deploy(c, env, api_url=""):
+def _frontend_build_and_deploy(c, env, api_url="", analyze_url=""):
     """Build the React/Vite app with a live API URL, then upload to Amplify.
 
     Injects VITE_API_BASE_URL dynamically so it always reflects the current
@@ -1222,10 +1254,16 @@ def _frontend_build_and_deploy(c, env, api_url=""):
 
     _log(f"==> [frontend] build+deploy  env={env}  region={REGION}")
     _log(f"==> [frontend] VITE_API_BASE_URL={api_url or '(empty — will use mock)'}")
+    _log(
+        f"==> [frontend] VITE_ANALYZE_URL={analyze_url or '(empty — falls back to VITE_API_BASE_URL)'}"
+    )
 
     build_env = {
         **os.environ,
         "VITE_API_BASE_URL": api_url,
+        # Lambda Function URLs always end in '/'; strip it so apiFetch's
+        # `${baseUrl}${endpoint}` concatenation matches VITE_API_BASE_URL's shape.
+        "VITE_ANALYZE_URL": analyze_url.rstrip("/"),
         "VITE_USE_MOCK": "false" if api_url else "true",
     }
 
@@ -1275,11 +1313,18 @@ def deploy(c, env, skip_build=False, api_url=""):
 
     # Resolve API URL: CLI flag → stack output → empty (mock)
     resolved_url = api_url
+    outputs = None
     if not resolved_url:
         outputs, _ = _endpoints_data(c, env)
         resolved_url = next(
             (o["OutputValue"] for o in outputs if o["OutputKey"] == "ApiUrl"), ""
         )
+
+    if outputs is None:
+        outputs, _ = _endpoints_data(c, env)
+    analyze_url = next(
+        (o["OutputValue"] for o in outputs if o["OutputKey"] == "AnalyzeUrl"), ""
+    )
 
     if skip_build:
         dist_dir = FRONTEND_DIR / "dist"
@@ -1287,7 +1332,9 @@ def deploy(c, env, skip_build=False, api_url=""):
             raise SystemExit(f"{dist_dir} not found. Run without --skip-build first.")
         _amplify_upload_and_poll(c, env, dist_dir, print)
     else:
-        _frontend_build_and_deploy(c, env, api_url=resolved_url)
+        _frontend_build_and_deploy(
+            c, env, api_url=resolved_url, analyze_url=analyze_url
+        )
 
 
 @task(
@@ -1320,17 +1367,18 @@ def validate(c, env, timeout=15):
     api_url = next(
         (o["OutputValue"] for o in outputs if o["OutputKey"] == "ApiUrl"), ""
     )
+    analyze_url = next(
+        (o["OutputValue"] for o in outputs if o["OutputKey"] == "AnalyzeUrl"), ""
+    )
     if not api_url:
         raise SystemExit("ApiUrl not found in stack outputs")
 
     amplify_domain = next(
-        (
-            o["OutputValue"]
-            for o in outputs
-            if o["OutputKey"] in ("FrontendUrl", "AmplifyUrl")
-        ),
+        (o["OutputValue"] for o in outputs if o["OutputKey"] == "AmplifyDomain"),
         "",
     )
+    if amplify_domain and not amplify_domain.startswith("http"):
+        amplify_domain = f"https://{amplify_domain}"
 
     _API_ROUTES = [
         "/fleet/assets",
@@ -1407,15 +1455,23 @@ def validate(c, env, timeout=15):
         failed += 1
         print(f"  OPTIONS /fleet/assets                   ERR  {exc}   {elapsed} ms")
 
-    # --- LLM routes (chat/analyze) — via the same API Gateway as GET routes ---
+    # --- LLM routes (chat/analyze) ---
+    # /chat stays fast on API Gateway (short default timeout). /analyze runs
+    # FolderPipeline's agentic loop and can genuinely take minutes, and now
+    # goes through its own Function URL (no 29-30s API Gateway proxy cap) —
+    # give it a much longer client-side read timeout.
+    ANALYZE_TIMEOUT = 600
     print()
-    print("  LLM routes (chat/analyze) — API Gateway")
+    print("  LLM routes (chat/analyze)")
     print("  " + "─" * 65)
-    for route, payload in (
-        ("/chat", b'{"query":"ping","model":"nova","client":"C1"}'),
-        ("/analyze", b'{"company":"c1"}'),
+    for route, payload, base, req_timeout in (
+        ("/chat", b'{"query":"ping","model":"nova","client":"C1"}', api_url, timeout),
+        ("/analyze", b'{"company":"c1"}', analyze_url, ANALYZE_TIMEOUT),
     ):
-        url = api_url.rstrip("/") + route
+        if not base:
+            print(f"  POST {route:<27}  SKIP  (AnalyzeUrl not found in stack outputs)")
+            continue
+        url = base.rstrip("/") + route
         req = _req_get(
             url,
             method="POST",
@@ -1424,7 +1480,7 @@ def validate(c, env, timeout=15):
         )
         t0 = _time.monotonic()
         try:
-            with _ur.urlopen(req, timeout=timeout) as resp:  # nosec B310
+            with _ur.urlopen(req, timeout=req_timeout) as resp:  # nosec B310
                 elapsed = int((_time.monotonic() - t0) * 1000)
                 passed += 1
                 print(f"  POST {route:<27}  {resp.status} ✓   {elapsed} ms")

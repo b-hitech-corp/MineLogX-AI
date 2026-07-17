@@ -44,10 +44,19 @@ Parameters:
     Description: >
       Publish the CSV deps layer. Off by default so `package`/`deploy` don't
       fail before `fab lambda.build-layer csv` has produced the python/ tree.
+  BuildApiLayer:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: >
+      Publish the API deps layer (data_analysis_agent, rag_agent). Off by default
+      so `package`/`deploy` don't fail before `fab lambda.build-layer api` has
+      produced the python/ tree.
 
 Conditions:
   ShouldBuildPdfLayer: !Equals [!Ref BuildPdfLayer, 'true']
   ShouldBuildCsvLayer: !Equals [!Ref BuildCsvLayer, 'true']
+  ShouldBuildApiLayer: !Equals [!Ref BuildApiLayer, 'true']
 
 Resources:
   PdfLayer:
@@ -64,6 +73,13 @@ Resources:
       LayerName: !Sub '${NamePrefix}-csv-deps'
       CompatibleRuntimes: [python3.11]
       Content: ../../../.lambda-layers/csv
+  ApiLayer:
+    Type: AWS::Lambda::LayerVersion
+    Condition: ShouldBuildApiLayer
+    Properties:
+      LayerName: !Sub '${NamePrefix}-api-deps'
+      CompatibleRuntimes: [python3.11]
+      Content: ../../../.lambda-layers/api
   ApiFunction:
     Type: AWS::Lambda::Function
     Properties:
@@ -71,9 +87,9 @@ Resources:
       Runtime: python3.11
       Handler: lambdas.api.handler.lambda_handler
       Role: !Ref ApiRoleArn
-      Timeout: 60
+      Timeout: 900
       MemorySize: 512
-      Layers: !If [ShouldBuildCsvLayer, [!Ref CsvLayer], !Ref 'AWS::NoValue']
+      Layers: !If [ShouldBuildApiLayer, [!Ref ApiLayer], !Ref 'AWS::NoValue']
       Code: ../../../backend
       Environment:
         Variables:
@@ -85,6 +101,43 @@ Resources:
           ANALYSIS_INDEX: analysis_vecs
       Tags:
         - { Key: Environment, Value: !Ref Environment }
+
+  # /analyze runs a long agentic loop (FolderPipeline) that routinely exceeds
+  # HTTP API v2's non-configurable ~29-30s AWS_PROXY integration cap. A
+  # Function URL bypasses that cap (Lambda timeout up to 15 min applies
+  # instead) while GET routes and /chat keep using the API Gateway route.
+  ApiFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref ApiFunction
+      AuthType: NONE
+      Cors:
+        AllowOrigins: ['*']
+        AllowMethods: [POST]
+        AllowHeaders: [Content-Type]
+        MaxAge: 300
+
+  ApiFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: '*'
+      FunctionUrlAuthType: NONE
+
+  # As of Oct 2025, AWS requires BOTH lambda:InvokeFunctionUrl and
+  # lambda:InvokeFunction to be granted for a NONE-auth function URL to work
+  # — without this second statement, every request gets a 403
+  # AccessDeniedException even though the URL and the statement above look
+  # correctly configured. InvokedViaFunctionUrl scopes this grant to calls
+  # made through the function URL only (not the raw Lambda Invoke API).
+  ApiFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: '*'
+      InvokedViaFunctionUrl: true
 
   CsvFunction:
     Type: AWS::Lambda::Function
@@ -130,6 +183,8 @@ Resources:
 Outputs:
   ApiFunctionArn:
     Value: !GetAtt ApiFunction.Arn
+  ApiFunctionUrl:
+    Value: !GetAtt ApiFunctionUrl.FunctionUrl
   CsvFunctionArn:
     Value: !GetAtt CsvFunction.Arn
   PdfFunctionArn:
