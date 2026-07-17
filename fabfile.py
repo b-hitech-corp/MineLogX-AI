@@ -2564,7 +2564,7 @@ def set_model(c, pipeline, env, model_id):
 # --------------------------------------------------------------------------- #
 # opensearch.* — collection status and index doc counts
 # --------------------------------------------------------------------------- #
-OPENSEARCH_INDICES = ["csv_telemetry_vecs", "pdf_legal_vecs"]
+OPENSEARCH_INDICES = ["csv_telemetry_vecs", "pdf_legal_vecs", "analysis_vecs"]
 
 
 def _aoss_get(endpoint: str, path: str) -> dict:
