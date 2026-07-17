@@ -55,6 +55,14 @@ Parameters:
     Description: >
       Publish the PDF deps Lambda layer. Off by default so `package`/`deploy`
       don't fail before `fab lambda.build-layer pdf` has produced the tree.
+  BuildApiLayer:
+    Type: String
+    AllowedValues: ['true', 'false']
+    Default: 'false'
+    Description: >
+      Publish the API deps Lambda layer (data_analysis_agent, rag_agent).
+      Off by default so `package`/`deploy` don't fail before
+      `fab lambda.build-layer api` has produced the tree.
   ViteUseMock:
     Type: String
     AllowedValues: ['true', 'false']
@@ -195,6 +203,7 @@ Resources:
         LegislationBucket: !GetAtt S3.Outputs.LegislationDocumentsBucket
         BuildPdfLayer: !Ref BuildPdfLayer
         BuildCsvLayer: !Ref BuildCsvLayer
+        BuildApiLayer: !Ref BuildApiLayer
 
   StepFunctions:
     Type: AWS::CloudFormation::Stack
@@ -226,6 +235,8 @@ Outputs:
     Value: !GetAtt Apigw.Outputs.RestApiId
   ApiUrl:
     Value: !GetAtt Apigw.Outputs.ApiUrl
+  AnalyzeUrl:
+    Value: !GetAtt Lambda.Outputs.ApiFunctionUrl
   AmplifyAppId:
     Value: !GetAtt Amplify.Outputs.AppId
   AmplifyDomain:
