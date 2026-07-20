@@ -1,0 +1,512 @@
+request_index,sent_at,client,query_index,query_text,model_key,model_id,success,http_status,attempt_count,error_message,optimized_query,answer,answer_chars,doc_count,indexes_retrieved,pdf_hits,csv_hits,analysis_hits,generation_elapsed_s,request_elapsed_s,conversation_turn,history_turns,response_timestamp
+1,2026-07-17T22:43:04.361281+00:00,C1,1,What is the fuel efficiency for this fleet?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,fleet fuel efficiency telemetry mining operations,"Based on the available telemetry data for this client, the following fuel efficiency metrics are on record:
+
+**From `production_kpi_daily.csv` (2026-09-08 to 2026-09-17):** [2]
+| Metric | Value |
+|---|---|
+| Mean `fuel_efficiency_daily` | **2.093** |
+| Minimum | **1.4** |
+| Maximum | **2.79** |
+
+**From the fleet analysis (March 2026 dataset):** [3]
+- `idle_burn_pct` mean: **12.419%**, ranging from **0.0% to 63.41%** (std: 8.204)
+- **371 outliers** were detected in `idle_burn_pct` using the IQR method, with sampled values as high as **45.19%** (e.g., TRK-004: 45.19%, TRK-018: 43.03%, TRK-009: 41.66%)
+
+> ⚠️ **Note:** The units for `fuel_efficiency_daily` are not specified in the retrieved context, so the figure (2.093) cannot be fully interpreted without knowing the unit (e.g., litres/tonne, t/L, etc.). Additionally, the high idle burn outliers warrant operational attention as they may indicate significant fuel waste.
+
+No regulatory threshold for fuel efficiency was found in the retrieved documents, so a compliance determination **cannot be made** at this time.",1075,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,7.169,9.242,2,2,2026-07-17T22:43:13.578840+00:00
+2,2026-07-17T22:43:14.606040+00:00,C1,2,What is the fleet's maintenance status and are there any predicted equipment failures?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,fleet maintenance status equipment availability predicted failures telemetry mining,"Based strictly on the provided context:
+
+## Maintenance Status
+
+The `assets_equipment.csv` data shows all **24 haul trucks** currently have an `operational_status` of **Active** [2]. The fleet consists of:
+- **Komatsu** (12 units): models 777G and 930E
+- **CAT** (12 units): model 793F
+- Capacity range: **180–240 tons** (mean: 213.3 tons) [2]
+
+## Predicted Equipment Failures
+
+The context **does not contain** any predictive failure data. Fields that would typically support such analysis — including `days_since_maintenance`, `engine_hours`, `health_index`, `mtbf_daily`, `fault_code`, and `tire_alerts` — are explicitly listed as **not tracked** in the available dataset [2].
+
+## Availability Concerns
+
+While not a direct maintenance metric, the fleet analysis does flag **39 outliers** in `equipment_availability_pct`, with sampled low values of **70.87% to 73.0%** against a fleet mean of **89.54%** [3]. These low-availability instances may warrant investigation as potential indicators of maintenance issues.
+
+---
+
+> ⚠️ A full maintenance status and failure prediction assessment **cannot be made** from the available context due to missing key fields [2].",1163,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,7.618,10.05,3,3,2026-07-17T22:43:24.633396+00:00
+3,2026-07-17T22:43:25.660201+00:00,C1,3,How much tonnage has been moved and what is the load efficiency?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,tonnage moved load efficiency payload utilization fleet haul trucks mining production KPI,"Based strictly on the provided context:
+
+## Tonnage Moved
+
+- **Total tonnes moved:** **1,190,078,700.5 t** [3]
+- **Daily total_tonnage** (May 2026 period): mean = **171,768.9 t**, min = **122,365.7 t**, max = **219,884.5 t** [2]
+- **Daily total_tonnage** (broader dataset): mean = **170,011.2 t**, min = **120,000.5 t**, max = **219,985.2 t**, std = **28,702.1 t** [3]
+- **Trend:** Total tonnage is **stable** (r² = 0.322, slope = 187.5 t/day) with **0 outliers** detected [3]
+
+## Load Efficiency
+
+- **Tonnes per litre:** **80,699.277 t/L** [3]
+
+> ⚠️ **Note:** The `tonnes_per_litre` figure of 80,699.277 t/L appears unusually high and may reflect an aggregated or cumulative calculation rather than a per-cycle efficiency metric. No regulatory benchmark or target for load efficiency was found in the retrieved context, so a compliance determination **cannot be made** at this time.",883,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,5.909,8.737,4,4,2026-07-17T22:43:34.302682+00:00
+4,2026-07-17T22:43:35.404698+00:00,C1,4,What safety incidents or fatigue-related risks have been detected?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,safety incidents fatigue-related risks detection mining fleet telemetry operator fatigue monitoring hours of service fatigue management regulations,"## Safety Incidents and Fatigue-Related Risks
+
+### Safety Events
+- **Mean daily safety events:** **9.041** (Sep 2026 dataset) / **9.409** (Mar 2026 dataset) [2][3]
+- **Maximum recorded:** **18.0 events/day** [2][3]
+- **Total safety events:** **1,971** across the Sep 2026 period [2]
+- **Trend:** Safety events are **decreasing** (r² = 0.327, slope = -0.0444/day) — a positive operational signal [3]
+- **Outliers detected:** **0** in safety events [3]
+
+### Fatigue Incidents
+- **Mean daily fatigue incidents:** **4.688** (Sep 2026) / **4.98** (Mar 2026) [2][3]
+- **Maximum recorded:** **10.0 incidents/day** [2][3]
+- **Minimum recorded:** **0.0** [2][3]
+- **Standard deviation:** **3.172** — indicating considerable day-to-day variability [3]
+- **Outliers detected:** **0** using IQR method [3]
+
+### Tire Alerts
+- **Mean daily tire alerts:** **3.991** (Sep 2026) / **4.004** (Mar 2026) [2][3]
+- **Maximum recorded:** **8.0 alerts/day** [2][3]
+
+---
+
+> ⚠️ **Regulatory Note:** No specific numerical thresholds for acceptable safety event or fatigue incident rates were found in the retrieved regulatory documents [1][4], so a formal compliance determination **cannot be made** at this time. However, a maximum of **10 fatigue incidents in a single day** and a daily mean approaching **5** warrants operational attention given regulatory obligations around worker health and safety [4].",1382,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,8.822,11.665,5,5,2026-07-17T22:43:47.040108+00:00
+5,2026-07-17T22:43:48.072089+00:00,C1,5,Summarize the key KPI anomalies or outliers detected for this fleet.,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,fleet KPI outliers anomalies detected haul truck equipment availability tonnage safety events fatigue incidents tire alerts operational telemetry summary,"## Key KPI Anomalies and Outliers Detected — Client C1 Fleet
+
+### 1. Idle Burn Percentage — ⚠️ Most Significant Anomaly
+- **371 outliers detected** (IQR method) in `idle_burn_pct` [3]
+- Fleet mean: **12.419%**, but outlier samples show extreme values:
+  - TRK-004: **45.19%**
+  - TRK-018: **43.03%**
+  - TRK-009: **41.66%**
+  - TRK-010: **33.73% and 30.43%** (appearing twice) [3]
+- This is the most pervasive anomaly in the dataset, indicating significant fuel waste during idle periods across multiple trucks.
+
+### 2. Equipment Availability Percentage — ⚠️ Notable Anomaly
+- **39 outliers detected** (IQR method) against a fleet mean of **89.541%** [3]
+- Sampled low values: **68.62% – 73.0%** [3]
+- Specific dated instances (Jul 2026):
+  - **69.09%** on 2026-07-16
+  - **70.11%** on 2026-07-10
+  - **72.5%** on 2026-07-12 [2]
+- Trend is **stable** (r² = 0.065, slope = 0.0107) — no improvement trajectory detected [3]
+
+### 3. Dispatch Accuracy — ✅ No Anomalies
+- **0 outliers detected**, mean = **90.486%** [3]
+
+### 4. Uncomputable KPIs — ⚠️ Data Gaps
+- **`fleet_availability`** and **`on_time_delivery`** could **not be computed** due to missing columns (`scheduled_hours`, `on_time_deliveries`) in the dataset [3]
+
+---
+> These anomalies — particularly the 371 idle burn outliers — represent the most actionable findings from the available telemetry data [3].",1363,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,9.077,11.65,6,6,2026-07-17T22:43:59.689349+00:00
+6,2026-07-17T22:44:00.726902+00:00,C1,1,What is the fuel efficiency for this fleet?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""Fuel efficiency for Client C1 fleet, including mean, minimum, maximum, and standard deviation, as per telemetry data and regulatory compliance standards.""",The fuel efficiency for this fleet **cannot be computed** due to missing required columns (`distance_km`) in the dataset [3].,125,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,1.011,3.457,7,7,2026-07-17T22:44:04.126884+00:00
+7,2026-07-17T22:44:05.189922+00:00,C1,2,What is the fleet's maintenance status and are there any predicted equipment failures?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""fleet maintenance status, predicted equipment failures, telemetry data, Client C1""","The fleet's maintenance status and any predicted equipment failures **cannot be determined** from the provided context [1][2][3][4]. The context does not include specific maintenance records, predictive analytics, or failure forecasts.",235,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.926,2.704,8,8,2026-07-17T22:44:07.871283+00:00
+8,2026-07-17T22:44:08.897067+00:00,C1,3,How much tonnage has been moved and what is the load efficiency?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""tonnage moved"", ""load efficiency"", ""fleet"", ""telemetry data"", ""KPI"", ""Client C1""","The total tonnage moved is **1,190,078,700.5 tonnes** and the load efficiency is **80,699.277 tonnes per litre** [3].",117,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.702,2.43,9,9,2026-07-17T22:44:11.302105+00:00
+9,2026-07-17T22:44:12.334383+00:00,C1,4,What safety incidents or fatigue-related risks have been detected?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""safety incidents, fatigue-related risks, detection, mining fleet, regulatory compliance""","The context indicates that there have been **1971 safety events** and **4.98 fatigue incidents** on average, with a maximum of **10.0 fatigue incidents** [3]. These figures suggest that there are safety incidents and fatigue-related risks present in the mining operations.",272,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,1.097,2.675,10,10,2026-07-17T22:44:14.979827+00:00
+10,2026-07-17T22:44:16.014957+00:00,C1,5,Summarize the key KPI anomalies or outliers detected for this fleet.,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""Key KPI anomalies, outliers, fleet, tonnage, load efficiency, safety incidents, fatigue risks, compliance, regulation, telemetry data""","The key KPI anomalies or outliers detected for this fleet are:
+
+- **equipment_availability_pct**: Three outliers were detected with values of 71.55, 74.65, and 72.01 on 2026-06-05T00:00:00, 2026-06-06T00:00:00, and 2026-06-07T00:00:00, respectively [2].
+
+No other anomalies or outliers were detected in the provided context [2].",328,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,1.017,4.596,10,10,2026-07-17T22:44:20.587542+00:00
+11,2026-07-17T22:44:21.614499+00:00,C1,1,What is the fuel efficiency for this fleet?,deepseek-v3.2,deepseek.v3.2,True,200,1,,fuel efficiency fleet,The fuel efficiency for this fleet is **2.135** (mean) with a range from **1.41** to **2.79** [2].,98,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",1,2,1,2.895,12.703,10,10,2026-07-17T22:44:34.294490+00:00
+12,2026-07-17T22:44:35.323307+00:00,C1,2,What is the fleet's maintenance status and are there any predicted equipment failures?,deepseek-v3.2,deepseek.v3.2,True,200,1,,fleet maintenance status predicted equipment failures,"Based on the provided context, I cannot determine the fleet's current maintenance status or any predicted equipment failures.
+
+The context contains operational telemetry (e.g., `equipment_availability_pct`, `mtbf_daily`) and mentions that mining enterprises must regularly carry out inspection, maintenance, and repair of equipment [4]. However, it does not provide a specific status report on maintenance activities or any predictions for future equipment failures.",466,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,14.656,24.743,10,10,2026-07-17T22:45:00.041220+00:00
+13,2026-07-17T22:45:01.070740+00:00,C1,3,How much tonnage has been moved and what is the load efficiency?,deepseek-v3.2,deepseek.v3.2,True,200,1,,tonnage moved load efficiency,"Based on the provided context:
+
+- **Total tonnage moved**: 1,190,078,700.5 tonnes [3].
+- **Load efficiency**: The context does not contain a specific metric called ""load efficiency."" However, it provides a computed KPI for **tonnes per litre**, which is 80,699.277 t/L [3].
+
+Therefore, the total tonnage moved is 1,190,078,700.5 tonnes, and the closest efficiency metric available is tonnes per litre at 80,699.277 t/L [3].",423,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,3.174,10.268,10,10,2026-07-17T22:45:11.317248+00:00
+14,2026-07-17T22:45:12.344398+00:00,C1,4,What safety incidents or fatigue-related risks have been detected?,deepseek-v3.2,deepseek.v3.2,True,200,1,,safety incidents fatigue-related risks detection mining fleet telemetry,"Based on the provided context:
+
+**Safety incidents** have been detected. The total number of `safety_events` for the period from 2026-09-08 to 2026-09-17 is **1971.0**, with a daily mean of 9.041 [2]. A separate analysis shows a mean of 9.409 safety events [3].
+
+**Fatigue-related risks** have been detected. The daily mean for `fatigue_incidents` for the same period is **4.688**, with a range from 0.0 to 10.0 [2]. Another analysis reports a mean of 4.98 fatigue incidents [3].
+
+No specific legislation or regulatory thresholds for these incident counts are provided in the context to determine compliance.",608,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,2.658,9.2,10,10,2026-07-17T22:45:21.521307+00:00
+15,2026-07-17T22:45:22.548350+00:00,C1,5,Summarize the key KPI anomalies or outliers detected for this fleet.,deepseek-v3.2,deepseek.v3.2,True,200,1,,KPI anomalies outliers fleet telemetry,"Based on the provided context, the key KPI anomalies or outliers detected for this fleet are:
+
+1.  **Equipment Availability Outliers**: The `equipment_availability_pct` metric shows 39 outliers, with sample values as low as 70.87% [3]. A separate daily report also flags three specific outliers at 71.55%, 74.65%, and 72.01% [2].
+2.  **Idle Burn Rate Outliers**: The `idle_burn_pct` metric shows 371 outliers, with sample values as high as 45.19% [3].
+
+No regulatory thresholds for these specific KPIs are provided in the context to determine compliance.",554,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,17.301,19.882,10,10,2026-07-17T22:45:42.312652+00:00
+16,2026-07-17T22:45:43.438496+00:00,C2,1,What is the fuel efficiency for this fleet?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,fuel efficiency fleet telemetry KPI litres per hour tonnes per litre fuel consumption rate,"Based on the provided context, **fuel efficiency cannot be determined** for this fleet. The context provided ([2] and [3]) covers haul cycle tracking, ground vibration, maintenance recommendations, and tire pressure monitoring data, but does **not contain any fuel consumption or fuel efficiency metrics** for this fleet.
+
+Fields such as `fuel_event_id` are explicitly listed as **""not tracked in this dataset""** [2], confirming that fuel data is absent from the available context.
+
+To obtain fuel efficiency metrics, fuel consumption telemetry data would need to be available and included in the analysis.",606,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,3.465,7.391,10,10,2026-07-17T22:45:50.547722+00:00
+17,2026-07-17T22:45:51.832401+00:00,C2,2,What is the fleet's maintenance status and are there any predicted equipment failures?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,fleet maintenance status predicted equipment failures telemetry KPI anomalies mining equipment,"Based on the provided context, the fleet's maintenance status and predicted equipment failures are as follows:
+
+---
+
+### **Predicted Failure Window**
+- The `predicted_failure_window_hr` has a **mean of 38.653 hours**, ranging from a **minimum of 6.0 hours** to a **maximum of 72.0 hours**, with a standard deviation of 19.354 hours [3].
+- The trend is **stable** (r² = 0.007, slope = 0.0792), indicating no significant deterioration or improvement over time [3].
+- **No outliers** were detected in the predicted failure window using either IQR or Z-score methods [3].
+
+---
+
+### **Issues Detected**
+The following maintenance issues have been identified across 550 records [2]:
+- **Abnormal stress loading**: 145 cases
+- **Engine overheating pattern**: 142 cases
+- **Excessive engine vibration**: 138 cases
+- **Tire degradation trend**: 125 cases
+
+---
+
+### **Severity Breakdown**
+- **Critical**: 167 cases
+- **High**: 167 cases
+- **Medium**: 216 cases [2]
+
+---
+
+### **Work Order Status**
+- **Scheduled**: 213
+- **Approved**: 199
+- **Draft**: 138 [2]
+
+---
+
+### **Regulatory Note**
+Article 16 of the retrieved legislation requires mining enterprises to **regularly carry out inspection, maintenance and repair** of mechanical and electrical equipment to ensure safe operation [1]. The presence of **167 Critical severity cases** warrants immediate attention to meet this obligation.",1378,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,6.266,11.828,10,10,2026-07-17T22:46:03.637434+00:00
+18,2026-07-17T22:46:04.665972+00:00,C2,3,How much tonnage has been moved and what is the load efficiency?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,fleet tonnage moved load efficiency payload utilization mining telemetry,"Based on the provided context:
+
+---
+
+### **Total Tonnage Moved**
+- **Total tonnes moved: 1,541,543.0 t** [3]
+- The tonnage trend is **stable** (r² = 0.556, slope = -0.2444) [3]
+
+---
+
+### **Tonnage Statistics**
+| Metric | Value |
+|--------|-------|
+| Mean | 220.22 t |
+| Minimum | 149.54 t |
+| Maximum | 300.62 t |
+| Std Deviation | 18.064 t |
+
+[3]
+
+---
+
+### **Tonnage Outliers**
+- **55 outliers** were detected using the IQR method [3], with sample outlier values including:
+  - TRK-029: 269.22 t
+  - TRK-011: 170.66 t
+  - TRK-010: 276.48 t
+  - TRK-026: 278.38 t and 275.38 t [3]
+
+---
+
+### **Load Efficiency**
+**Load efficiency cannot be determined** from the available context. While payload and tonnage data are present, no load efficiency metric, target payload, or load efficiency calculation is defined or computed in the retrieved documents [2][3].",854,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,5.654,9.409,10,10,2026-07-17T22:46:13.905828+00:00
+19,2026-07-17T22:46:15.077689+00:00,C2,4,What safety incidents or fatigue-related risks have been detected?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,safety incidents fatigue-related risks detection mining fleet telemetry operator fatigue monitoring alerts,"Based on the provided context, **fatigue-related risks and safety incidents cannot be fully determined**. Here is what the context does and does not reveal:
+
+---
+
+### **What Is Available**
+
+#### **Aggressive Driving**
+- Out of 550 records, **21 haul cycles were linked to aggressive driving** (`aggressive_driving_linked: True`), while **529 were not** [2].
+- This represents approximately **3.8% of all recorded cycles**.
+
+#### **Cycle Time Outliers (Potential Safety Indicator)**
+- **114 cycle duration outliers** were detected using the IQR method [3], with sample values including:
+  - TRK-013: **86.82 min**
+  - TRK-025: **83.03 min**
+  - TRK-028: **78.21 min** [3]
+- These significantly exceed the **mean cycle time of 48.08 min** and may indicate operational anomalies warranting investigation [3].
+
+---
+
+### **What Is Not Available**
+The following fields relevant to fatigue and safety incidents are explicitly listed as **not tracked in this dataset**:
+- `fatigue_event_id`
+- `fatigue_linked`
+- `anomaly_type`
+- `health_index` [2]
+
+---
+
+### **Regulatory Note**
+Under Article 211.2 of the Guinea-Conakry Labor Code, employers are required to **take all useful measures to protect the life and health of employees** [4]. The 21 aggressive driving events and 114 cycle time outliers should be reviewed in this context.",1324,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,7.179,9.85,10,10,2026-07-17T22:46:24.888732+00:00
+20,2026-07-17T22:46:25.935492+00:00,C2,5,Summarize the key KPI anomalies or outliers detected for this fleet.,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,fleet KPI anomalies outliers detected tonnage cycle time predicted failure window maintenance severity aggressive driving,"Based on the provided context, here is a summary of the key KPI anomalies and outliers detected for this fleet:
+
+---
+
+### **Cycle Duration Outliers**
+- **114 outliers** were detected in `cycle_duration_min` using the IQR method [3]
+- The **mean cycle time is 48.08 min**, with a range of **18.34 min to 86.82 min** and a standard deviation of **8.525 min** [3]
+- Notable outlier examples include:
+
+| Truck ID | Cycle Duration (min) |
+|----------|----------------------|
+| TRK-013 | 86.82 |
+| TRK-025 | 83.03 |
+| TRK-028 | 78.21 |
+| TRK-004 | 71.55 |
+| TRK-001 | 71.19 |
+
+[3]
+
+- Despite these outliers, the overall cycle duration trend is **stable** (r² = 0.776, slope = -0.1811) [3]
+
+---
+
+### **Maintenance Anomalies**
+- **196 Critical** and **227 High** severity maintenance issues detected across 550 records [2]
+- **17 cases** of **fatigue-linked aggressive driving** identified as a root cause [2]
+- Predicted failure windows range from **7.0 to 70.0 hours** (mean: 39.447 hours) [2]
+
+---
+
+### **Note**
+No additional KPI outlier categories (e.g. fuel, payload, tire pressure) are reported in the provided context [2][3].",1124,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,6.75,10.132,10,10,2026-07-17T22:46:35.948267+00:00
+21,2026-07-17T22:46:37.078267+00:00,C2,1,What is the fuel efficiency for this fleet?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""fuel efficiency, fleet, telemetry, KPIs, anomalies, outliers, regulatory compliance, mining industry""","The context does not provide information on fuel efficiency for this fleet. Fields related to fuel consumption, such as `fuel_event_id` and `fuel_consumption`, are not tracked in the dataset [2]. Therefore, fuel efficiency cannot be determined from the provided context.",270,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.781,2.788,10,10,2026-07-17T22:46:39.802826+00:00
+22,2026-07-17T22:46:40.873982+00:00,C2,2,What is the fleet's maintenance status and are there any predicted equipment failures?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""fleet maintenance status, predicted equipment failures, Critical severity issues, High severity issues, fatigue-linked aggressive driving, failure windows, [2]""","The fleet's maintenance status shows a stable trend in the predicted failure window, with no outliers detected [3]. The mean predicted failure window is 38.653 hours, with a minimum of 6.0 hours and a maximum of 72.0 hours [3]. There are no predicted equipment failures indicated in the provided context [3].",308,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.782,2.792,10,10,2026-07-17T22:46:43.395406+00:00
+23,2026-07-17T22:46:44.673305+00:00,C2,3,How much tonnage has been moved and what is the load efficiency?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""tonnage moved, load efficiency, fleet, KPI, anomalies, outliers, maintenance status, predicted equipment failures""","The total tonnage moved is **1,541,543.0 tonnes** [3]. However, the context does not provide information on load efficiency, so it cannot be determined from the provided context [3].",182,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.775,2.743,10,10,2026-07-17T22:46:47.159856+00:00
+24,2026-07-17T22:46:48.421291+00:00,C2,4,What safety incidents or fatigue-related risks have been detected?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""safety incidents, fatigue-related risks, detected""","The context does not provide specific information on safety incidents or fatigue-related risks. Fields related to fatigue events, such as `fatigue_event_id` and `fatigue_linked`, are not tracked in the dataset [2]. Therefore, safety incidents or fatigue-related risks cannot be determined from the provided context.",315,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.756,2.465,10,10,2026-07-17T22:46:50.762477+00:00
+25,2026-07-17T22:46:51.893261+00:00,C2,5,Summarize the key KPI anomalies or outliers detected for this fleet.,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""key KPI anomalies, outliers, fleet, maintenance status, predicted equipment failures, tonnage moved, load efficiency, safety incidents, fatigue-related risks""","Key KPI anomalies or outliers detected for this fleet include:
+
+1. **Payload Tonnes**:
+   - Outliers detected at:
+     - 162.34 tonnes at 2026-02-06T14:09:12.479000
+     - 281.38 tonnes at 2026-02-06T18:19:12.479000
+     - 158.15 tonnes at 2026-02-07T03:04:12.479000 [2]
+
+2. **Cycle Time (minutes)**:
+   - Outliers detected at:
+     - 86.82 minutes at 2026-02-01T04:59:12.479000
+     - 70.09 minutes at 2026-02-06T19:34:12.479000
+     - 71.09 minutes at 2026-02-07T02:29:12.479000 [2]
+
+3. **Variance Percentage**:
+   - Outliers detected at:
+     - 117.06% at 2026-02-01T04:59:12.479000
+     - 75.23% at 2026-02-06T19:34:12.479000
+     - 77.71% at 2026-02-07T02:29:12.479000 [2]
+
+4. **Tonnage**:
+   - Outliers detected in tonnage with 55 instances, including:
+     - Truck ID TRK-029 with 269.22 tonnes
+     - Truck ID TRK-011 with 170.66 tonnes
+     - Truck ID TRK-010 with 276.48 tonnes
+     - Truck ID TRK-026 with 278.38 tonnes and 275.38 tonnes [3]",952,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,2.426,5.909,10,10,2026-07-17T22:46:57.773582+00:00
+26,2026-07-17T22:46:58.805341+00:00,C2,1,What is the fuel efficiency for this fleet?,deepseek-v3.2,deepseek.v3.2,True,200,1,,fuel efficiency fleet telemetry data,The context does not contain any information about fuel efficiency for this fleet.,82,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.604,6.613,10,10,2026-07-17T22:47:05.098431+00:00
+27,2026-07-17T22:47:06.422266+00:00,C2,2,What is the fleet's maintenance status and are there any predicted equipment failures?,deepseek-v3.2,deepseek.v3.2,True,200,1,,fleet maintenance status predicted equipment failures,"Based on the provided context, the fleet's maintenance status and predicted equipment failures are as follows:
+
+**Maintenance Status:**
+The context shows that maintenance work orders are in the following statuses:
+*   **Scheduled**: 213 instances
+*   **Approved**: 199 instances
+*   **Draft**: 138 instances [2]
+
+**Predicted Equipment Failures:**
+The dataset includes a `predicted_failure_window_hr` metric, which has a mean of 36.85 hours (with a range from 6.0 to 71.0 hours) [2]. A separate analysis confirms this metric is stable (r²=0.007) and reports a mean of 38.65 hours (range 6.0 to 72.0 hours) with no outliers detected [3].
+
+**Root Causes for Maintenance:**
+The primary root cause identified for maintenance issues is **Mechanical degradation** (508 instances). A secondary root cause is **Fatigue-linked aggressive driving** (42 instances) [2].
+
+**Detected Issues:**
+The following specific issues have been detected, triggering maintenance recommendations:
+*   Abnormal stress loading: 145 instances
+*   Engine overheating pattern: 142 instances
+*   Excessive engine vibration: 138 instances
+*   Tire degradation trend: 125 instances [2]
+
+**Severity of Issues:**
+The severity of the detected issues is categorized as:
+*   Medium: 216 instances
+*   Critical: 167 instances
+*   High: 167 instances [2]
+
+**Compliance Note:**
+Article 16 of the mining regulations requires mining enterprises to ""regularly carry out inspection, maintenance and repair of mechanical and electrical equipments"" to ensure safe operation [4]. The presence of scheduled, approved, and drafted work orders indicates ongoing compliance with this maintenance obligation.",1653,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,10.236,22.976,10,10,2026-07-17T22:47:29.366897+00:00
+28,2026-07-17T22:47:30.405428+00:00,C2,3,How much tonnage has been moved and what is the load efficiency?,deepseek-v3.2,deepseek.v3.2,True,200,1,,tonnage moved load efficiency,"Based on the provided context:
+
+**Total Tonnage Moved:** The total tonnage moved is **1,541,543 tonnes** [3].
+
+**Load Efficiency:** The context does not contain any information about load efficiency.",199,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.699,2.351,10,10,2026-07-17T22:47:32.717925+00:00
+29,2026-07-17T22:47:33.763810+00:00,C2,4,What safety incidents or fatigue-related risks have been detected?,deepseek-v3.2,deepseek.v3.2,True,200,1,,fatigue-related risks safety incidents detected,"Based on the provided context, no specific safety incidents or fatigue-related risks have been detected [1][2][3][4].",117,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.623,17.961,10,10,2026-07-17T22:47:51.642148+00:00
+30,2026-07-17T22:47:52.731493+00:00,C2,5,Summarize the key KPI anomalies or outliers detected for this fleet.,deepseek-v3.2,deepseek.v3.2,True,200,1,,KPI anomalies outliers fleet telemetry,"Based on the provided context, the key KPI anomalies or outliers detected for this fleet are related to **cycle duration**.
+
+**Outliers in Cycle Duration:**
+*   A total of **114 outliers** were detected in the `cycle_duration_min` metric [3].
+*   Specific examples of these outliers include cycles with durations of 71.19, 83.03, 78.21, 86.82, and 71.55 minutes [3].
+*   The mean cycle time is 48.08 minutes, with a range from 18.34 to 86.82 minutes [3].
+
+**Trend Analysis:**
+Despite these outliers, the overall trend for `cycle_duration_min` is reported as **stable** (r²=0.776) [3].
+
+The context does not contain information about anomalies or outliers for other KPIs.",670,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,3.059,12.662,10,10,2026-07-17T22:48:05.034900+00:00
+31,2026-07-17T22:48:06.401659+00:00,C3,1,What is the fuel efficiency for this fleet?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,fuel efficiency fleet telemetry mining haul trucks litres per hour consumption KPI,"Based on the provided context, **fuel efficiency (tonnes per litre) cannot be determined** for this fleet.
+
+The required column `payload_tonnes` is missing from the dataset, which prevents the computation of the `tonnes_per_litre` KPI. The system returned an explicit error stating:
+
+> *""Required columns missing from dataset: ['payload_tonnes']""* [3]
+
+Without payload tonnage data, fuel efficiency in terms of tonnes per litre cannot be calculated. The fuel consumption data (total fuel: 54,861.67 litres, mean fuel rate: 123.993 lph) is available [2], but cannot be combined with payload data to derive a fuel efficiency metric until the missing columns are populated in the dataset [3].",689,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,4.453,7.369,10,10,2026-07-17T22:48:13.612301+00:00
+32,2026-07-17T22:48:14.776987+00:00,C3,2,What is the fleet's maintenance status and are there any predicted equipment failures?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,fleet maintenance status predicted equipment failures mining telemetry KPI anomalies,"Based on the provided context, here is the fleet's maintenance status:
+
+## Maintenance Status
+
+**Days Since Maintenance:**
+- Mean: **33.56 days**
+- Minimum: **4 days**
+- Maximum: **137 days**
+- **24 outliers** detected in `days_since_maintenance` [2]
+
+The 24 outlier records — with the maximum reaching **137 days** since last maintenance — represent a significant concern, as equipment with extended maintenance intervals may be operating outside acceptable service schedules [2].
+
+**Health Index:**
+- Mean: **0.853**
+- Minimum: **0.441**
+- Maximum: **0.99**
+- **45 outliers** detected in `health_index` [2]
+
+The minimum health index of **0.441** is notably low and, combined with 45 outliers, suggests a subset of equipment may be in poor operational condition [2].
+
+## Regulatory Obligation
+
+Under applicable mining legislation, mining enterprises are required to **regularly carry out inspection, maintenance and repair** of mechanical and electrical equipment and protective installations to ensure safe operation [4].
+
+## Predicted Equipment Failures
+
+The context does **not** contain explicit predictive failure forecasts. However, the combination of high `days_since_maintenance` outliers and low `health_index` values warrants immediate maintenance review to remain compliant with regulatory requirements [2][4].",1321,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,6.497,9.024,10,10,2026-07-17T22:48:23.765669+00:00
+33,2026-07-17T22:48:24.807275+00:00,C3,3,How much tonnage has been moved and what is the load efficiency?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,Fleet tonnage moved total payload load efficiency tonnes per litre payload utilization missing columns dataset KPI computation errors,"Based on the provided context:
+
+## Tonnage Moved & Load Efficiency — NOT COMPUTABLE
+
+Both KPIs **cannot be determined** from the available data:
+
+- **Total Tonnes Moved** — NOT COMPUTED. The system returned an explicit error: *""Required columns missing from dataset: ['payload_tonnes']""* [3]
+- **Tonnes Per Hour (Load Efficiency)** — NOT COMPUTED. Error: *""Required columns missing from dataset: ['payload_tonnes', 'operating_hours']""* [3]
+- **Haul Truck Productivity** — NOT COMPUTED. Error: *""Required columns missing from dataset: ['payload_tonnes', 'operating_hours']""* [3]
+
+---
+
+> ⚠️ **Note:** While `payload_tonnes` headline statistics **are** available in the telemetry (mean: 210.293 tonnes, min: 180.1 tonnes, max: 239.3 tonnes) [3], the system was still unable to compute the above KPIs, indicating the column is absent from the specific dataset files required for these calculations.
+
+To resolve this, the `payload_tonnes` and `operating_hours` columns must be populated across the relevant source files before these KPIs can be computed [3].",1053,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,5.251,8.287,10,10,2026-07-17T22:48:32.969856+00:00
+34,2026-07-17T22:48:34.097797+00:00,C3,4,What safety incidents or fatigue-related risks have been detected?,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,safety incidents fatigue-related risks detection fleet telemetry mining operations operator fatigue monitoring compliance,"## Safety Incidents & Fatigue-Related Risks
+
+### Fatigue Event Rate
+The fleet's fatigue event rate is **5,730.349 events per 1,000 hours** — an extremely elevated figure indicating a serious and systemic fatigue risk across the fleet [3].
+
+### Fatigue Score Trend
+The fatigue score is on an **increasing trend** (slope: 0.5209, r² = 0.428), meaning the situation is actively worsening over time [3].
+
+### Fatigue Score Outliers
+**17 outlier records** were detected in `fatigue_score` [3]. The following trucks recorded the **maximum fatigue score of 10.0**:
+- TRK-001
+- TRK-003
+- TRK-005
+- TRK-008
+- TRK-009 [3]
+
+### Unsafe Behaviour Rate
+**NOT COMPUTABLE** — the `operating_hours` column is missing from the dataset, preventing calculation of this KPI [3].
+
+---
+
+### Regulatory Obligation
+Under applicable mining legislation, employers are **required to take all useful measures** to protect the life and health of employees, adapted to the operating conditions of the company [4]. The fatigue levels detected — particularly the maximum scores of 10.0 across multiple trucks and the rising trend — represent a clear area requiring **immediate management intervention** to meet this obligation [3][4].",1201,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,6.499,9.178,10,10,2026-07-17T22:48:43.240215+00:00
+35,2026-07-17T22:48:44.282220+00:00,C3,5,Summarize the key KPI anomalies or outliers detected for this fleet.,claude-sonnet-4.6,us.anthropic.claude-sonnet-4-6,True,200,1,,fleet telemetry KPI anomalies outliers detected days_since_maintenance health_index fatigue_score payload_tonnes operating_hours statistical outliers summary,"## Key KPI Anomalies & Outliers — Fleet Summary
+
+### 🔧 Maintenance & Equipment Health
+- **Days Since Maintenance:** 24 outliers detected — maximum of **137 days** since last maintenance, against a mean of 33.56 days [2]
+- **Health Index:** 45 outliers detected — minimum health index of **0.441**, against a mean of 0.853 [2]
+
+---
+
+### ⛽ Fuel Consumption
+- **Fuel Litres:** 24 outliers detected — maximum single-cycle consumption of **73.9 litres**, against a mean of 46.772 litres [2]
+
+---
+
+### 🛞 Tyre Pressure
+- **Front Left (FL):** 25 outliers detected — minimum of **74.2 psi**, the most severe deviation across all tyre positions [2]
+- **Rear Left (RL):** 5 outliers detected [2]
+- **Rear Right (RR):** 1 outlier detected [2]
+- **Front Right (FR):** No outliers detected [2]
+
+---
+
+### 😴 Fatigue
+- **Fatigue Score:** 17 outliers detected — maximum score of **10.0** recorded, against a mean of 4.071 [2]
+
+---
+
+### 📍 GPS / Dump Zone
+- **Dump Zone Coordinates (lat/lon):** 3 outliers each detected in `gps_lat_dump` and `gps_lon_dump`, indicating potential positional anomalies at dump locations [2]
+
+---
+
+### ⚠️ Missing Data — Uncomputable KPIs
+The following KPIs could **not be computed** due to missing `payload_tonnes` and/or `operating_hours` columns:
+- Total Tonnes Moved
+- Tonnes Per Hour
+- Haul Truck Productivity
+- Tonnes Per Litre [3]",1346,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,8.275,10.863,10,10,2026-07-17T22:48:55.112556+00:00
+36,2026-07-17T22:48:56.151510+00:00,C3,1,What is the fuel efficiency for this fleet?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""Fuel efficiency fleet KPIs, payload_tonnes, operating_hours, fuel consumption, outliers, mean, maximum, minimum, telemetry data, regulatory compliance, missing data, uncomputable""","The context does not provide sufficient information to calculate the fuel efficiency for this fleet. The required columns `payload_tonnes` and `operating_hours` are missing from the dataset, preventing the computation of fuel efficiency metrics such as `tonnes_per_litre` [3].",276,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.759,2.964,10,10,2026-07-17T22:48:59.085074+00:00
+37,2026-07-17T22:49:00.117060+00:00,C3,2,What is the fleet's maintenance status and are there any predicted equipment failures?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""fleet maintenance status, predicted equipment failures, days since maintenance, health index, outliers, mean, maximum, minimum, regulatory compliance, equipment health, maintenance thresholds, predictive analytics""","The fleet's maintenance status shows that there are **24 outliers** in the `days_since_maintenance` metric, with a maximum of **137 days** since the last maintenance, against a mean of 33.562 days [3]. This indicates that some trucks have significantly exceeded the average maintenance interval.
+
+However, the context does not provide information on **predicted equipment failures**. The available data only indicates maintenance intervals and does not include predictive analytics or failure forecasting [3].",509,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,1.177,3.537,10,10,2026-07-17T22:49:03.619139+00:00
+38,2026-07-17T22:49:04.659889+00:00,C3,3,How much tonnage has been moved and what is the load efficiency?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"`tonnage moved`, `load efficiency`, `payload_tonnes`, `operating_hours`, `missing data`, `uncomputable KPIs`","The context does not provide sufficient information to calculate the total tonnage moved or the load efficiency. The required columns `payload_tonnes` and `operating_hours` are missing from the dataset, preventing the computation of these metrics [3].",251,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,0.844,2.614,10,10,2026-07-17T22:49:07.243628+00:00
+39,2026-07-17T22:49:08.281027+00:00,C3,4,What safety incidents or fatigue-related risks have been detected?,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""safety incidents, fatigue-related risks, detected, fleet, regulatory compliance, mining industry""","The context indicates that there are **17 outliers** in the `fatigue_score` metric, suggesting potential fatigue-related risks [3]. Additionally, the `fatigue_score` is showing an increasing trend with an r² value of 0.428, which may indicate a growing risk of fatigue-related incidents [3]. However, specific safety incidents are not detailed in the provided context.",368,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,1.004,2.622,10,10,2026-07-17T22:49:10.871777+00:00
+40,2026-07-17T22:49:11.908284+00:00,C3,5,Summarize the key KPI anomalies or outliers detected for this fleet.,nova-pro,us.amazon.nova-pro-v1:0,True,200,1,,"""fleet maintenance status, days_since_maintenance outliers, maximum days_since_maintenance, mean days_since_maintenance, predicted equipment failures, tonnage moved, load efficiency, payload_tonnes, operating_hours, fatigue_score outliers, fatigue_score trend, r² value, safety incidents, fatigue-related risks [3]""","Key KPI anomalies or outliers detected for this fleet include:
+
+1. **Fatigue Score**:
+   - 17 outliers detected [3].
+   - Increasing trend with an r² value of 0.428 [3].
+
+2. **Days Since Maintenance**:
+   - 24 outliers detected, with a maximum of 137 days since the last maintenance [3].
+
+3. **Fuel Consumption**:
+   - 24 outliers detected in fuel consumption [3].
+
+4. **Tire Pressure**:
+   - 25 outliers detected in front left tire pressure [3].
+   - 5 outliers detected in rear left tire pressure [3].
+   - 1 outlier detected in rear right tire pressure [3].
+
+5. **Health Index**:
+   - 45 outliers detected [3].
+
+6. **GPS Coordinates**:
+   - 3 outliers detected in latitude for dump locations [3].
+   - 3 outliers detected in longitude for dump locations [3].",767,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,1.833,3.911,10,10,2026-07-17T22:49:15.637341+00:00
+41,2026-07-17T22:49:16.823295+00:00,C3,1,What is the fuel efficiency for this fleet?,deepseek-v3.2,deepseek.v3.2,True,200,1,,fuel efficiency fleet,The context does not contain a specific fuel efficiency metric or calculation for this fleet.,93,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",1,2,1,0.595,2.19,10,10,2026-07-17T22:49:18.977807+00:00
+42,2026-07-17T22:49:20.016914+00:00,C3,2,What is the fleet's maintenance status and are there any predicted equipment failures?,deepseek-v3.2,deepseek.v3.2,True,200,1,,fleet maintenance status predicted equipment failures,"Based solely on the provided context, I cannot determine the fleet's overall maintenance status or any predicted equipment failures.
+
+The context provides a specific metric, `days_since_maintenance`, with a mean of 33.562 days and a maximum of 137 days, along with 24 outliers detected for this measurement [2]. However, this raw data point alone does not constitute a ""maintenance status"" assessment against a defined standard or schedule. The context does not contain any maintenance schedules, compliance thresholds for maintenance intervals, or predictive failure models that would allow for a status determination or failure prediction.
+
+Therefore, the answer cannot be provided from the given context.",707,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,6.17,8.292,10,10,2026-07-17T22:49:28.155678+00:00
+43,2026-07-17T22:49:29.316039+00:00,C3,3,How much tonnage has been moved and what is the load efficiency?,deepseek-v3.2,deepseek.v3.2,True,200,1,,tonnage moved load efficiency,"The context does not contain the answer to the question.
+
+The context provides a mean `payload_tonnes` value of 210.293 [2], but this is an average payload per cycle, not a total moved tonnage. The `total_tonnes_moved` KPI is explicitly listed as ""NOT COMPUTED"" due to missing required data columns [3].
+
+Furthermore, the context does not define or calculate a ""load efficiency"" metric.",386,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,7.882,25.138,10,10,2026-07-17T22:49:54.366121+00:00
+44,2026-07-17T22:49:55.459389+00:00,C3,4,What safety incidents or fatigue-related risks have been detected?,deepseek-v3.2,deepseek.v3.2,True,200,1,,safety incidents fatigue-related risks detection,"Based solely on the provided context, the following safety and fatigue-related risks have been detected:
+
+1.  **High Fatigue Event Rate:** The computed KPI shows a `fatigue_event_rate` of 5730.349 events per 1000 operating hours [3].
+2.  **Increasing Operator Fatigue:** A trend analysis indicates the `fatigue_score` is increasing with an r² value of 0.428 [3].
+3.  **Fatigue Score Outliers:** There are 17 outlier instances of `fatigue_score` detected [3]. Specific examples include trucks TRK-001, TRK-003, TRK-005, TRK-008, and TRK-009, each with a fatigue score of 10.0 [3].
+4.  **Critical Fatigue Interventions:** From the telemetry data, 15 fatigue events were categorized at the ""Critical"" intervention level [2].
+5.  **Aggressive Driving Link:** 21 fatigue events were linked to aggressive driving (`aggressive_driving_linked: True`) [2].
+
+The context does not contain reports of specific safety incidents (e.g., collisions, injuries) or environmental events.",968,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,2.967,4.484,10,10,2026-07-17T22:49:59.910306+00:00
+45,2026-07-17T22:50:00.949459+00:00,C3,5,Summarize the key KPI anomalies or outliers detected for this fleet.,deepseek-v3.2,deepseek.v3.2,True,200,1,,key KPI anomalies outliers fleet,"Based solely on the provided context, the key KPI anomalies or outliers detected for this fleet are:
+
+1.  **Fuel Consumption Outliers:** 23 outlier events for `fuel_litres` were detected, with a maximum value of 221.44 litres [2].
+2.  **Fuel Rate Outliers:** 65 outlier events for `fuel_rate_lph` were detected, with a maximum value of 164.89 litres per hour [2].
+3.  **Idle Burn Percentage Outliers:** 25 outlier events for `idle_burn_pct` were detected, with a maximum value of 45.07% [2].
+
+The context does not report any outliers for the `cycle_duration_min` KPI [3]. No other KPI anomalies or outliers are mentioned in the provided context.",645,4,"pdf_legal_vecs,csv_telemetry_vecs,analysis_vecs",2,1,1,2.727,4.4,10,10,2026-07-17T22:50:05.319034+00:00
