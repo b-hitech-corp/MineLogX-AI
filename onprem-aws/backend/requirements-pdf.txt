@@ -18,7 +18,7 @@ opensearch-py==3.2.0
 # (glibc 2.17) wheel, which AL2 satisfies.
 PyMuPDF==1.25.5        # imported as `fitz`
 pdfplumber==0.11.10
-pillow==12.2.0         # imported as `PIL`
+pillow==12.3.0         # imported as `PIL`
 requests==2.34.2
 python-dotenv==1.2.2
 json_repair==0.61.0    # optional: pdf_claude_extractor.py forced-tool-use repair
