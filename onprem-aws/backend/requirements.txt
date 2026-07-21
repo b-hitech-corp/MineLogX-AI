@@ -35,7 +35,7 @@ scipy>=1.12.0          # optional: data_analysis_agent/tools/stats_analyzer.py
 # --- PDF parsing (PDF vectorization pipeline) ---
 PyMuPDF==1.27.2.3      # imported as `fitz`
 pdfplumber==0.11.10
-pillow==12.2.0         # imported as `PIL`
+pillow==12.3.0         # imported as `PIL`
 
 # --- HTTP + config ---
 requests==2.34.2
